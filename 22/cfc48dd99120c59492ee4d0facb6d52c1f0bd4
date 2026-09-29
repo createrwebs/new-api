@@ -1,0 +1,24 @@
+TASK.md
+  h_f97827f62b0fea 1-140
+model/budget.go
+  h_f97827f62b0fea 1-347
+model/budget_test.go
+  h_f97827f62b0fea 1-339
+model/main.go
+  h_f97827f62b0fea 372-373
+service/billing.go
+  h_f97827f62b0fea 7-8,10,40-85,88-96,99-101
+service/billing_session.go
+  h_f97827f62b0fea 30-40,47,83-95,124-127,144-148,178-180,182-183
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.3",
+  "base_commit_sha": "22cfc48dd99120c59492ee4d0facb6d52c1f0bd4",
+  "prompts": {},
+  "humans": {
+    "h_f97827f62b0fea": {
+      "author": "NOPPANAN THEERACHARTE <noppanan.the@axonstech.com>"
+    }
+  }
+}
