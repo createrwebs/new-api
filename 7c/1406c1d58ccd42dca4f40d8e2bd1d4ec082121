@@ -1,0 +1,45 @@
+router/api-router.go
+  s_9a6b8d1822c42e::t_d11166897c2060 197-205
+controller/budget_test.go
+  s_9a6b8d1822c42e::t_373a755cdbfc71 232-233,248-254
+  s_9a6b8d1822c42e::t_568681a80118e8 1-3,6-8,10,12-17,19-21,23-24,31,69,81-94,96-101,104-110,114-116,148-164,176-180,189-192,198-204,216-220,229-230,241-247,255-264
+  s_9a6b8d1822c42e::t_0fd440a2a20d70 4,9,18,25,29-30,32-68
+  s_9a6b8d1822c42e::t_fd4d4b4b2518b7 173-175,208-215,221-228
+  s_9a6b8d1822c42e::t_d150082acbe5f0 78,80
+  s_9a6b8d1822c42e::t_6e25ee9dfc7ecb 196-197
+  s_9a6b8d1822c42e::t_3992e50d44843c 235-238
+  s_9a6b8d1822c42e::t_75bcef58414b1b 265
+  s_9a6b8d1822c42e::t_b57063f394afc8 111-113,181-182,188,205-206
+  s_9a6b8d1822c42e::t_6da035c063904c 5
+  s_9a6b8d1822c42e::t_b3fa281482fed3 26-28
+  s_9a6b8d1822c42e::t_4ed8c78cdcd093 22,70-77,79,95,102-103
+  s_9a6b8d1822c42e::t_43321f64886609 11,117-147,183-187,207
+  s_9a6b8d1822c42e::t_c30b95aca2c1be 165-172,193-195
+  s_9a6b8d1822c42e::t_fcc7a0498aef98 231,234,239-240
+controller/budget.go
+  s_9a6b8d1822c42e::t_fcc7a0498aef98 100,143-151
+  s_9a6b8d1822c42e::t_75bcef58414b1b 15-19,154
+  s_9a6b8d1822c42e::t_3fe592cf2203e5 1-14,20-99,101-142,152-153
+model/budget.go
+  s_9a6b8d1822c42e::t_fcc7a0498aef98 15,53-54,63,102
+  s_9a6b8d1822c42e::t_7df2cbab093e42 103
+  s_9a6b8d1822c42e::t_ba79bf16cae59d 4,12-14,16-17,51-52,55-62,64-89,100-101,104-106
+  s_9a6b8d1822c42e::t_c30b95aca2c1be 90-99
+  s_9a6b8d1822c42e::t_b724550eb51409 107-108
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.3",
+  "base_commit_sha": "7c1406c1d58ccd42dca4f40d8e2bd1d4ec082121",
+  "prompts": {},
+  "sessions": {
+    "s_9a6b8d1822c42e": {
+      "agent_id": {
+        "tool": "cline",
+        "id": "conv_1790656970590_3hnqubu",
+        "model": "unknown"
+      },
+      "human_author": "NOPPANAN THEERACHARTE <noppanan.the@axonstech.com>"
+    }
+  }
+}
