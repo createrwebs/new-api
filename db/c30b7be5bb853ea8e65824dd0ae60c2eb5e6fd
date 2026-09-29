@@ -1,0 +1,74 @@
+web/src/features/home/components/sections/hero.tsx
+  s_6d7b4dde7bdc46::t_046a6eb9ac4a49 20-28,45-63,65-70,72,106-107,110-111,128,132,134-140,142-148,150-157,159,161-172,174-177,179-194,196,198,200-210,217-220
+  s_6d7b4dde7bdc46::t_b29d092ec5a9e6 222-226
+  s_6d7b4dde7bdc46::t_6a8bad8d579620 44,73,81,86,94,97
+  s_6d7b4dde7bdc46::t_88b83f82613a5d 216
+  s_834451ea593594::t_2389def5faf62b 64,71
+  s_6d7b4dde7bdc46::t_0ebcbd6255e8b6 215
+web/src/i18n/locales/th.json
+  s_6d7b4dde7bdc46::t_511016047fe911 5634
+  s_6d7b4dde7bdc46::t_814661b15be7e1 2613-2620,2624-2625
+  s_6d7b4dde7bdc46::t_046a6eb9ac4a49 1-963,965-2612,2621-2623,2626-5633,5635-6794
+  s_6d7b4dde7bdc46::t_dce807659fcf6e 964
+web/src/i18n/locales/ru.json
+  s_6d7b4dde7bdc46::t_046a6eb9ac4a49 389-390,1336,2285-2286,2922,3577,3963-3964,3967,4404,6565
+web/src/components/layout/components/public-header.tsx
+  s_6d7b4dde7bdc46::t_cd3b78fda4ca01 214-217
+web/src/features/home/index.tsx
+  s_6d7b4dde7bdc46::t_53baa221be8267 29
+web/src/features/home/components/sections/cta.tsx
+  s_6d7b4dde7bdc46::t_814661b15be7e1 69-72
+  s_6d7b4dde7bdc46::t_53baa221be8267 39,43,53,59,63,68,78
+web/src/i18n/locales/zh.json
+  s_6d7b4dde7bdc46::t_046a6eb9ac4a49 389-390,1336,2285-2286,2922,3577,3963-3964,3967,4404,6565
+web/.env.development
+  s_6d7b4dde7bdc46::t_57a564cbf033b7 1
+web/src/i18n/locales/zh-TW.json
+  s_6d7b4dde7bdc46::t_046a6eb9ac4a49 389-390,1336,2285-2286,2922,3577,3963-3964,3967,4404,6565
+web/src/i18n/locales/en.json
+  s_6d7b4dde7bdc46::t_046a6eb9ac4a49 389-390,1336,2285-2286,2922,3577,3963-3964,3967,4404,6565
+web/src/i18n/locales/fr.json
+  s_6d7b4dde7bdc46::t_046a6eb9ac4a49 389-390,1336,2285-2286,2922,3577,3963-3964,3967,4404,6565
+web/src/i18n/languages.ts
+  s_6d7b4dde7bdc46::t_487dc350074f0b 26
+web/src/i18n/config.ts
+  s_6d7b4dde7bdc46::t_487dc350074f0b 28,38,50
+web/src/features/home/__tests__/layout.test.tsx
+  s_6d7b4dde7bdc46::t_0de94d2ba9a4ac 1-18,22,25-31,34-37,42-44,48,50-51,53-54,56-57,59-60,77-79,81-82,99-101
+  s_6d7b4dde7bdc46::t_b8838b42c9be59 45-47,102
+  s_6d7b4dde7bdc46::t_487dc350074f0b 58
+  s_834451ea593594::t_2389def5faf62b 61-76
+  s_6d7b4dde7bdc46::t_2b3bb3da9b56ec 19-21,23-24,38-41,84-98
+  s_6d7b4dde7bdc46::t_2b865d44d04fc4 32-33
+  s_6d7b4dde7bdc46::t_d17a48e8e817c1 49,52,55,80,83
+web/src/i18n/locales/vi.json
+  s_6d7b4dde7bdc46::t_046a6eb9ac4a49 389-390,1336,2285-2286,2922,3577,3963-3964,3967,4404,6565
+web/src/features/home/components/sections/features.tsx
+  s_6d7b4dde7bdc46::t_53baa221be8267 183,197
+web/src/i18n/locales/ja.json
+  s_6d7b4dde7bdc46::t_046a6eb9ac4a49 389-390,1336,2285-2286,2922,3577,3963-3964,3967,4404,6565
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.3",
+  "base_commit_sha": "dbc30b7be5bb853ea8e65824dd0ae60c2eb5e6fd",
+  "prompts": {},
+  "sessions": {
+    "s_6d7b4dde7bdc46": {
+      "agent_id": {
+        "tool": "cline",
+        "id": "conv_1790562691370_kc3sopy",
+        "model": "unknown"
+      },
+      "human_author": "NOPPANAN THEERACHARTE <noppanan.the@axonstech.com>"
+    },
+    "s_834451ea593594": {
+      "agent_id": {
+        "tool": "cline",
+        "id": "conv_1790597041188_bvd5bjn",
+        "model": "unknown"
+      },
+      "human_author": "NOPPANAN THEERACHARTE <noppanan.the@axonstech.com>"
+    }
+  }
+}
