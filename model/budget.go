@@ -81,18 +81,11 @@ func GetBudgetPeriodStart(period string, now time.Time) (time.Time, error) {
 func GetBudgetUsage(ruleID int64, periodStart time.Time) (int64, error) {
 	var usage BudgetUsage
 
-	err := DB.
+	err := DB.Model(&BudgetUsage{}).
 		Where("budget_rule_id = ? AND period_start = ?", ruleID, periodStart).
-		First(&usage).Error
+		Limit(1).Find(&usage).Error
 
-	if err != nil {
-		if err == gorm.ErrRecordNotFound {
-			return 0, nil
-		}
-		return 0, err
-	}
-
-	return usage.UsedQuota, nil
+	return usage.UsedQuota, err
 }
 func CheckBudget(scopeType string, scopeID int64, requestedQuota int64, now time.Time) error {
 	rules, err := GetEnabledBudgetRules(scopeType, scopeID)

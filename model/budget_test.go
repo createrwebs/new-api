@@ -3,13 +3,17 @@ package model
 import (
 	"fmt"
 	"math"
+	"os"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
+	"github.com/QuantumNous/new-api/common"
 	"github.com/glebarez/sqlite"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 )
 
@@ -350,5 +354,93 @@ func TestDailyAndMonthlyBudgetsBothReserve(t *testing.T) {
 		require.NoError(t, err)
 
 		assert.EqualValues(t, 40, used)
+	}
+}
+
+func TestBudgetConcurrencyPostgres(t *testing.T) {
+	dsn := os.Getenv("TEST_FIXED_POSTGRES_DSN")
+	if dsn == "" {
+		t.Skip("TEST_FIXED_POSTGRES_DSN is not configured")
+	}
+	previousDB, previousType := DB, common.MainDatabaseType()
+	db, err := gorm.Open(postgres.New(postgres.Config{DSN: dsn, PreferSimpleProtocol: true}), &gorm.Config{})
+	require.NoError(t, err)
+	sqlDB, err := db.DB()
+	require.NoError(t, err)
+	sqlDB.SetMaxOpenConns(12)
+	DB = db
+	common.SetMainDatabaseType(common.DatabaseTypePostgreSQL)
+	t.Cleanup(func() {
+		DB = previousDB
+		common.SetMainDatabaseType(previousType)
+		require.NoError(t, sqlDB.Close())
+	})
+	require.NoError(t, db.AutoMigrate(&BudgetRule{}, &BudgetUsage{}))
+	var version string
+	require.NoError(t, db.Raw("select version()").Scan(&version).Error)
+	t.Logf("database: %s", version)
+
+	for _, tc := range []struct {
+		name          string
+		initial, jobs int64
+		noUsageRow    bool
+		wantSuccesses int
+		wantUsed      int64
+	}{
+		{name: "80 used, two compete", initial: 80, jobs: 2, wantSuccesses: 1, wantUsed: 95},
+		{name: "zero used, ten compete", initial: 0, jobs: 10, wantSuccesses: 6, wantUsed: 90},
+		{name: "no usage row, ten compete", noUsageRow: true, jobs: 10, wantSuccesses: 6, wantUsed: 90},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			now := time.Now()
+			rule := createBudgetRule(t, BudgetScopeUser, now.UnixNano(), BudgetPeriodDaily, 100)
+			t.Cleanup(func() {
+				require.NoError(t, db.Where("budget_rule_id = ?", rule.ID).Delete(&BudgetUsage{}).Error)
+				require.NoError(t, db.Delete(&rule).Error)
+			})
+			periodStart, err := GetBudgetPeriodStart(rule.Period, now)
+			require.NoError(t, err)
+			// Seed the row for the row-lock cases; the final case also
+			// exercises concurrent creation of a previously missing row.
+			if !tc.noUsageRow {
+				require.NoError(t, db.Create(&BudgetUsage{BudgetRuleID: rule.ID, PeriodStart: periodStart, UsedQuota: tc.initial}).Error)
+			}
+			type outcome struct {
+				reservations []BudgetReservation
+				err          error
+			}
+			results := make(chan outcome, tc.jobs)
+			start := make(chan struct{})
+			var workers sync.WaitGroup
+			for range tc.jobs {
+				workers.Go(func() {
+					<-start
+					reservations, err := ReserveBudget(BudgetScopeUser, rule.ScopeID, 15, now)
+					results <- outcome{reservations, err}
+				})
+			}
+			close(start)
+			workers.Wait()
+			close(results)
+			successes, exceeded := 0, 0
+			for result := range results {
+				if result.err == nil {
+					successes++
+					require.Equal(t, []BudgetReservation{{RuleID: rule.ID, PeriodStart: periodStart, Quota: 15}}, result.reservations)
+					continue
+				}
+				require.ErrorContains(t, result.err, "budget exceeded")
+				require.Empty(t, result.reservations)
+				exceeded++
+			}
+			assert.Equal(t, tc.wantSuccesses, successes)
+			assert.Equal(t, int(tc.jobs)-tc.wantSuccesses, exceeded)
+			used, err := GetBudgetUsage(rule.ID, periodStart)
+			require.NoError(t, err)
+			assert.Equal(t, tc.initial+int64(successes)*15, used)
+			assert.Equal(t, tc.wantUsed, used)
+			assert.LessOrEqual(t, used, int64(100))
+			t.Logf("successful reservations: %d; rejected: %d; final used_quota: %d", successes, exceeded, used)
+		})
 	}
 }
