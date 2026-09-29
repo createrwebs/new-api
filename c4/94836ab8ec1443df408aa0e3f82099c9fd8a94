@@ -1,0 +1,53 @@
+service/budget_lifecycle_test.go
+  s_9a6b8d1822c42e::t_2faae20a1f12a6 13
+  s_9a6b8d1822c42e::t_ec85b5d8e1919a 129
+  s_9a6b8d1822c42e::t_f871e492b98e0e 1-12,14-66,68,76-79,81-86,88-90,137,194-195
+  s_9a6b8d1822c42e::t_a14673f08fe834 80
+  s_9a6b8d1822c42e::t_3e1951ef34c48f 72-73,91,147-155
+  s_9a6b8d1822c42e::t_eb6b49c789d94c 87
+  s_9a6b8d1822c42e::t_8b7592a5d88b53 67,69-71,74-75,92-128,130-136,138-146,156-193,196
+relay/relay_task_test.go
+  s_9a6b8d1822c42e::t_19bd495f363964 228-241
+  s_9a6b8d1822c42e::t_48bd124d4dc051 343-356
+controller/relay_task_plugin_test.go
+  s_9a6b8d1822c42e::t_478f695bd48c90 515
+service/text_quota_test.go
+  s_9a6b8d1822c42e::t_2e740f2ac27a10 83
+controller/model_management_test.go
+  s_9a6b8d1822c42e::t_478f695bd48c90 67
+service/billing.go
+  s_9a6b8d1822c42e::t_c171765fc514bb 70-72
+model/budget.go
+  s_9a6b8d1822c42e::t_8b92a006bcbb16 203,213
+  s_9a6b8d1822c42e::t_5687e5992b7d18 114
+  s_9a6b8d1822c42e::t_25b669eba5bf93 138-152,154-155
+controller/responses_websocket_test.go
+  s_9a6b8d1822c42e::t_478f695bd48c90 91
+service/billing_session.go
+  s_9a6b8d1822c42e::t_f2094a0ca2cd6d 10,107-121
+  s_9a6b8d1822c42e::t_70a9bf56eba553 56,85,90-93,105-106,122-126,232-234,243,248,251,253-255,259
+  s_9a6b8d1822c42e::t_bbdc4e33a780e1 235-242,244-247,249-250
+  s_9a6b8d1822c42e::t_c3ee7ef14a8017 94-95,102-104
+  s_9a6b8d1822c42e::t_25b669eba5bf93 96-101
+model/budget_test.go
+  s_9a6b8d1822c42e::t_7d78073bd82798 5,45-56
+  s_9a6b8d1822c42e::t_0bce36c0e217f4 57-58
+service/task_billing_test.go
+  s_9a6b8d1822c42e::t_2e740f2ac27a10 59-60
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.3",
+  "base_commit_sha": "c494836ab8ec1443df408aa0e3f82099c9fd8a94",
+  "prompts": {},
+  "sessions": {
+    "s_9a6b8d1822c42e": {
+      "agent_id": {
+        "tool": "cline",
+        "id": "conv_1790656970590_3hnqubu",
+        "model": "unknown"
+      },
+      "human_author": "NOPPANAN THEERACHARTE <noppanan.the@axonstech.com>"
+    }
+  }
+}
