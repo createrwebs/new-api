@@ -1,11 +1,18 @@
 package model
 
 import (
+	"errors"
 	"fmt"
 	"time"
 
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
+)
+
+var (
+	ErrBudgetRuleDuplicate = errors.New("budget rule already exists")
+	ErrBudgetScopeNotFound = errors.New("budget scope not found")
+	ErrBudgetRuleImmutable = errors.New("budget rule scope and period cannot be changed")
 )
 
 const (
@@ -39,6 +46,64 @@ type BudgetReservation struct {
 	RuleID      int64
 	PeriodStart time.Time
 	Quota       int64
+}
+
+// SaveBudgetRule serializes changes to a scope on its parent row, so two
+// administrators cannot create the same rule simultaneously without a schema
+// migration. Scope and period stay fixed so in-flight reservations keep their
+// associated rule and usage history.
+func SaveBudgetRule(rule *BudgetRule) error {
+	return DB.Transaction(func(tx *gorm.DB) error {
+		var current BudgetRule
+		if rule.ID != 0 {
+			if err := tx.Scopes(lockForUpdate).First(&current, rule.ID).Error; err != nil {
+				return err
+			}
+			if current.ScopeType != rule.ScopeType || current.ScopeID != rule.ScopeID || current.Period != rule.Period {
+				return ErrBudgetRuleImmutable
+			}
+		}
+		var parent any
+		switch rule.ScopeType {
+		case BudgetScopeUser:
+			parent = &User{}
+		case BudgetScopeToken:
+			parent = &Token{}
+		default:
+			return ErrBudgetScopeNotFound
+		}
+		if err := tx.Scopes(lockForUpdate).First(parent, rule.ScopeID).Error; err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return ErrBudgetScopeNotFound
+			}
+			return err
+		}
+		var existing BudgetRule
+		err := tx.Where("scope_type = ? AND scope_id = ? AND period = ? AND id <> ?", rule.ScopeType, rule.ScopeID, rule.Period, rule.ID).First(&existing).Error
+		if err == nil {
+			return ErrBudgetRuleDuplicate
+		}
+		if !errors.Is(err, gorm.ErrRecordNotFound) {
+			return err
+		}
+		if rule.ID == 0 {
+			enabled := rule.Enabled
+			if err := tx.Create(rule).Error; err != nil {
+				return err
+			}
+			// GORM applies the model's default:true to a zero-valued bool on
+			// Create. Persist an explicitly disabled rule in the same transaction.
+			if !enabled {
+				return tx.Model(rule).Update("enabled", false).Error
+			}
+			return nil
+		}
+		result := tx.Model(&BudgetRule{}).Where("id = ?", rule.ID).Updates(map[string]any{
+			"limit_quota": rule.LimitQuota,
+			"enabled":     rule.Enabled, "updated_at": time.Now(),
+		})
+		return result.Error
+	})
 }
 
 func GetEnabledBudgetRules(scopeType string, scopeID int64) ([]BudgetRule, error) {
