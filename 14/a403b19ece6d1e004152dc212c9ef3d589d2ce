@@ -1,0 +1,26 @@
+model/budget.go
+  s_9a6b8d1822c42e::t_f0ffb53e110366 84,86,88
+model/budget_test.go
+  s_9a6b8d1822c42e::t_17e72c65b89778 386,392,403-407
+  s_9a6b8d1822c42e::t_282192ecf6c1e2 6,8,12,16,359-365,367-385,387-391,393-396,401-402,408-445
+  s_9a6b8d1822c42e::t_cb1a65e44ce088 366,397-400
+  s_9a6b8d1822c42e::t_18f968292b8f64 446
+model/token.go
+  s_9a6b8d1822c42e::t_99b4fa9cfd3ab2 12,291
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.3",
+  "base_commit_sha": "14a403b19ece6d1e004152dc212c9ef3d589d2ce",
+  "prompts": {},
+  "sessions": {
+    "s_9a6b8d1822c42e": {
+      "agent_id": {
+        "tool": "cline",
+        "id": "conv_1790656970590_3hnqubu",
+        "model": "unknown"
+      },
+      "human_author": "NOPPANAN THEERACHARTE <noppanan.the@axonstech.com>"
+    }
+  }
+}
