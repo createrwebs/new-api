@@ -48,7 +48,7 @@ func (s *BillingSession) Settle(actualQuota int) error {
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.settled {
+	if s.settled || s.refunded {
 		return nil
 	}
 	delta := actualQuota - s.preConsumedQuota
@@ -187,6 +187,11 @@ func (s *BillingSession) needsRefundLocked() bool {
 	if s.settled || s.refunded || s.fundingSettled {
 		// fundingSettled 时资金来源已提交结算，不能再退预扣费
 		return false
+	}
+	// Budget capacity is reserved before wallet/token pre-consumption. Trusted
+	// requests can therefore hold budget even when nothing was pre-consumed.
+	if len(s.budgetReservations) > 0 {
+		return true
 	}
 	if s.tokenConsumed > 0 {
 		return true

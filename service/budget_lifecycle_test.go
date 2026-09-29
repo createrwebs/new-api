@@ -12,6 +12,7 @@ import (
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/relaykit/types"
+	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/gin-gonic/gin"
 	"github.com/glebarez/sqlite"
 	"github.com/stretchr/testify/assert"
@@ -193,4 +194,100 @@ func TestBudgetBillingLifecycle(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestBudgetTrustedUpstreamFailuresReleaseReservations(t *testing.T) {
+	oldDB, oldType := model.DB, common.MainDatabaseType()
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	require.NoError(t, err)
+	sqlDB, err := db.DB()
+	require.NoError(t, err)
+	sqlDB.SetMaxOpenConns(1)
+	model.DB = db
+	common.SetMainDatabaseType(common.DatabaseTypeSQLite)
+	quotaSettings := operation_setting.GetQuotaSetting()
+	oldTrustQuota := quotaSettings.TrustQuotaUSD
+	quotaSettings.TrustQuotaUSD = 10
+	t.Cleanup(func() {
+		model.DB = oldDB
+		common.SetMainDatabaseType(oldType)
+		quotaSettings.TrustQuotaUSD = oldTrustQuota
+		require.NoError(t, sqlDB.Close())
+	})
+	require.NoError(t, db.AutoMigrate(&model.User{}, &model.Token{}, &model.BudgetRule{}, &model.BudgetUsage{}))
+	user := model.User{Username: "trusted-failure", Quota: 20_000_000, Status: common.UserStatusEnabled}
+	require.NoError(t, db.Create(&user).Error)
+	token := model.Token{UserId: user.Id, Key: "trusted-failure-token", RemainQuota: 20_000_000, UsedQuota: 29_545, Status: common.TokenStatusEnabled}
+	require.NoError(t, db.Create(&token).Error)
+	userRule := model.BudgetRule{ScopeType: model.BudgetScopeUser, ScopeID: int64(user.Id), Period: model.BudgetPeriodDaily, LimitQuota: 100_000, Enabled: true}
+	tokenRule := model.BudgetRule{ScopeType: model.BudgetScopeToken, ScopeID: int64(token.Id), Period: model.BudgetPeriodDaily, LimitQuota: 100_000, Enabled: true}
+	require.NoError(t, db.Create(&userRule).Error)
+	require.NoError(t, db.Create(&tokenRule).Error)
+	now := time.Now()
+	period, err := model.GetBudgetPeriodStart(model.BudgetPeriodDaily, now)
+	require.NoError(t, err)
+	for _, rule := range []model.BudgetRule{userRule, tokenRule} {
+		require.NoError(t, db.Create(&model.BudgetUsage{BudgetRuleID: rule.ID, PeriodStart: period, UsedQuota: 19_700}).Error)
+	}
+	for attempt := range 2 {
+		ctx, _ := gin.CreateTestContext(httptest.NewRecorder())
+		ctx.Request = httptest.NewRequest("POST", "/v1/chat/completions", nil)
+		ctx.Set("token_quota", 20_000_000)
+		info := &relaycommon.RelayInfo{UserId: user.Id, TokenId: token.Id, TokenKey: token.Key, UserSetting: dto.UserSetting{BillingPreference: "wallet_only"}}
+		require.Nil(t, PreConsumeBilling(ctx, 30, info))
+		for _, rule := range []model.BudgetRule{userRule, tokenRule} {
+			used, err := model.GetBudgetUsage(rule.ID, period)
+			require.NoError(t, err)
+			assert.Equal(t, int64(19_730), used)
+		}
+		require.Zero(t, info.Billing.GetPreConsumedQuota())
+		assert.True(t, info.Billing.NeedsRefund())
+		// The upstream rejects the request; refund is invoked through the
+		// same BillingSession interface as the relay failure wrapper.
+		info.Billing.Refund(ctx)
+		info.Billing.Refund(ctx)
+		require.Eventually(t, func() bool {
+			for _, rule := range []model.BudgetRule{userRule, tokenRule} {
+				used, err := model.GetBudgetUsage(rule.ID, period)
+				if err != nil || used != 19_700 {
+					return false
+				}
+			}
+			return true
+		}, 5*time.Second, 10*time.Millisecond, "failure %d left budget reserved", attempt+1)
+		assert.False(t, info.Billing.NeedsRefund())
+		require.NoError(t, info.Billing.Settle(30), "a refunded reservation must not settle")
+		for _, rule := range []model.BudgetRule{userRule, tokenRule} {
+			used, err := model.GetBudgetUsage(rule.ID, period)
+			require.NoError(t, err)
+			assert.Equal(t, int64(19_700), used, "failure %d", attempt+1)
+		}
+		var savedToken model.Token
+		require.NoError(t, db.First(&savedToken, token.Id).Error)
+		assert.Equal(t, 29_545, savedToken.UsedQuota)
+		wallet, err := model.GetUserQuota(user.Id, true)
+		require.NoError(t, err)
+		assert.Equal(t, user.Quota, wallet)
+	}
+	// A trusted request which does succeed must reconcile its reservation only
+	// once, even if the caller repeats settlement or later tries to refund.
+	ctx, _ := gin.CreateTestContext(httptest.NewRecorder())
+	ctx.Request = httptest.NewRequest("POST", "/v1/chat/completions", nil)
+	ctx.Set("token_quota", 20_000_000)
+	info := &relaycommon.RelayInfo{UserId: user.Id, TokenId: token.Id, TokenKey: token.Key, UserSetting: dto.UserSetting{BillingPreference: "wallet_only"}}
+	require.Nil(t, PreConsumeBilling(ctx, 30, info))
+	require.NoError(t, info.Billing.Settle(30))
+	require.NoError(t, info.Billing.Settle(30))
+	info.Billing.Refund(ctx)
+	for _, rule := range []model.BudgetRule{userRule, tokenRule} {
+		used, err := model.GetBudgetUsage(rule.ID, period)
+		require.NoError(t, err)
+		assert.Equal(t, int64(19_730), used)
+	}
+	wallet, err := model.GetUserQuota(user.Id, true)
+	require.NoError(t, err)
+	assert.Equal(t, user.Quota-30, wallet)
+	var savedToken model.Token
+	require.NoError(t, db.First(&savedToken, token.Id).Error)
+	assert.Equal(t, 29_575, savedToken.UsedQuota)
 }
