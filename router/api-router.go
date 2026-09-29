@@ -194,6 +194,15 @@ func SetApiRouter(router *gin.Engine) {
 			subscriptionAdminRoute.POST("/user_subscriptions/:id/invalidate", controller.AdminInvalidateUserSubscription)
 			subscriptionAdminRoute.DELETE("/user_subscriptions/:id", controller.AdminDeleteUserSubscription)
 		}
+		budgetRoute := apiRouter.Group("/budget")
+		budgetRoute.Use(middleware.AdminAuth())
+		{
+			budgetRoute.GET("/rules", controller.AdminListBudgetRules)
+			budgetRoute.POST("/rules", controller.AdminCreateBudgetRule)
+			budgetRoute.PUT("/rules/:id", controller.AdminUpdateBudgetRule)
+			budgetRoute.DELETE("/rules/:id", controller.AdminDeleteBudgetRule)
+			budgetRoute.GET("/usage", controller.AdminGetBudgetUsage)
+		}
 
 		// Subscription payment callbacks (no auth)
 		apiRouter.POST("/subscription/epay/notify", anonymousRequestBodyLimit, controller.SubscriptionEpayNotify)

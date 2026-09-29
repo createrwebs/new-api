@@ -369,6 +369,8 @@ func migrateDB() error {
 		&SystemTask{},
 		&SystemTaskLock{},
 		&CasbinRule{},
+		&BudgetRule{},
+		&BudgetUsage{},
 		&AuthzRole{},
 	)
 	if err != nil {

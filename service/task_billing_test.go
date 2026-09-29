@@ -56,6 +56,8 @@ func TestMain(m *testing.M) {
 		&model.UserSubscription{},
 		&model.SystemTask{},
 		&model.SystemTaskLock{},
+		&model.BudgetRule{},
+		&model.BudgetUsage{},
 	); err != nil {
 		panic("failed to migrate: " + err.Error())
 	}

@@ -4,7 +4,10 @@ import (
 	"fmt"
 	"net/http"
 
+	"time"
+
 	"github.com/QuantumNous/new-api/logger"
+	"github.com/QuantumNous/new-api/model"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relaykit/types"
 	"github.com/gin-gonic/gin"
@@ -34,10 +37,69 @@ func PreConsumeBilling(c *gin.Context, preConsumedQuota int, relayInfo *relaycom
 			types.ErrOptionWithSkipRetry(),
 		)
 	}
+	now := time.Now()
+
+	userReservations, err := model.ReserveBudget(
+		model.BudgetScopeUser,
+		int64(relayInfo.UserId),
+		int64(preConsumedQuota),
+		now,
+	)
+	if err != nil {
+		return types.NewErrorWithStatusCode(
+			err,
+			types.ErrorCodeInsufficientUserQuota,
+			http.StatusForbidden,
+			types.ErrOptionWithSkipRetry(),
+		)
+	}
+
+	budgetReservations := append(
+		[]model.BudgetReservation(nil),
+		userReservations...,
+	)
+
+	if !relayInfo.IsPlayground {
+		tokenReservations, err := model.ReserveBudget(
+			model.BudgetScopeToken,
+			int64(relayInfo.TokenId),
+			int64(preConsumedQuota),
+			now,
+		)
+		if err != nil {
+			if releaseErr := model.ReleaseBudget(userReservations); releaseErr != nil {
+				logger.LogError(c, fmt.Sprintf("failed to release user budget after token reservation failed: %v", releaseErr))
+			}
+
+			return types.NewErrorWithStatusCode(
+				err,
+				types.ErrorCodeInsufficientUserQuota,
+				http.StatusForbidden,
+				types.ErrOptionWithSkipRetry(),
+			)
+		}
+
+		budgetReservations = append(
+			budgetReservations,
+			tokenReservations...,
+		)
+	}
 	session, apiErr := NewBillingSession(c, relayInfo, preConsumedQuota)
 	if apiErr != nil {
+		if len(budgetReservations) > 0 {
+			if err := model.ReleaseBudget(budgetReservations); err != nil {
+				logger.LogError(c, fmt.Sprintf(
+					"failed to release budget after billing session creation failed: %v",
+					err,
+				))
+			}
+		}
+
 		return apiErr
 	}
+
+	session.SetBudgetReservations(budgetReservations)
+
 	relayInfo.Billing = session
 	return nil
 }
