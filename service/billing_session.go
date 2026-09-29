@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/logger"
@@ -52,6 +53,7 @@ func (s *BillingSession) Settle(actualQuota int) error {
 	}
 	delta := actualQuota - s.preConsumedQuota
 	if delta == 0 {
+		s.settleBudget(actualQuota)
 		s.settled = true
 		return nil
 	}
@@ -80,21 +82,46 @@ func (s *BillingSession) Settle(actualQuota int) error {
 	if s.funding.Source() == BillingSourceSubscription {
 		s.relayInfo.SubscriptionPostDelta += int64(delta)
 	}
-	if len(s.budgetReservations) > 0 {
-		if err := model.SettleBudget(
-			s.budgetReservations,
-			int64(actualQuota),
-		); err != nil {
-			common.SysLog(fmt.Sprintf(
-				"failed to settle budget usage (userId=%d, tokenId=%d): %s",
-				s.relayInfo.UserId,
-				s.relayInfo.TokenId,
-				err.Error(),
-			))
-		}
-	}
+	s.settleBudget(actualQuota)
 	s.settled = true
 	return tokenErr
+}
+
+// settleBudget reconciles each reservation with the actual charge, including
+// reservations made before a later increase in the funding pre-consume amount.
+func (s *BillingSession) settleBudget(actualQuota int) {
+	if len(s.budgetReservations) == 0 {
+		if s.preConsumedQuota == 0 && actualQuota > 0 {
+			now := time.Now()
+			if err := model.AddBudgetUsage(model.BudgetScopeUser, int64(s.relayInfo.UserId), int64(actualQuota), now); err != nil {
+				common.SysLog("failed to record unreserved user budget usage: " + err.Error())
+			}
+			if !s.relayInfo.IsPlayground {
+				if err := model.AddBudgetUsage(model.BudgetScopeToken, int64(s.relayInfo.TokenId), int64(actualQuota), now); err != nil {
+					common.SysLog("failed to record unreserved token budget usage: " + err.Error())
+				}
+			}
+		}
+		return
+	}
+	reservations := make([]model.BudgetReservation, 0, len(s.budgetReservations))
+	for _, reservation := range s.budgetReservations {
+		found := false
+		for i := range reservations {
+			if reservations[i].RuleID == reservation.RuleID && reservations[i].PeriodStart.Equal(reservation.PeriodStart) {
+				reservations[i].Quota += reservation.Quota
+				found = true
+				break
+			}
+		}
+		if !found {
+			reservations = append(reservations, reservation)
+		}
+	}
+	if err := model.SettleBudget(reservations, int64(actualQuota)); err != nil {
+		common.SysLog(fmt.Sprintf("failed to settle budget usage (userId=%d, tokenId=%d): %s",
+			s.relayInfo.UserId, s.relayInfo.TokenId, err.Error()))
+	}
 }
 
 // Refund 退还所有预扣费，幂等安全，异步执行。
@@ -202,10 +229,34 @@ func (s *BillingSession) Reserve(targetQuota int) error {
 	if err := s.reserveFunding(delta, imageRequest); err != nil {
 		return err
 	}
+	// Reserve budget capacity before changing token quota. Release it if token
+	// reservation fails; funding is rolled back by the existing path below.
+	var additional []model.BudgetReservation
+	var budgetErr error
+	now := time.Now()
+	additional, budgetErr = model.ReserveBudget(model.BudgetScopeUser, int64(s.relayInfo.UserId), int64(delta), now)
+	if budgetErr == nil && !s.relayInfo.IsPlayground {
+		var tokenReservations []model.BudgetReservation
+		tokenReservations, budgetErr = model.ReserveBudget(model.BudgetScopeToken, int64(s.relayInfo.TokenId), int64(delta), now)
+		if budgetErr == nil {
+			additional = append(additional, tokenReservations...)
+		}
+	}
+	if budgetErr != nil {
+		if releaseErr := model.ReleaseBudget(additional); releaseErr != nil {
+			common.SysLog("error releasing additional budget reservation: " + releaseErr.Error())
+		}
+		s.rollbackFundingReserve(delta)
+		return budgetErr
+	}
 	if err := s.reserveToken(delta); err != nil {
+		if releaseErr := model.ReleaseBudget(additional); releaseErr != nil {
+			common.SysLog("error releasing additional budget reservation: " + releaseErr.Error())
+		}
 		s.rollbackFundingReserve(delta)
 		return err
 	}
+	s.budgetReservations = append(s.budgetReservations, additional...)
 
 	s.preConsumedQuota += delta
 	s.tokenConsumed += delta

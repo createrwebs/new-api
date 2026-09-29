@@ -2,6 +2,7 @@ package model
 
 import (
 	"fmt"
+	"math"
 	"strings"
 	"testing"
 	"time"
@@ -39,6 +40,20 @@ func setupBudgetTestDB(t *testing.T) {
 		DB = previousDB
 		_ = sqlDB.Close()
 	})
+}
+
+func TestReserveBudgetDoesNotOverflowLimit(t *testing.T) {
+	setupBudgetTestDB(t)
+	rule := createBudgetRule(t, BudgetScopeUser, 1, BudgetPeriodDaily, math.MaxInt64)
+	now := time.Now()
+	first, err := ReserveBudget(BudgetScopeUser, 1, math.MaxInt64-1, now)
+	require.NoError(t, err)
+	require.Len(t, first, 1)
+	_, err = ReserveBudget(BudgetScopeUser, 1, 2, now)
+	require.ErrorContains(t, err, "budget exceeded")
+	used, err := GetBudgetUsage(rule.ID, first[0].PeriodStart)
+	require.NoError(t, err)
+	assert.Equal(t, int64(math.MaxInt64-1), used)
 }
 
 func createBudgetRule(

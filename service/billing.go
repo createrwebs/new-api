@@ -67,8 +67,9 @@ func PreConsumeBilling(c *gin.Context, preConsumedQuota int, relayInfo *relaycom
 			now,
 		)
 		if err != nil {
-			// token reserve ไม่ผ่าน ต้องคืน user reserve ที่ทำไปแล้ว
-			_ = model.ReleaseBudget(userReservations)
+			if releaseErr := model.ReleaseBudget(userReservations); releaseErr != nil {
+				logger.LogError(c, fmt.Sprintf("failed to release user budget after token reservation failed: %v", releaseErr))
+			}
 
 			return types.NewErrorWithStatusCode(
 				err,

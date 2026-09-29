@@ -225,6 +225,20 @@ func saveBillingConfig(t *testing.T) {
 }
 
 func TestRelayTaskSubmitAliasBillingIdentityAndExprFallback(t *testing.T) {
+	previousDB, previousType := model.DB, common.MainDatabaseType()
+	database, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	require.NoError(t, err)
+	sqlDB, err := database.DB()
+	require.NoError(t, err)
+	sqlDB.SetMaxOpenConns(1)
+	require.NoError(t, database.AutoMigrate(&model.BudgetRule{}, &model.BudgetUsage{}))
+	model.DB = database
+	common.SetMainDatabaseType(common.DatabaseTypeSQLite)
+	t.Cleanup(func() {
+		model.DB = previousDB
+		common.SetMainDatabaseType(previousType)
+		require.NoError(t, sqlDB.Close())
+	})
 	const mapping = `{"alias-model":"declared-model"}`
 	const aliasExpr = `tier("alias", 2)`
 	const tailExpr = `tier("tail", 3)`
@@ -326,6 +340,20 @@ export function extractUsage(){return {old_units:2};}
 }
 
 func TestSharedTaskBillingExpressionSelectionAndFrozenSettlement(t *testing.T) {
+	previousDB, previousType := model.DB, common.MainDatabaseType()
+	database, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	require.NoError(t, err)
+	sqlDB, err := database.DB()
+	require.NoError(t, err)
+	sqlDB.SetMaxOpenConns(1)
+	require.NoError(t, database.AutoMigrate(&model.BudgetRule{}, &model.BudgetUsage{}))
+	model.DB = database
+	common.SetMainDatabaseType(common.DatabaseTypeSQLite)
+	t.Cleanup(func() {
+		model.DB = previousDB
+		common.SetMainDatabaseType(previousType)
+		require.NoError(t, sqlDB.Close())
+	})
 	const baseExpr = `tier("base", u("seconds") * 2)`
 	const alphaExpr = `tier("alpha", u("seconds") * 3)`
 	const betaExpr = `tier("beta", u("credits") * 5)`

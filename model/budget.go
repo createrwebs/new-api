@@ -111,7 +111,7 @@ func CheckBudget(scopeType string, scopeID int64, requestedQuota int64, now time
 			return err
 		}
 
-		if usedQuota+requestedQuota > rule.LimitQuota {
+		if requestedQuota > rule.LimitQuota || usedQuota > rule.LimitQuota-requestedQuota {
 			return fmt.Errorf(
 				"%s budget exceeded: used=%d requested=%d limit=%d period=%s",
 				scopeType,
@@ -135,35 +135,24 @@ func AddBudgetUsage(scopeType string, scopeID int64, quota int64, now time.Time)
 		return err
 	}
 
-	for _, rule := range rules {
-		periodStart, err := GetBudgetPeriodStart(rule.Period, now)
-		if err != nil {
-			return err
+	return DB.Transaction(func(tx *gorm.DB) error {
+		for _, rule := range rules {
+			periodStart, err := GetBudgetPeriodStart(rule.Period, now)
+			if err != nil {
+				return err
+			}
+			usage := BudgetUsage{BudgetRuleID: rule.ID, PeriodStart: periodStart}
+			if err := tx.Clauses(clause.OnConflict{DoNothing: true}).Create(&usage).Error; err != nil {
+				return err
+			}
+			if err := tx.Model(&BudgetUsage{}).
+				Where("budget_rule_id = ? AND period_start = ?", rule.ID, periodStart).
+				UpdateColumn("used_quota", gorm.Expr("used_quota + ?", quota)).Error; err != nil {
+				return err
+			}
 		}
-
-		usage := BudgetUsage{
-			BudgetRuleID: rule.ID,
-			PeriodStart:  periodStart,
-			UsedQuota:    quota,
-		}
-
-		err = DB.Clauses(clause.OnConflict{
-			Columns: []clause.Column{
-				{Name: "budget_rule_id"},
-				{Name: "period_start"},
-			},
-			DoUpdates: clause.Assignments(map[string]interface{}{
-				"used_quota": gorm.Expr("used_quota + ?", quota),
-				"updated_at": now,
-			}),
-		}).Create(&usage).Error
-
-		if err != nil {
-			return err
-		}
-	}
-
-	return nil
+		return nil
+	})
 }
 func ReserveBudget(
 	scopeType string,
@@ -211,7 +200,7 @@ func ReserveBudget(
 
 			var current BudgetUsage
 			if err := tx.
-				Clauses(clause.Locking{Strength: "UPDATE"}).
+				Scopes(lockForUpdate).
 				Where(
 					"budget_rule_id = ? AND period_start = ?",
 					rule.ID,
@@ -221,7 +210,7 @@ func ReserveBudget(
 				return err
 			}
 
-			if current.UsedQuota+requestedQuota > rule.LimitQuota {
+			if requestedQuota > rule.LimitQuota || current.UsedQuota > rule.LimitQuota-requestedQuota {
 				return fmt.Errorf(
 					"%s budget exceeded: used=%d requested=%d limit=%d period=%s",
 					scopeType,
