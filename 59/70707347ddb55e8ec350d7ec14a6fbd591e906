@@ -1,0 +1,27 @@
+service/budget_lifecycle_test.go
+  s_9a6b8d1822c42e::t_22ff8493020bce 259
+  s_9a6b8d1822c42e::t_a185fa26593be0 208-210,214,220,267,292
+  s_9a6b8d1822c42e::t_d234cb37e636de 15,198-207,211-213,215-219,221-243,245-247,249,257,260-266
+  s_9a6b8d1822c42e::t_cec4bfba77323f 271-291
+  s_9a6b8d1822c42e::t_25820952b30176 244,248,250-256,258,268-270
+  s_9a6b8d1822c42e::t_037521cbbfb6ad 293
+service/billing_session.go
+  s_9a6b8d1822c42e::t_25820952b30176 191-195
+  s_9a6b8d1822c42e::t_22ff8493020bce 51
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.3",
+  "base_commit_sha": "5970707347ddb55e8ec350d7ec14a6fbd591e906",
+  "prompts": {},
+  "sessions": {
+    "s_9a6b8d1822c42e": {
+      "agent_id": {
+        "tool": "cline",
+        "id": "conv_1790656970590_3hnqubu",
+        "model": "unknown"
+      },
+      "human_author": "NOPPANAN THEERACHARTE <noppanan.the@axonstech.com>"
+    }
+  }
+}
