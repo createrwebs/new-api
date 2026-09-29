@@ -180,7 +180,7 @@ export function Features(_props: FeaturesProps) {
   ]
 
   return (
-    <section className='relative z-10 px-6 py-24 md:py-32'>
+    <section className='bg-background relative z-10 px-4 py-24 sm:px-6 md:py-32'>
       <div className='mx-auto max-w-6xl'>
         <AnimateInView className='mb-16 max-w-lg'>
           <p className='text-muted-foreground mb-3 text-xs font-medium tracking-widest uppercase'>
@@ -194,7 +194,7 @@ export function Features(_props: FeaturesProps) {
         </AnimateInView>
 
         {/* Bento grid */}
-        <div className='border-border/40 bg-border/40 grid gap-px overflow-hidden rounded-xl border md:grid-cols-3'>
+        <div className='border-border/40 bg-border/40 grid gap-px overflow-hidden rounded-2xl border shadow-[0_24px_80px_-50px_rgba(31,76,173,0.28)] md:grid-cols-3'>
           {features.map((f, i) => (
             <AnimateInView
               key={f.id}
