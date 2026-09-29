@@ -27,22 +27,24 @@ import (
 // BillingSession 封装单次请求的预扣费/结算/退款生命周期。
 // 实现 relaycommon.BillingSettler 接口。
 type BillingSession struct {
-	relayInfo        *relaycommon.RelayInfo
-	funding          FundingSource
-	preConsumedQuota int  // 实际预扣额度（信任用户可能为 0）
-	tokenConsumed    int  // 令牌额度实际扣减量
-	extraReserved    int  // 发送前补充预扣的额度（订阅退款时需要单独回滚）
-	trusted          bool // 是否命中信任额度旁路
-	fundingSettled   bool // funding.Settle 已成功，资金来源已提交
-	settled          bool // Settle 全部完成（资金 + 令牌）
-	refunded         bool // Refund 已调用
-	mu               sync.Mutex
+	relayInfo          *relaycommon.RelayInfo
+	funding            FundingSource
+	preConsumedQuota   int  // 实际预扣额度（信任用户可能为 0）
+	tokenConsumed      int  // 令牌额度实际扣减量
+	extraReserved      int  // 发送前补充预扣的额度（订阅退款时需要单独回滚）
+	trusted            bool // 是否命中信任额度旁路
+	fundingSettled     bool // funding.Settle 已成功，资金来源已提交
+	settled            bool // Settle 全部完成（资金 + 令牌）
+	refunded           bool // Refund 已调用
+	budgetReservations []model.BudgetReservation
+	mu                 sync.Mutex
 }
 
 // Settle 根据实际消耗额度进行结算。
 // 资金来源和令牌额度分两步提交：若资金来源已提交但令牌调整失败，
 // 会标记 fundingSettled 防止 Refund 对已提交的资金来源执行退款。
 func (s *BillingSession) Settle(actualQuota int) error {
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.settled {
@@ -78,6 +80,19 @@ func (s *BillingSession) Settle(actualQuota int) error {
 	if s.funding.Source() == BillingSourceSubscription {
 		s.relayInfo.SubscriptionPostDelta += int64(delta)
 	}
+	if len(s.budgetReservations) > 0 {
+		if err := model.SettleBudget(
+			s.budgetReservations,
+			int64(actualQuota),
+		); err != nil {
+			common.SysLog(fmt.Sprintf(
+				"failed to settle budget usage (userId=%d, tokenId=%d): %s",
+				s.relayInfo.UserId,
+				s.relayInfo.TokenId,
+				err.Error(),
+			))
+		}
+	}
 	s.settled = true
 	return tokenErr
 }
@@ -106,7 +121,10 @@ func (s *BillingSession) Refund(c *gin.Context) {
 	extraReserved := s.extraReserved
 	subscriptionId := s.relayInfo.SubscriptionId
 	funding := s.funding
-
+	budgetReservations := append(
+		[]model.BudgetReservation(nil),
+		s.budgetReservations...,
+	)
 	gopool.Go(func() {
 		// 1) 退还资金来源
 		if err := funding.Refund(); err != nil {
@@ -121,6 +139,11 @@ func (s *BillingSession) Refund(c *gin.Context) {
 		if tokenConsumed > 0 && !isPlayground {
 			if err := model.IncreaseTokenQuota(tokenId, tokenKey, tokenConsumed); err != nil {
 				common.SysLog("error refunding token quota: " + err.Error())
+			}
+		}
+		if len(budgetReservations) > 0 {
+			if err := model.ReleaseBudget(budgetReservations); err != nil {
+				common.SysLog("error releasing budget reservation: " + err.Error())
 			}
 		}
 	})
@@ -152,7 +175,12 @@ func (s *BillingSession) needsRefundLocked() bool {
 func (s *BillingSession) GetPreConsumedQuota() int {
 	return s.preConsumedQuota
 }
+func (s *BillingSession) SetBudgetReservations(reservations []model.BudgetReservation) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 
+	s.budgetReservations = reservations
+}
 func (s *BillingSession) Reserve(targetQuota int) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
