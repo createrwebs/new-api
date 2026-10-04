@@ -109,6 +109,11 @@ export function SidebarModulesCard() {
           title: t('Task Logs'),
           description: t('System task records'),
         },
+        {
+          key: 'workbench',
+          title: t('Image/Video Workbench'),
+          description: t('Generate images and videos'),
+        },
       ],
     },
     {
@@ -130,6 +135,21 @@ export function SidebarModulesCard() {
           key: 'security',
           title: t('Security & Access'),
           description: t('Manage your security settings and account access'),
+        },
+        {
+          key: 'invite',
+          title: t('Invite friends'),
+          description: t('Share your referral link'),
+        },
+        {
+          key: 'affiliate',
+          title: t('Affiliate Partners'),
+          description: t('Referral rewards and transfers'),
+        },
+        {
+          key: 'ticket',
+          title: t('Support Tickets'),
+          description: t('Get help from the operator'),
         },
       ],
     },

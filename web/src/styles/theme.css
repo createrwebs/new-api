@@ -19,26 +19,23 @@ For commercial licensing, please contact support@quantumnous.com
 @custom-variant dark (&:is(.dark *));
 
 @theme inline {
-  --font-sans: 'Public Sans Variable', 'Public Sans', sans-serif;
-  /* Editorial serif token — the body face used by the `serif` font axis
-   * and by presets that opt in (currently Anthropic). Lora carries only
-   * Latin glyphs, so the stack walks through CJK serifs (Noto / Source Han
-   * / Songti / SimSun) before the generic `serif` fallback. Without these
-   * explicit CJK fonts the browser's generic-serif pick on Windows is
-   * non-deterministic at small sizes and often appears sans-like. */
-  --font-serif:
-    'Lora Variable', 'Lora', 'Source Serif Pro', 'Source Serif 4',
-    'Noto Serif SC', 'Noto Serif TC', 'Noto Serif JP', 'Noto Serif KR',
-    'Source Han Serif SC', 'Source Han Serif TC', 'Source Han Serif',
-    'Songti SC', 'STSong', 'STSongti-SC-Regular', 'PingFang SC', 'SimSun',
-    'NSimSun', '宋体', 'FangSong', '仿宋', 'KaiTi', '楷体', Georgia,
-    'Times New Roman', Cambria, 'Liberation Serif', serif;
-  --font-inter:
-    -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu',
-    'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue', sans-serif;
-  --font-manrope:
-    -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu',
-    'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue', sans-serif;
+  /* Single typeface for the whole UI: IBM Plex Sans Thai, loaded from Google
+   * Fonts (see index.html). The family covers Latin, Thai, and Latin-extended
+   * glyphs, so the stack only needs CJK fallbacks behind it for Chinese /
+   * Japanese / Korean content, then a generic `sans-serif` terminus. */
+  --font-sans:
+    'IBM Plex Sans Thai', 'Noto Sans SC', 'Noto Sans TC', 'Noto Sans JP',
+    'Noto Sans KR', 'Source Han Sans SC', 'Source Han Sans TC', 'Source Han Sans',
+    'PingFang SC', 'Microsoft YaHei', 'Hiragino Sans', 'Malgun Gothic', Arial,
+    sans-serif;
+  /* The `serif` font axis remains selectable for users who prefer it, but the
+   * project ships one family, so both axes resolve to the same stack. Keeping
+   * the token (instead of removing it) preserves the existing
+   * `--font-body` cascade in theme-presets.css. */
+  --font-serif: var(--font-sans);
+  --font-ibm-plex-sans-thai: var(--font-sans);
+  --font-inter: var(--font-sans);
+  --font-manrope: var(--font-sans);
 
   --color-background: var(--background);
   --color-foreground: var(--foreground);

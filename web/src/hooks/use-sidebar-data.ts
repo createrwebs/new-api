@@ -26,17 +26,21 @@ import {
   FlaskConical,
   Key,
   LayoutDashboard,
+  LifeBuoy,
   ListTodo,
   MessageSquare,
   PlugZap,
   Radio,
   ServerCog,
   Settings,
+  Share2,
   ShieldCheck,
   Ticket,
   User,
+  UserPlus,
   Users,
   Wallet,
+  Wand2,
 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 
@@ -48,6 +52,11 @@ import { ROLE } from '@/lib/roles'
  *
  * These are shown when the URL does not match any nested sidebar view
  * registered in `layout/lib/sidebar-view-registry.ts`.
+ *
+ * The regular-user sidebar is intentionally small: `general` and `personal`
+ * are the only groups without a `requiredRole`. Everything an administrator
+ * still needs (chat, logs, security) lives in role-gated groups so those
+ * pages stay reachable without cluttering the default sidebar.
  */
 export function useSidebarData(): SidebarData {
   const { t } = useTranslation()
@@ -57,6 +66,7 @@ export function useSidebarData(): SidebarData {
       {
         id: 'chat',
         title: t('Chat'),
+        requiredRole: ROLE.ADMIN,
         items: [
           {
             title: t('Playground'),
@@ -80,15 +90,58 @@ export function useSidebarData(): SidebarData {
             icon: Activity,
           },
           {
-            title: t('Dashboard'),
-            url: '/dashboard/models',
-            icon: LayoutDashboard,
-          },
-          {
             title: t('API Keys'),
             url: '/keys',
             icon: Key,
           },
+          {
+            title: t('Data Dashboard'),
+            url: '/dashboard/models',
+            icon: LayoutDashboard,
+          },
+          {
+            title: t('Image/Video Workbench'),
+            url: '/workbench',
+            icon: Wand2,
+          },
+        ],
+      },
+      {
+        id: 'personal',
+        title: t('Personal'),
+        items: [
+          {
+            title: t('Top-up & Subscriptions'),
+            url: '/wallet',
+            icon: Wallet,
+          },
+          {
+            title: t('Invite friends'),
+            url: '/invite',
+            icon: UserPlus,
+          },
+          {
+            title: t('Affiliate Partners'),
+            url: '/affiliate',
+            icon: Share2,
+          },
+          {
+            title: t('Profile'),
+            url: '/profile',
+            icon: User,
+          },
+          {
+            title: t('Support Tickets'),
+            url: '/tickets',
+            icon: LifeBuoy,
+          },
+        ],
+      },
+      {
+        id: 'logs',
+        title: t('Logs'),
+        requiredRole: ROLE.ADMIN,
+        items: [
           {
             title: t('Usage Logs'),
             url: '/usage-logs/common',
@@ -106,22 +159,6 @@ export function useSidebarData(): SidebarData {
             configUrls: ['/usage-logs/drawing', '/usage-logs/task'],
             icon: ListTodo,
           },
-        ],
-      },
-      {
-        id: 'personal',
-        title: t('Personal'),
-        items: [
-          {
-            title: t('Wallet'),
-            url: '/wallet',
-            icon: Wallet,
-          },
-          {
-            title: t('Profile'),
-            url: '/profile',
-            icon: User,
-          },
           {
             title: t('Security & Access'),
             url: '/security',
@@ -132,6 +169,7 @@ export function useSidebarData(): SidebarData {
       {
         id: 'admin',
         title: t('Admin'),
+        requiredRole: ROLE.ADMIN,
         items: [
           {
             title: t('Channels'),

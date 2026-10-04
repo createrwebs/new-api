@@ -54,10 +54,10 @@ export function ApiInfoPanel() {
           <IconBadge tone='info' size='sm'>
             <Route />
           </IconBadge>
-          {t('API Info')}
+          {t('API Endpoints')}
         </span>
       }
-      description={t('Configured routes and latency checks')}
+      description={t('Compare route speeds')}
       loading={loading}
       empty={!list.length}
       emptyMessage={t('No API routes configured')}

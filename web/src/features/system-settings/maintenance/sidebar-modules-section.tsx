@@ -122,6 +122,10 @@ export function SidebarModulesSection({
         title: t('Task logs'),
         description: t('Background job tracker for queued work.'),
       },
+      workbench: {
+        title: t('Image/Video Workbench'),
+        description: t('Generate images and videos from your models.'),
+      },
     },
     personal: {
       topup: {
@@ -135,6 +139,18 @@ export function SidebarModulesSection({
       security: {
         title: t('Security & Access'),
         description: t('Manage your security settings and account access'),
+      },
+      invite: {
+        title: t('Invite friends'),
+        description: t('Share your referral link and earn rewards.'),
+      },
+      affiliate: {
+        title: t('Affiliate Partners'),
+        description: t('Track referral rewards and transfer them.'),
+      },
+      ticket: {
+        title: t('Support Tickets'),
+        description: t('Reach the operator for help with your account.'),
       },
     },
     admin: {

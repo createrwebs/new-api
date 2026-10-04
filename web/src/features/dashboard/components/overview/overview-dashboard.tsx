@@ -46,6 +46,7 @@ import {
   CardStaggerContainer,
   CardStaggerItem,
 } from '@/components/page-transition'
+import { StatusBadge } from '@/components/status-badge'
 import { Button } from '@/components/ui/button'
 import { IconBadge, type IconBadgeTone } from '@/components/ui/icon-badge'
 import { fetchTokenKey, getApiKeys } from '@/features/keys/api'
@@ -83,6 +84,31 @@ const SETUP_GUIDE_CODE_PATTERN = [
   '  console.log(request.output_text)',
   '}',
 ].join('\n')
+
+/**
+ * Page-header "Account standing" states. Mirrors the credits-card health
+ * ladder so both surfaces tell the same story.
+ */
+const ACCOUNT_STANDING = {
+  healthy: {
+    variant: 'success',
+    labelKey: 'Good',
+    dotClass: 'bg-success',
+    toneClass: 'text-success',
+  },
+  caution: {
+    variant: 'warning',
+    labelKey: 'Getting started',
+    dotClass: 'bg-warning',
+    toneClass: 'text-warning',
+  },
+  critical: {
+    variant: 'danger',
+    labelKey: 'Needs attention',
+    dotClass: 'bg-destructive',
+    toneClass: 'text-destructive',
+  },
+} as const
 
 type DashboardActionPath =
   | '/keys'
@@ -627,23 +653,38 @@ export function OverviewDashboard() {
     }
   }
 
+  // "Account standing" mirrors the balance health shown in the credits card so
+  // the page header and the card never disagree about the account state.
+  const accountStanding = useMemo(() => {
+    const hasKeys = Boolean(preferredKey)
+    const hasUsage = usedQuota > 0 || requestCount > 0
+    if (remainQuota <= 0) return ACCOUNT_STANDING.critical
+    if (!hasKeys || !hasUsage) return ACCOUNT_STANDING.caution
+    return ACCOUNT_STANDING.healthy
+  }, [preferredKey, remainQuota, requestCount, usedQuota])
+
   return (
     <SectionPageLayout>
       <SectionPageLayout.Title>{t('Overview')}</SectionPageLayout.Title>
       <SectionPageLayout.Actions>
-        {setupStatusReady && setupComplete && (
-          <Button
-            ref={setupGuideToggleRef}
-            variant='ghost'
-            size='sm'
-            className='text-muted-foreground hover:text-foreground h-auto min-h-7 max-w-[60vw] whitespace-normal'
-            aria-expanded={setupGuideExpanded}
-            aria-controls={setupGuideId}
-            onClick={handleSetupGuideToggle}
+        <StatusBadge variant={accountStanding.variant} copyable={false}>
+          <span className='text-muted-foreground'>{t('Account standing')}</span>
+          <span className='text-muted-foreground' aria-hidden='true'>
+            &middot;
+          </span>
+          <span
+            className={cn(
+              'flex items-center gap-1',
+              accountStanding.toneClass
+            )}
           >
-            {t('Setup guide')}
-          </Button>
-        )}
+            <span
+              className={cn('size-1.5 rounded-full', accountStanding.dotClass)}
+              aria-hidden='true'
+            />
+            {t(accountStanding.labelKey)}
+          </span>
+        </StatusBadge>
       </SectionPageLayout.Actions>
       <SectionPageLayout.Content>
         <div className='flex flex-col gap-4'>
@@ -787,7 +828,34 @@ export function OverviewDashboard() {
             </CardStaggerContainer>
           )}
 
-          <SummaryCards />
+          <SummaryCards
+            headerActions={
+              <>
+                <Button size='sm' render={<Link to='/wallet' />}>
+                  <CreditCard data-icon='inline-start' />
+                  {t('Add credits')}
+                </Button>
+                {/* The header toggle appears only once setup is finished, so an
+                    unfinished guide keeps exactly one entry point: the
+                    "Show setup guide" button inside the progress banner. */}
+                {setupStatusReady && setupComplete && (
+                  <Button
+                    ref={setupGuideToggleRef}
+                    variant='outline'
+                    size='sm'
+                    aria-expanded={setupGuideExpanded}
+                    aria-controls={setupGuideId}
+                    onClick={handleSetupGuideToggle}
+                  >
+                    <ListChecks data-icon='inline-start' />
+                    {setupGuideExpanded
+                      ? t('Hide setup guide')
+                      : t('Setup guide')}
+                  </Button>
+                )}
+              </>
+            }
+          />
 
           {showContentPanels && (
             <CardStaggerContainer

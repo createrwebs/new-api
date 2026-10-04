@@ -67,12 +67,16 @@ export const SIDEBAR_MODULES_DEFAULT: SidebarModulesAdminConfig = {
     audit: true,
     midjourney: true,
     task: true,
+    workbench: true,
   },
   personal: {
     enabled: true,
     topup: true,
     personal: true,
     security: true,
+    invite: true,
+    affiliate: true,
+    ticket: true,
   },
   admin: {
     enabled: true,

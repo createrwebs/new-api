@@ -44,3 +44,12 @@ relaykit/relayconvert/chat_responses_live_local_test.go
 service/openaicompat/chat_responses_live_local_test.go
 go.work
 go.work.sum
+backend.log
+chromeres.txt
+curl1.txt
+docsfiles.txt
+final.txt
+shot2.txt
+pgdone.txt
+curl2.txt
+render2/

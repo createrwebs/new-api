@@ -19,13 +19,9 @@ For commercial licensing, please contact support@quantumnous.com
 @import 'tailwindcss';
 @import 'tw-animate-css';
 @import 'shadcn/tailwind.css';
-@import '@fontsource-variable/public-sans';
-/* Editorial serif (Lora) backing the `serif` font axis and the Anthropic
- * preset's default typography. See `--font-serif` in theme.css for the
- * full Latin + CJK fallback stack and `theme-presets.css` for the cascade
- * that activates it. Loaded globally so font-switching is instantaneous
- * with no FOUT once the variable is fetched. */
-@import '@fontsource-variable/lora';
+
+/* Typography is loaded from Google Fonts via <link> in index.html
+ * (IBM Plex Sans Thai). Nothing to self-host here. */
 
 @import './theme.css';
 @import './theme-presets.css';
@@ -97,6 +93,90 @@ For commercial licensing, please contact support@quantumnous.com
 
   .json-code-editor-highlight .yace-tok--com {
     color: var(--muted-foreground);
+  }
+}
+
+/* ── Docs page ──────────────────────────────────────────────────────────
+ * Styles for the HTML that `features/docs/lib/markdown.ts` generates from
+ * `docs/pages/*.md`. Scoped to `.docs-prose` so the same class names cannot
+ * leak into the rest of the app. */
+@layer components {
+  .docs-prose .docs-grid {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+    margin-block: 1rem;
+  }
+
+  /* Actions sit on one row; they wrap rather than stack. */
+  .docs-prose .docs-grid > .docs-grid-action {
+    display: inline-flex;
+    width: fit-content;
+  }
+
+  .docs-prose .docs-grid:has(> .docs-grid-action) {
+    flex-direction: row;
+    flex-wrap: wrap;
+  }
+
+  .docs-prose .docs-grid-action {
+    @apply bg-background text-foreground hover:bg-muted inline-flex h-9 w-fit items-center justify-center rounded-lg border px-4 text-sm font-medium transition-colors;
+  }
+
+  .docs-prose .docs-grid-action-primary {
+    @apply bg-primary text-primary-foreground hover:bg-primary/90 border-transparent;
+  }
+
+  .docs-prose .docs-steps {
+    display: grid;
+    gap: 0.75rem;
+  }
+
+  @media (min-width: 640px) {
+    .docs-prose .docs-steps {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+  }
+
+  .docs-prose .docs-step {
+    @apply bg-background/60 flex flex-col gap-1 rounded-xl border p-3;
+  }
+
+  .docs-prose .docs-step-number {
+    @apply text-muted-foreground font-mono text-xs;
+  }
+
+  .docs-prose .docs-step-title {
+    @apply text-sm font-medium;
+  }
+
+  .docs-prose .docs-step-text {
+    @apply text-muted-foreground text-xs leading-relaxed;
+  }
+
+  .docs-prose .docs-card {
+    @apply bg-background/60 my-3 overflow-hidden rounded-xl border;
+  }
+
+  .docs-prose .docs-card-title {
+    @apply border-b px-3 py-2 text-sm font-semibold;
+  }
+
+  .docs-prose .docs-card-body {
+    @apply text-muted-foreground px-3 py-2 text-xs leading-relaxed;
+  }
+
+  /* Code samples inside a card keep full contrast and breathing room. */
+  .docs-prose .docs-card-body pre {
+    @apply bg-background text-foreground my-0 overflow-x-auto rounded-lg border p-3 text-xs;
+  }
+
+  .docs-prose .docs-card-body :not(pre) > code {
+    @apply bg-muted text-foreground;
+  }
+
+  .docs-prose .docs-card-body p {
+    @apply my-0;
   }
 }
 

@@ -1,0 +1,30 @@
+﻿Installing Chrome...
+  Downloading Chrome 154.0.8037.92 for win64
+  https://storage.googleapis.com/chrome-for-testing-public/154.0.8037.92/win64/chrome-win64.zip
+agent-browser.cmd : 
+At line:1 char:1
++ & "C:\Users\theer\AppData\Roaming\npm\agent-browser.cmd" install 2>&1 ...
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+  10/196 MB (5%)
+  20/196 MB (10%)
+  29/196 MB (15%)
+  39/196 MB (20%)
+  49/196 MB (25%)
+  59/196 MB (30%)
+  69/196 MB (35%)
+  78/196 MB (40%)
+  88/196 MB (45%)
+  98/196 MB (50%)
+  108/196 MB (55%)
+  118/196 MB (60%)
+  127/196 MB (65%)
+  137/196 MB (70%)
+  147/196 MB (75%)
+  157/196 MB (80%)
+  167/196 MB (85%)
+  176/196 MB (90%)
+  186/196 MB (95%)
+  196/196 MB (100%)

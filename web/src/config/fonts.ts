@@ -17,13 +17,19 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 /**
- * List of available font names (visit the url `/settings/appearance`).
- * This array is used to generate dynamic font classes (e.g., `font-inter`, `font-manrope`).
+ * Available font names (visit the url `/settings/appearance`).
+ *
+ * The project ships a single family — IBM Plex Sans Thai — so this list has one
+ * entry and `FontProvider` therefore always resolves to it. The switcher UI is
+ * kept (rather than deleted) so the surrounding appearance controls stay
+ * intact if more families are added later.
  *
  * 📝 How to Add a New Font (Tailwind v4+):
  * 1. Add the font name here.
- * 2. Update the `<link>` tag in 'index.html' to include the new font from CDN or other source.
- * 3. Add the new font family to 'theme.css' using the `@theme inline` and `font-family` CSS variable.
+ * 2. Load the family: a `<link>` tag in 'index.html' (CDN, e.g. Google Fonts)
+ *    or an `@import` of a self-hosted package in 'src/styles/index.css'.
+ * 3. Add the font family to 'theme.css' using the `@theme inline`
+ *    `font-family` CSS variable.
  *
  * Example:
  * fonts.ts           → Add 'roboto' to this array.
@@ -34,4 +40,4 @@ For commercial licensing, please contact support@quantumnous.com
  *      --font-roboto: 'Roboto', var(--font-sans);
  *   }
  */
-export const fonts = ['inter', 'manrope', 'system'] as const
+export const fonts = ['ibm-plex-sans-thai'] as const

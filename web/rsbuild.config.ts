@@ -8,6 +8,43 @@ import { tanstackRouter } from '@tanstack/router-plugin/rspack'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
+/**
+ * Markdown documents rendered by the `/docs` page.
+ *
+ * Source of truth is the sibling `docs/pages` directory in the repository
+ * root. Rspack's copy plugin cannot flatten a glob, so each file is mapped
+ * explicitly: that is also what lets the awkward source names (`Usage and
+ * cost.md`, `Codex setup.md`, ...) become clean, URL-safe slugs that the
+ * frontend registry can reference without encoding.
+ *
+ * Add a new document by appending to `DOC_SOURCE_FILES` and to
+ * `src/features/docs/constants.ts`.
+ */
+const DOC_SOURCE_DIR = path.resolve(__dirname, '../docs/pages')
+
+const DOC_SOURCE_FILES: Record<string, string> = {
+  'introduction.md': 'introduction',
+  'quickstart.md': 'quickstart',
+  'endpoint_to_call.md': 'endpoint-to-call',
+  'models_and_groups.md': 'models-and-groups',
+  'Authentication.md': 'authentication',
+  'Errors.md': 'errors',
+  'Usage and cost.md': 'usage-and-cost',
+  'Codex setup.md': 'codex-setup',
+  'Claude Code setup.md': 'claude-code-setup',
+  'Gemini CLI setup.md': 'gemini-cli-setup',
+  'Grok Build setup.md': 'grok-build-setup',
+  'OpenCode setup.md': 'opencode-setup',
+}
+
+const docCopyEntries = Object.entries(DOC_SOURCE_FILES).map(
+  ([fileName, slug]) => ({
+    from: path.join(DOC_SOURCE_DIR, fileName),
+    to: `docs-content/${slug}.md`,
+    noErrorOnMissing: true,
+  })
+)
+
 export default defineConfig(({ envMode }) => {
   const env = loadEnv({ mode: envMode, prefixes: ['VITE_'] })
   const serverUrl =
@@ -70,6 +107,7 @@ export default defineConfig(({ envMode }) => {
       host: '0.0.0.0',
       strictPort: false,
       proxy: devProxy,
+      copy: docCopyEntries,
     },
     output: {
       // Production optimizations
@@ -78,6 +116,7 @@ export default defineConfig(({ envMode }) => {
       distPath: {
         root: 'dist',
       },
+      copy: docCopyEntries,
       // Rely on Rsbuild default legalComments ("linked" → per-chunk *.LICENSE.txt) in all modes.
       // Do not set "none" in production: that strips minifier-preserved third-party notices and
       // extracted license files, which some distributions require for open-source compliance.

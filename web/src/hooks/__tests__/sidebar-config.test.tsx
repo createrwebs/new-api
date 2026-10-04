@@ -73,8 +73,8 @@ function sidebarFor(admin?: object, user?: object, canConfigure = true) {
   return result
 }
 
-describe('security sidebar visibility', () => {
-  it('old configurations show Security & Access immediately after Profile and keep API Keys', () => {
+describe('personal sidebar entries', () => {
+  it('shows the personal group in the requested order', () => {
     const { result } = sidebarFor(
       { personal: { enabled: true, personal: true, topup: true } },
       { personal: { enabled: true, personal: true } }
@@ -83,13 +83,57 @@ describe('security sidebar visibility', () => {
       result.current
         .find((group) => group.id === 'personal')
         ?.items.map((item) => item.title)
-    ).toEqual(['Wallet', 'Profile', 'Security & Access'])
+    ).toEqual([
+      'Top-up & Subscriptions',
+      'Invite friends',
+      'Affiliate Partners',
+      'Profile',
+      'Support Tickets',
+    ])
+  })
+
+  it.each([
+    [{ personal: { enabled: true, ticket: false } }, undefined],
+    [{ personal: { enabled: false } }, { personal: { ticket: true } }],
+    [undefined, { personal: { enabled: true, ticket: false } }],
+    [undefined, { personal: { enabled: false } }],
+  ])(
+    'admin or user disablement hides Support Tickets (%j, %j)',
+    (admin, user) => {
+      const { result } = sidebarFor(admin, user)
+      expect(
+        result.current
+          .flatMap((group) => group.items)
+          .some((item) => item.title === 'Support Tickets')
+      ).toBe(false)
+    }
+  )
+
+  it('hiding the workbench keeps the rest of the general group', () => {
+    const { result } = sidebarFor({ console: { enabled: true, workbench: false } })
+    const titles = result.current
+      .find((group) => group.id === 'general')
+      ?.items.map((item) => item.title)
+    expect(titles).toEqual(['Overview', 'API Keys', 'Data Dashboard'])
+  })
+})
+
+describe('security sidebar visibility', () => {
+  it('keeps Security & Access reachable in the admin-only logs group', () => {
+    const { result } = sidebarFor(
+      { personal: { enabled: true, personal: true, topup: true } },
+      { personal: { enabled: true, personal: true } }
+    )
     expect(
       result.current
         .flatMap((group) => group.items)
-        .some((item) => item.title === 'API Keys')
+        .some((item) => item.title === 'Security & Access')
     ).toBe(true)
+    expect(
+      result.current.find((group) => group.id === 'logs')?.requiredRole
+    ).toBeGreaterThan(1)
   })
+
   it.each([
     [{ personal: { enabled: true, security: false } }, undefined],
     [{ personal: { enabled: false } }, { personal: { security: true } }],
@@ -142,7 +186,7 @@ describe('audit log sidebar entry', () => {
       { console: { enabled: true, log: true } }
     )
     const items =
-      result.current.find((group) => group.id === 'general')?.items ?? []
+      result.current.find((group) => group.id === 'logs')?.items ?? []
     const usageIndex = items.findIndex((item) => item.title === 'Usage Logs')
     expect(items[usageIndex + 1]).toMatchObject({
       title: 'Audit Logs',
