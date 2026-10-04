@@ -518,7 +518,13 @@ func keepUpstreamRedirectResponse(_ *http.Request, _ []*http.Request) error {
 }
 
 func doRequest(c *gin.Context, req *http.Request, info *common.RelayInfo) (*http.Response, error) {
-	client, err := service.GetHttpClientWithProxySettings(info.ChannelSetting.Proxy, info.ChannelSetting)
+	var client *http.Client
+	var err error
+	if info != nil && info.IsBYOK {
+		client, err = service.GetBYOKHttpClient(info.ChannelSetting.Proxy, info.ChannelSetting)
+	} else {
+		client, err = service.GetHttpClientWithProxySettings(info.ChannelSetting.Proxy, info.ChannelSetting)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("new proxy http client failed: %w", err)
 	}

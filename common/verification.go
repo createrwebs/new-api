@@ -1,6 +1,8 @@
 package common
 
 import (
+	"context"
+	"fmt"
 	"strings"
 	"sync"
 	"time"
@@ -9,19 +11,29 @@ import (
 )
 
 type verificationValue struct {
-	code string
-	time time.Time
+	code     string
+	time     time.Time
+	attempts int
 }
 
 const (
 	EmailVerificationPurpose = "v"
 	PasswordResetPurpose     = "r"
+	MaxVerificationAttempts  = 5
 )
 
 var verificationMutex sync.Mutex
 var verificationMap map[string]verificationValue
-var verificationMapMaxSize = 10
+var verificationMapMaxSize = 100
 var VerificationValidMinutes = 10
+
+func redisVerificationKey(purpose, key string) string {
+	return fmt.Sprintf("verification:%s:%s", purpose, strings.ToLower(strings.TrimSpace(key)))
+}
+
+func redisVerificationAttemptsKey(purpose, key string) string {
+	return fmt.Sprintf("verification:attempts:%s:%s", purpose, strings.ToLower(strings.TrimSpace(key)))
+}
 
 func GenerateVerificationCode(length int) string {
 	code := uuid.New().String()
@@ -33,11 +45,30 @@ func GenerateVerificationCode(length int) string {
 }
 
 func RegisterVerificationCodeWithKey(key string, code string, purpose string) {
+	key = strings.ToLower(strings.TrimSpace(key))
+	code = strings.TrimSpace(code)
+	if key == "" || code == "" {
+		return
+	}
+
+	if RedisEnabled && RDB != nil {
+		ctx := context.Background()
+		ttl := time.Duration(VerificationValidMinutes) * time.Minute
+		pipe := RDB.Pipeline()
+		pipe.Set(ctx, redisVerificationKey(purpose, key), code, ttl)
+		pipe.Del(ctx, redisVerificationAttemptsKey(purpose, key))
+		_, err := pipe.Exec(ctx)
+		if err != nil {
+			SysError(fmt.Sprintf("failed to save verification code to redis: %v", err))
+		}
+	}
+
 	verificationMutex.Lock()
 	defer verificationMutex.Unlock()
 	verificationMap[purpose+key] = verificationValue{
-		code: code,
-		time: time.Now(),
+		code:     code,
+		time:     time.Now(),
+		attempts: 0,
 	}
 	if len(verificationMap) > verificationMapMaxSize {
 		removeExpiredPairs()
@@ -45,27 +76,95 @@ func RegisterVerificationCodeWithKey(key string, code string, purpose string) {
 }
 
 func VerifyCodeWithKey(key string, code string, purpose string) bool {
-	verificationMutex.Lock()
-	defer verificationMutex.Unlock()
-	value, okay := verificationMap[purpose+key]
-	now := time.Now()
-	if !okay || int(now.Sub(value.time).Seconds()) >= VerificationValidMinutes*60 {
+	key = strings.ToLower(strings.TrimSpace(key))
+	code = strings.TrimSpace(code)
+	if key == "" || code == "" {
 		return false
 	}
-	return code == value.code
+
+	if RedisEnabled {
+		if RDB == nil {
+			SysError("redis is enabled but RDB is nil")
+			return false // safe failure mode
+		}
+		ctx := context.Background()
+		luaScript := `
+			local codeKey = KEYS[1]
+			local attemptsKey = KEYS[2]
+			local maxAttempts = tonumber(ARGV[2])
+			local currentAttempts = tonumber(redis.call('GET', attemptsKey) or '0')
+
+			if currentAttempts >= maxAttempts then
+				redis.call('DEL', codeKey)
+				redis.call('DEL', attemptsKey)
+				return 0
+			end
+
+			local stored = redis.call('GET', codeKey)
+			if not stored then
+				return 0
+			end
+
+			if stored == ARGV[1] then
+				redis.call('DEL', codeKey)
+				redis.call('DEL', attemptsKey)
+				return 1
+			else
+				redis.call('INCR', attemptsKey)
+				redis.call('EXPIRE', attemptsKey, 600)
+				return 0
+			end
+		`
+		result, err := RDB.Eval(ctx, luaScript, []string{
+			redisVerificationKey(purpose, key),
+			redisVerificationAttemptsKey(purpose, key),
+		}, code, MaxVerificationAttempts).Int()
+		if err != nil {
+			SysError(fmt.Sprintf("failed to verify code with redis: %v", err))
+			return false // safe failure mode
+		}
+		return result == 1
+	}
+
+	// In-memory fallback
+	verificationMutex.Lock()
+	defer verificationMutex.Unlock()
+	fullKey := purpose + key
+	value, exists := verificationMap[fullKey]
+	now := time.Now()
+	if !exists || int(now.Sub(value.time).Seconds()) >= VerificationValidMinutes*60 {
+		return false
+	}
+	if value.attempts >= MaxVerificationAttempts {
+		delete(verificationMap, fullKey)
+		return false
+	}
+	if value.code != code {
+		value.attempts++
+		verificationMap[fullKey] = value
+		return false
+	}
+
+	// Atomic consumption on match
+	delete(verificationMap, fullKey)
+	return true
 }
 
 func DeleteKey(key string, purpose string) {
+	key = strings.ToLower(strings.TrimSpace(key))
+	if RedisEnabled && RDB != nil {
+		ctx := context.Background()
+		RDB.Del(ctx, redisVerificationKey(purpose, key), redisVerificationAttemptsKey(purpose, key))
+	}
 	verificationMutex.Lock()
 	defer verificationMutex.Unlock()
 	delete(verificationMap, purpose+key)
 }
 
-// no lock inside, so the caller must lock the verificationMap before calling!
 func removeExpiredPairs() {
 	now := time.Now()
-	for key := range verificationMap {
-		if int(now.Sub(verificationMap[key].time).Seconds()) >= VerificationValidMinutes*60 {
+	for key, val := range verificationMap {
+		if int(now.Sub(val.time).Seconds()) >= VerificationValidMinutes*60 {
 			delete(verificationMap, key)
 		}
 	}

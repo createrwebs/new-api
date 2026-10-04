@@ -104,6 +104,11 @@ var accessTokenRouteRules = map[string]accessTokenRouteRule{
 	"POST /api/user/checkin":                       accessTokenScopeRule("wallet:write"),
 	"GET /api/user/oauth/bindings":                 accessTokenScopeRule("account_security:read"),
 	"DELETE /api/user/oauth/bindings/:provider_id": accessTokenScopeRule("account_security:write"),
+	"GET /api/user/providers":                      accessTokenScopeRule("api_key:read"),
+	"POST /api/user/providers":                     accessTokenScopeRule("api_key:write"),
+	"PUT /api/user/providers/:id":                  accessTokenScopeRule("api_key:write"),
+	"DELETE /api/user/providers/:id":               accessTokenScopeRule("api_key:write"),
+	"POST /api/user/providers/:id/test":            accessTokenScopeRule("api_key:write"),
 
 	// router/api-router.go: /api/user (admin)
 	"GET /api/user/":                                   accessTokenScopeRule("user:read"),
@@ -142,6 +147,11 @@ var accessTokenRouteRules = map[string]accessTokenRouteRule{
 	"POST /api/subscription/admin/users/:id/subscriptions/reset":     accessTokenScopeRule("billing:write"),
 	"POST /api/subscription/admin/user_subscriptions/:id/invalidate": accessTokenScopeRule("billing:write"),
 	"DELETE /api/subscription/admin/user_subscriptions/:id":          accessTokenScopeRule("billing:write"),
+	"GET /api/budget/rules":                                           accessTokenScopeRule("billing:read"),
+	"POST /api/budget/rules":                                          accessTokenScopeRule("billing:write"),
+	"PUT /api/budget/rules/:id":                                       accessTokenScopeRule("billing:write"),
+	"DELETE /api/budget/rules/:id":                                    accessTokenScopeRule("billing:write"),
+	"GET /api/budget/usage":                                           accessTokenScopeRule("billing:read"),
 
 	// router/api-router.go: /api/option
 	"GET /api/option/":                                           accessTokenScopeRule("option:read"),

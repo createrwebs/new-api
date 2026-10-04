@@ -54,6 +54,10 @@ const (
 	ContextKeyUsingGroup  ContextKey = "group"
 	ContextKeyUserName    ContextKey = "username"
 
+	/* BYOK related keys */
+	ContextKeyIsBYOK       ContextKey = "is_byok"
+	ContextKeyBYOKProvider ContextKey = "byok_provider"
+
 	ContextKeyLocalCountTokens ContextKey = "local_count_tokens"
 
 	ContextKeySystemPromptOverride ContextKey = "system_prompt_override"

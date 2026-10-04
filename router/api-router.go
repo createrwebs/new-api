@@ -145,6 +145,17 @@ func SetApiRouter(router *gin.Engine) {
 				selfRoute.GET("/checkin", controller.GetCheckinStatus)
 				selfRoute.POST("/checkin", middleware.TurnstileCheck(), controller.DoCheckin)
 
+				// User BYOK provider routes
+				providerRoute := selfRoute.Group("/providers")
+				providerRoute.Use(middleware.DisableCache())
+				{
+					providerRoute.GET("", controller.ListUserProviders)
+					providerRoute.POST("", middleware.CriticalRateLimit(), controller.CreateUserProvider)
+					providerRoute.PUT("/:id", middleware.CriticalRateLimit(), controller.UpdateUserProvider)
+					providerRoute.DELETE("/:id", middleware.CriticalRateLimit(), controller.DeleteUserProvider)
+					providerRoute.POST("/:id/test", middleware.CriticalRateLimit(), controller.TestUserProvider)
+				}
+
 				// Custom OAuth bindings
 				selfRoute.GET("/oauth/bindings", controller.GetUserOAuthBindings)
 				selfRoute.DELETE("/oauth/bindings/:provider_id", controller.UnbindCustomOAuth)

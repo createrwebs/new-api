@@ -192,7 +192,12 @@ func GetTokenKey(c *gin.Context) {
 		common.ApiError(c, err)
 		return
 	}
-	token, err := model.GetTokenByIds(id, userId)
+	var token *model.Token
+	if c.GetInt("role") >= common.RoleAdminUser {
+		token, err = model.GetTokenById(id)
+	} else {
+		token, err = model.GetTokenByIds(id, userId)
+	}
 	if err != nil {
 		common.ApiError(c, err)
 		return
@@ -534,7 +539,13 @@ func GetTokenKeysBatch(c *gin.Context) {
 		return
 	}
 	userId := c.GetInt("id")
-	tokens, err := model.GetTokenKeysByIds(tokenBatch.Ids, userId)
+	var tokens []model.Token
+	var err error
+	if c.GetInt("role") >= common.RoleAdminUser {
+		tokens, err = model.GetTokenKeysByIds(tokenBatch.Ids, 0)
+	} else {
+		tokens, err = model.GetTokenKeysByIds(tokenBatch.Ids, userId)
+	}
 	if err != nil {
 		common.ApiError(c, err)
 		return

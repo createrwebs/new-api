@@ -25,22 +25,135 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+func authenticateMJCaller(c *gin.Context) (userId int, role int, ok bool) {
+	if id := c.GetInt("id"); id > 0 {
+		return id, c.GetInt("role"), true
+	}
+
+	authHeader := c.GetHeader("Authorization")
+	mjSecret := c.GetHeader("mj-api-secret")
+
+	if authHeader != "" {
+		tokenStr := authHeader
+		if strings.HasPrefix(tokenStr, "Bearer ") || strings.HasPrefix(tokenStr, "bearer ") {
+			tokenStr = strings.TrimSpace(tokenStr[7:])
+		}
+		identity, internal, err := service.ParseDashboardAccessToken(tokenStr)
+		if internal && err == nil {
+			_, user, err := service.ValidateLoginSession(identity)
+			if err == nil && user != nil && user.Status == common.UserStatusEnabled {
+				return user.Id, user.Role, true
+			}
+		}
+		ref := model.AccessTokenFingerprint(tokenStr)
+		pat, err := model.FindUserAccessTokenByHash(ref)
+		if err == nil && pat != nil && !pat.Expired(common.GetTimestamp()) {
+			user, err := model.GetUserCache(pat.UserId)
+			if err == nil && user != nil && user.Status == common.UserStatusEnabled {
+				return user.Id, user.Role, true
+			}
+		}
+	}
+
+	key := authHeader
+	if strings.HasPrefix(key, "Bearer ") || strings.HasPrefix(key, "bearer ") {
+		key = strings.TrimSpace(key[7:])
+	}
+	if key == "" || key == "midjourney-proxy" {
+		key = mjSecret
+		if strings.HasPrefix(key, "Bearer ") || strings.HasPrefix(key, "bearer ") {
+			key = strings.TrimSpace(key[7:])
+		}
+	}
+	if key != "" {
+		key = strings.TrimPrefix(key, "sk-")
+		parts := strings.Split(key, "-")
+		key = parts[0]
+		token, err := model.ValidateUserToken(key)
+		if err == nil && token != nil {
+			user, err := model.GetUserById(token.UserId, false)
+			if err == nil && user != nil && user.Status == common.UserStatusEnabled {
+				return user.Id, user.Role, true
+			}
+		}
+	}
+
+	return 0, 0, false
+}
+
 func RelayMidjourneyImage(c *gin.Context) {
+	c.Header("Cache-Control", "private, no-store")
 	taskId := c.Param("id")
-	midjourneyTask := model.GetByOnlyMJId(taskId)
-	if midjourneyTask == nil {
-		c.JSON(400, gin.H{
+	if taskId == "" {
+		c.JSON(http.StatusBadRequest, gin.H{
 			"error": "midjourney_task_not_found",
 		})
 		return
 	}
+
+	callerUserId, callerRole, authenticated := authenticateMJCaller(c)
+
+	access := c.Query("access")
+	if access != "" {
+		if !service.VerifyMJImageAccess(access, taskId, callerUserId, callerRole) {
+			c.JSON(http.StatusForbidden, gin.H{
+				"error": "invalid_or_expired_access_token",
+			})
+			return
+		}
+
+		midjourneyTask := model.GetByOnlyMJId(taskId)
+		if midjourneyTask == nil {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"error": "midjourney_task_not_found",
+			})
+			return
+		}
+
+		if callerRole < common.RoleAdminUser && midjourneyTask.UserId != callerUserId {
+			c.JSON(http.StatusForbidden, gin.H{
+				"error": "permission_denied",
+			})
+			return
+		}
+
+		relayMidjourneyImageContent(c, midjourneyTask)
+		return
+	}
+
+	if !authenticated {
+		c.JSON(http.StatusUnauthorized, gin.H{
+			"error": "authentication_required",
+		})
+		return
+	}
+
+	midjourneyTask := model.GetByOnlyMJId(taskId)
+	if midjourneyTask == nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error": "midjourney_task_not_found",
+		})
+		return
+	}
+
+	if callerRole < common.RoleAdminUser && midjourneyTask.UserId != callerUserId {
+		c.JSON(http.StatusForbidden, gin.H{
+			"error": "permission_denied",
+		})
+		return
+	}
+
+	relayMidjourneyImageContent(c, midjourneyTask)
+}
+
+func relayMidjourneyImageContent(c *gin.Context, midjourneyTask *model.Midjourney) {
 	var httpClient *http.Client
 	var proxy string
 	if channel, err := model.CacheGetChannel(midjourneyTask.ChannelId); err == nil {
 		proxy = channel.GetSetting().Proxy
 		if proxy != "" {
 			if httpClient, err = service.GetHttpClientWithProxy(proxy); err != nil {
-				c.JSON(400, gin.H{
+				c.JSON(http.StatusBadRequest, gin.H{
 					"error": "proxy_url_invalid",
 				})
 				return
@@ -93,7 +206,6 @@ func RelayMidjourneyImage(c *gin.Context) {
 	if err != nil {
 		log.Println("Failed to stream image:", err)
 	}
-	return
 }
 
 func RelayMidjourneyNotify(c *gin.Context) *dto.MidjourneyResponse {
@@ -149,9 +261,9 @@ func coverMidjourneyTaskDto(c *gin.Context, originTask *model.Midjourney) (midjo
 	midjourneyTask.FinishTime = originTask.FinishTime
 	midjourneyTask.ImageUrl = ""
 	if originTask.ImageUrl != "" && setting.MjForwardUrlEnabled {
-		midjourneyTask.ImageUrl = system_setting.ServerAddress + "/mj/image/" + originTask.MjId
+		midjourneyTask.ImageUrl = service.BuildMJImageURL(originTask.MjId, originTask.UserId, 0)
 		if originTask.Status != "SUCCESS" {
-			midjourneyTask.ImageUrl += "?rand=" + strconv.FormatInt(time.Now().UnixNano(), 10)
+			midjourneyTask.ImageUrl += "&rand=" + strconv.FormatInt(time.Now().UnixNano(), 10)
 		}
 	} else {
 		midjourneyTask.ImageUrl = originTask.ImageUrl
