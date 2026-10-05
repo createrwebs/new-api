@@ -273,6 +273,17 @@ func CacheUpdateChannelStatus(id int, status int) {
 	}
 }
 
+func CacheUpdateChannelPollingIndex(id int, index int) {
+	if !common.MemoryCacheEnabled {
+		return
+	}
+	channelSyncLock.Lock()
+	defer channelSyncLock.Unlock()
+	if c, ok := channelsIDM[id]; ok {
+		c.ChannelInfo.MultiKeyPollingIndex = index
+	}
+}
+
 func CacheUpdateChannel(channel *Channel) {
 	if !common.MemoryCacheEnabled {
 		return

@@ -83,6 +83,10 @@ func redisRateLimitHandler(duration int64, totalMaxCount, successMaxCount int) g
 		userId := strconv.Itoa(c.GetInt("id"))
 		ctx := context.Background()
 		rdb := common.RDB
+		if rdb == nil {
+			memoryRateLimitHandler(duration, totalMaxCount, successMaxCount)(c)
+			return
+		}
 
 		// 1. 检查成功请求数限制
 		successKey := fmt.Sprintf("rateLimit:%s:%s", ModelRequestRateLimitSuccessCountMark, userId)
@@ -199,7 +203,7 @@ func ModelRequestRateLimit() func(c *gin.Context) {
 		}
 
 		// 根据存储类型选择并执行限流处理器
-		if common.RedisEnabled {
+		if common.RedisEnabled && common.RDB != nil {
 			redisRateLimitHandler(duration, totalMaxCount, successMaxCount)(c)
 		} else {
 			memoryRateLimitHandler(duration, totalMaxCount, successMaxCount)(c)

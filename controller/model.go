@@ -219,7 +219,8 @@ func ListModels(c *gin.Context, modelType int) {
 	acceptUnsetRatioModel := operation_setting.SelfUseModeEnabled
 	if !acceptUnsetRatioModel {
 		userId := c.GetInt("id")
-		if userId > 0 {
+		userRole := c.GetInt("role")
+		if userId > 0 && userRole >= common.RoleAdminUser {
 			userSettings, _ := model.GetUserSetting(userId, false)
 			if userSettings.AcceptUnsetRatioModel {
 				acceptUnsetRatioModel = true

@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -144,6 +145,18 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 	defer func() {
 		newAPIError = relay.RefundFailedRequestBilling(c, relayInfo, newAPIError)
 	}()
+
+	overallTimeoutSec := common.RelayTimeout
+	if overallTimeoutSec <= 0 {
+		overallTimeoutSec = common.DefaultRelayTimeout
+	}
+	origCtx := c.Request.Context()
+	overallCtx, overallCancel := context.WithTimeout(origCtx, time.Duration(overallTimeoutSec)*time.Second)
+	defer func() {
+		c.Request = c.Request.WithContext(origCtx)
+		overallCancel()
+	}()
+	c.Request = c.Request.WithContext(overallCtx)
 
 	retryParam := &service.RetryParam{
 		Ctx:         c,
@@ -491,6 +504,18 @@ func executeTaskSubmissionWith(
 		}
 	}()
 	stage = "before_attempt"
+	overallTimeoutSec := common.RelayTimeout
+	if overallTimeoutSec <= 0 {
+		overallTimeoutSec = common.DefaultRelayTimeout
+	}
+	origCtx := c.Request.Context()
+	overallCtx, overallCancel := context.WithTimeout(origCtx, time.Duration(overallTimeoutSec)*time.Second)
+	defer func() {
+		c.Request = c.Request.WithContext(origCtx)
+		overallCancel()
+	}()
+	c.Request = c.Request.WithContext(overallCtx)
+
 	if requestErr := c.Request.Context().Err(); requestErr != nil {
 		diagnostics.cancelled("before_attempt", 0)
 		return nil, service.TaskErrorWrapperLocal(requestErr, "request_cancelled", http.StatusRequestTimeout)

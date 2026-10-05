@@ -546,7 +546,9 @@ func getTokenKeyCol() string {
 
 func GetTokenKeysByIds(ids []int, userId int) ([]Token, error) {
 	var tokens []Token
-	query := DB.Select("id", getTokenKeyCol()).Where("id IN (?)", ids)
+	query := DB.Select("id", getTokenKeyCol()).
+		Where("id IN (?)", ids).
+		Where("status = ?", common.TokenStatusEnabled)
 	if userId > 0 {
 		query = query.Where("user_id = ?", userId)
 	}

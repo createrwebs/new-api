@@ -9,6 +9,7 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/pkg/billingexpr"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
+	relayconstant "github.com/QuantumNous/new-api/relay/constant"
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/relaykit/types"
 	"github.com/QuantumNous/new-api/service"
@@ -745,3 +746,90 @@ func (s *priceTestReservation) Refund(*gin.Context)      {}
 func (s *priceTestReservation) NeedsRefund() bool        { return false }
 func (s *priceTestReservation) GetPreConsumedQuota() int { return s.held }
 func (s *priceTestReservation) Reserve(quota int) error  { s.held = max(s.held, quota); return nil }
+
+func TestCompletionTokenReservation_6C01(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	previousRatios, previousCompletionRatios := ratio_setting.ModelRatio2JSONString(), ratio_setting.CompletionRatio2JSONString()
+	t.Cleanup(func() {
+		require.NoError(t, ratio_setting.UpdateModelRatioByJSONString(previousRatios))
+		require.NoError(t, ratio_setting.UpdateCompletionRatioByJSONString(previousCompletionRatios))
+	})
+
+	testModel := "test-completion-reserve-6c01"
+	// 1 token input = 1 ratio, 1 token completion = 2.0 ratio
+	require.NoError(t, ratio_setting.UpdateModelRatioByJSONString(fmt.Sprintf(`{"%s":1.0}`, testModel)))
+	require.NoError(t, ratio_setting.UpdateCompletionRatioByJSONString(fmt.Sprintf(`{"%s":2.0}`, testModel)))
+
+	// Case 1: Explicit max_tokens within server cap (e.g. 1000)
+	{
+		ctx, _ := gin.CreateTestContext(httptest.NewRecorder())
+		ctx.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+		info := &relaycommon.RelayInfo{
+			OriginModelName: testModel,
+			UserGroup:       "default",
+			UsingGroup:      "default",
+			RelayMode:       relayconstant.RelayModeChatCompletions,
+		}
+		promptTokens := 100
+		meta := &types.TokenCountMeta{MaxTokens: 1000}
+		price, err := ModelPriceHelper(ctx, info, promptTokens, meta)
+		require.NoError(t, err)
+		// Expected: (100 * 1.0 + 1000 * 2.0) * groupRatio(1.0) = 2100 quota
+		assert.Equal(t, 2100, price.QuotaToPreConsume)
+	}
+
+	// Case 2: Huge max_tokens exceeding ServerMaxCompletionReservationCap (4096)
+	{
+		ctx, _ := gin.CreateTestContext(httptest.NewRecorder())
+		ctx.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+		info := &relaycommon.RelayInfo{
+			OriginModelName: testModel,
+			UserGroup:       "default",
+			UsingGroup:      "default",
+			RelayMode:       relayconstant.RelayModeChatCompletions,
+		}
+		promptTokens := 100
+		meta := &types.TokenCountMeta{MaxTokens: 64000}
+		price, err := ModelPriceHelper(ctx, info, promptTokens, meta)
+		require.NoError(t, err)
+		// Expected: capped at 4096 completion tokens:
+		// (100 * 1.0 + 4096 * 2.0) * 1.0 = 8292 quota
+		assert.Equal(t, 8292, price.QuotaToPreConsume)
+	}
+
+	// Case 3: Unspecified max_tokens (defaults to DefaultEstimatedCompletionTokens = 2048)
+	{
+		ctx, _ := gin.CreateTestContext(httptest.NewRecorder())
+		ctx.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+		info := &relaycommon.RelayInfo{
+			OriginModelName: testModel,
+			UserGroup:       "default",
+			UsingGroup:      "default",
+			RelayMode:       relayconstant.RelayModeChatCompletions,
+		}
+		promptTokens := 100
+		meta := &types.TokenCountMeta{MaxTokens: 0}
+		price, err := ModelPriceHelper(ctx, info, promptTokens, meta)
+		require.NoError(t, err)
+		// Expected: (100 * 1.0 + 2048 * 2.0) * 1.0 = 4196 quota
+		assert.Equal(t, 4196, price.QuotaToPreConsume)
+	}
+
+	// Case 4: Non-text request (e.g. Image Generation mode) should NOT add completion tokens
+	{
+		ctx, _ := gin.CreateTestContext(httptest.NewRecorder())
+		ctx.Request = httptest.NewRequest(http.MethodPost, "/v1/images/generations", nil)
+		info := &relaycommon.RelayInfo{
+			OriginModelName: testModel,
+			UserGroup:       "default",
+			UsingGroup:      "default",
+			RelayMode:       relayconstant.RelayModeImagesGenerations,
+		}
+		promptTokens := 100
+		meta := &types.TokenCountMeta{MaxTokens: 1000}
+		price, err := ModelPriceHelper(ctx, info, promptTokens, meta)
+		require.NoError(t, err)
+		// Expected: Prompt only: 100 * 1.0 = 100 quota
+		assert.Equal(t, 100, price.QuotaToPreConsume)
+	}
+}

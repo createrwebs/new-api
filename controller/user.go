@@ -1423,12 +1423,17 @@ func UpdateUserSetting(c *gin.Context) {
 		upstreamModelUpdateNotifyEnabled = *req.UpstreamModelUpdateNotifyEnabled
 	}
 
+	acceptUnsetRatioModel := false
+	if user.Role >= common.RoleAdminUser {
+		acceptUnsetRatioModel = req.AcceptUnsetModelRatioModel
+	}
+
 	// 构建设置
 	settings := dto.UserSetting{
 		NotifyType:                       req.QuotaWarningType,
 		QuotaWarningThreshold:            req.QuotaWarningThreshold,
 		UpstreamModelUpdateNotifyEnabled: upstreamModelUpdateNotifyEnabled,
-		AcceptUnsetRatioModel:            req.AcceptUnsetModelRatioModel,
+		AcceptUnsetRatioModel:            acceptUnsetRatioModel,
 		RecordIpLog:                      req.RecordIpLog,
 	}
 

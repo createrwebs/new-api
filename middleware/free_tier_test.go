@@ -152,13 +152,32 @@ func TestFreeTierQuotaBypassesPaidAndAdminUsers(t *testing.T) {
 		UserId: paid.Id, AmountTotal: 0, Status: "active", EndTime: time.Now().Unix() + 3600,
 	}).Error)
 
-	// Paid user bypass
+	// Paid user bypass via subscription
 	response := httptest.NewRecorder()
 	context, _ := gin.CreateTestContext(response)
 	context.Set("id", paid.Id)
 	context.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
 	FreeTierQuota()(context)
 	assert.NotEqual(t, http.StatusTooManyRequests, response.Code)
+
+	// Paid PAYG user bypass via wallet quota (no subscription)
+	walletUser := &model.User{
+		Username:    "wallet-tier-middleware-" + common.GetRandomString(8),
+		Password:    "unused-password",
+		Role:        common.RoleCommonUser,
+		Status:      common.UserStatusEnabled,
+		Group:       "default",
+		Quota:       500_000,
+		AuthVersion: 1,
+		AffCode:     "wallet-tier-aff-" + common.GetRandomString(8),
+	}
+	require.NoError(t, model.DB.Create(walletUser).Error)
+	walletResp := httptest.NewRecorder()
+	walletCtx, _ := gin.CreateTestContext(walletResp)
+	walletCtx.Set("id", walletUser.Id)
+	walletCtx.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+	FreeTierQuota()(walletCtx)
+	assert.NotEqual(t, http.StatusTooManyRequests, walletResp.Code)
 
 	// Admin user bypass
 	require.NoError(t, model.DB.Model(user).Update("role", common.RoleAdminUser).Error)

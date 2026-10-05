@@ -1,11 +1,11 @@
 package middleware
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
@@ -20,13 +20,6 @@ var (
 	byokRateLimitNum      = common.GetEnvOrDefault("BYOK_RATE_LIMIT_NUM", 60)
 	byokRateLimitDuration = int64(common.GetEnvOrDefault("BYOK_RATE_LIMIT_DURATION", 60))
 	byokMaxConcurrency    = common.GetEnvOrDefault("BYOK_MAX_CONCURRENCY", 5)
-
-	byokConcurrencyTracker = struct {
-		mu     sync.Mutex
-		active map[int]int
-	}{
-		active: make(map[int]int),
-	}
 )
 
 func SetBYOKRateLimitsForTest(num int, duration int64, concurrency int) func() {
@@ -81,15 +74,19 @@ func writeBYOKRateLimited(c *gin.Context, retryAfterSeconds int64) {
 	})
 }
 
-func acquireBYOKConcurrency(c *gin.Context, userID int) bool {
+func acquireBYOKConcurrency(c *gin.Context, userID int) (string, bool) {
 	if byokMaxConcurrency <= 0 {
-		return true
+		return "", true
 	}
-	byokConcurrencyTracker.mu.Lock()
-	defer byokConcurrencyTracker.mu.Unlock()
+	timeoutSeconds := common.RelayTimeout
+	if timeoutSeconds <= 0 {
+		timeoutSeconds = 600
+	}
+	ttl := time.Duration(timeoutSeconds) * time.Second
+	leaseID := generateLeaseID("byok", userID)
+	key := fmt.Sprintf("concurrency:byok:user:%d", userID)
 
-	current := byokConcurrencyTracker.active[userID]
-	if current >= byokMaxConcurrency {
+	if !AcquireConcurrencyLease(c.Request.Context(), key, leaseID, byokMaxConcurrency, ttl) {
 		c.AbortWithStatusJSON(http.StatusTooManyRequests, gin.H{
 			"error": gin.H{
 				"message": fmt.Sprintf("Too many concurrent BYOK requests. Maximum allowed is %d.", byokMaxConcurrency),
@@ -97,25 +94,17 @@ func acquireBYOKConcurrency(c *gin.Context, userID int) bool {
 				"code":    "byok_concurrency_limit_exceeded",
 			},
 		})
-		return false
+		return "", false
 	}
-	byokConcurrencyTracker.active[userID] = current + 1
-	return true
+	return leaseID, true
 }
 
-func releaseBYOKConcurrency(userID int) {
-	if byokMaxConcurrency <= 0 {
+func releaseBYOKConcurrency(userID int, leaseID string) {
+	if byokMaxConcurrency <= 0 || leaseID == "" {
 		return
 	}
-	byokConcurrencyTracker.mu.Lock()
-	defer byokConcurrencyTracker.mu.Unlock()
-
-	current := byokConcurrencyTracker.active[userID]
-	if current <= 1 {
-		delete(byokConcurrencyTracker.active, userID)
-	} else {
-		byokConcurrencyTracker.active[userID] = current - 1
-	}
+	key := fmt.Sprintf("concurrency:byok:user:%d", userID)
+	ReleaseConcurrencyLease(context.Background(), key, leaseID)
 }
 
 type byokRequestInfo struct {
@@ -241,10 +230,11 @@ func BYOKRouter() gin.HandlerFunc {
 		if !checkBYOKRateLimit(c, userID) {
 			return
 		}
-		if !acquireBYOKConcurrency(c, userID) {
+		leaseID, ok := acquireBYOKConcurrency(c, userID)
+		if !ok {
 			return
 		}
-		defer releaseBYOKConcurrency(userID)
+		defer releaseBYOKConcurrency(userID, leaseID)
 
 		apiKey, err := userProvider.DecryptAPIKey()
 		if err != nil {

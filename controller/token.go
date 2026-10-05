@@ -202,6 +202,10 @@ func GetTokenKey(c *gin.Context) {
 		common.ApiError(c, err)
 		return
 	}
+	if token.Status != common.TokenStatusEnabled {
+		common.ApiErrorI18n(c, i18n.MsgTokenStatusUnavailable)
+		return
+	}
 	params := tokenAuditParams(c)
 	params["id"], params["name"] = token.Id, token.Name
 	common.SetContextKey(c, constant.ContextKeyTokenAuditSucceeded, true)

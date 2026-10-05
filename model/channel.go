@@ -23,7 +23,7 @@ import (
 type Channel struct {
 	Id                 int     `json:"id"`
 	Type               int     `json:"type" gorm:"default:0"`
-	Key                string  `json:"key" gorm:"not null"`
+	Key                string  `json:"key" gorm:"type:text;not null"`
 	OpenAIOrganization *string `json:"openai_organization"`
 	TestModel          *string `json:"test_model"`
 	Status             int     `json:"status" gorm:"default:1"`
@@ -187,6 +187,11 @@ func (channel *Channel) GetKeys() []string {
 		return channel.Keys
 	}
 	trimmed := strings.TrimSpace(channel.Key)
+	if strings.HasPrefix(trimmed, channelEncryptedPrefix) {
+		if decrypted, err := DecryptChannelKey(trimmed); err == nil {
+			trimmed = strings.TrimSpace(decrypted)
+		}
+	}
 	// If the key starts with '[', try to parse it as a JSON array (e.g., for Vertex AI scenarios)
 	if strings.HasPrefix(trimmed, "[") {
 		var arr []json.RawMessage
@@ -199,14 +204,20 @@ func (channel *Channel) GetKeys() []string {
 		}
 	}
 	// Otherwise, fall back to splitting by newline
-	keys := strings.Split(strings.Trim(channel.Key, "\n"), "\n")
+	keys := strings.Split(strings.Trim(trimmed, "\n"), "\n")
 	return keys
 }
 
 func (channel *Channel) GetNextEnabledKey() (string, int, *types.NewAPIError) {
 	// If not in multi-key mode, return the original key string directly.
 	if !channel.ChannelInfo.IsMultiKey {
-		return channel.Key, 0, nil
+		key := channel.Key
+		if strings.HasPrefix(key, channelEncryptedPrefix) {
+			if decrypted, err := DecryptChannelKey(key); err == nil {
+				key = decrypted
+			}
+		}
+		return key, 0, nil
 	}
 
 	// Obtain all keys (split by \n)
@@ -265,7 +276,7 @@ func (channel *Channel) GetNextEnabledKey() (string, int, *types.NewAPIError) {
 			if !common.MemoryCacheEnabled {
 				_ = channel.SaveChannelInfo()
 			} else {
-				// CacheUpdateChannel(channel)
+				CacheUpdateChannelPollingIndex(channel.Id, channel.ChannelInfo.MultiKeyPollingIndex)
 			}
 		}()
 		// Start from the saved polling index and look for the next enabled key

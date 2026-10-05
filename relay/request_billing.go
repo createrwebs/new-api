@@ -44,6 +44,19 @@ func PrepareRequestBilling(c *gin.Context, info *relaycommon.RelayInfo) *types.N
 		}
 	}
 
+	if meta.MaxTokens == 0 && info.Request != nil {
+		switch request := info.Request.(type) {
+		case *dto.GeneralOpenAIRequest:
+			meta.MaxTokens = int(max(lo.FromPtr(request.MaxTokens), lo.FromPtr(request.MaxCompletionTokens)))
+		case *dto.OpenAIResponsesRequest:
+			meta.MaxTokens = int(lo.FromPtr(request.MaxOutputTokens))
+		case *dto.ClaudeRequest:
+			meta.MaxTokens = int(lo.FromPtr(request.MaxTokens))
+		case *dto.GeminiChatRequest:
+			meta.MaxTokens = int(lo.FromPtr(request.GenerationConfig.MaxOutputTokens))
+		}
+	}
+
 	if needSensitiveCheck && meta != nil {
 		if contains, words := service.CheckSensitiveText(meta.CombineText); contains {
 			service.RequestPolicy(c).AddEvent(service.PolicyEvent{ErrorCode: string(types.ErrorCodeSensitiveWordsDetected), ErrorSource: "local", Decision: service.PolicyDecision{Action: "stop", Reason: "local_rejection", Source: "global"}, Health: "unchanged"})

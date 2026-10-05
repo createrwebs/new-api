@@ -13,12 +13,17 @@ func RelayPanicRecover() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		defer func() {
 			if err := recover(); err != nil {
-				common.SysLog(fmt.Sprintf("panic detected: %v", err))
-				common.SysLog(fmt.Sprintf("stacktrace from panic: %s", string(debug.Stack())))
+				requestID := c.GetString(common.RequestIdKey)
+				common.SysError(fmt.Sprintf("panic detected [request_id=%s]: %v\nstack:\n%s", requestID, err, string(debug.Stack())))
+				msg := "An unexpected internal server error occurred. Please contact administrator."
+				if requestID != "" {
+					msg = fmt.Sprintf("An unexpected internal server error occurred. Please contact administrator with Request ID: %s", requestID)
+				}
 				c.JSON(http.StatusInternalServerError, gin.H{
 					"error": gin.H{
-						"message": fmt.Sprintf("Panic detected, error: %v. Please submit a issue here: https://github.com/Calcium-Ion/new-api", err),
-						"type":    "new_api_panic",
+						"message": msg,
+						"type":    "internal_server_error",
+						"code":    "internal_error",
 					},
 				})
 				c.Abort()

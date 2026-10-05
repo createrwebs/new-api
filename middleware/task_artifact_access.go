@@ -1,12 +1,14 @@
 package middleware
 
 import (
+	"context"
 	"net/http"
 	"net/url"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting/system_setting"
 	"github.com/gin-gonic/gin"
@@ -169,6 +171,50 @@ func popTaskArtifactAccessQuery(request *http.Request) (string, bool, bool) {
 	return rawAccess, true, invalid
 }
 
+func acquireTaskArtifactAccess(ctx context.Context, ip, taskID, artifactKey string, limits system_setting.TaskArtifactAccessLimits) (func(), bool) {
+	if !common.RedisEnabled || common.RDB == nil {
+		return taskArtifactAnonymousLimiter.acquire(ip, taskID, artifactKey)
+	}
+
+	leaseID := generateLeaseID("art", 0)
+	ttl := 120 * time.Second
+	globalKey := "concurrency:artifact:global"
+	ipKey := "concurrency:artifact:ip:" + ip
+	objKey := "concurrency:artifact:obj:" + taskID + ":" + artifactKey
+
+	if !AcquireConcurrencyLease(ctx, globalKey, leaseID, limits.GlobalConcurrency, ttl) {
+		return nil, false
+	}
+	if !AcquireConcurrencyLease(ctx, ipKey, leaseID, limits.IPConcurrency, ttl) {
+		ReleaseConcurrencyLease(context.Background(), globalKey, leaseID)
+		return nil, false
+	}
+	if !AcquireConcurrencyLease(ctx, objKey, leaseID, limits.ObjectConcurrency, ttl) {
+		ReleaseConcurrencyLease(context.Background(), ipKey, leaseID)
+		ReleaseConcurrencyLease(context.Background(), globalKey, leaseID)
+		return nil, false
+	}
+
+	var once sync.Once
+	return func() {
+		once.Do(func() {
+			ReleaseConcurrencyLease(context.Background(), objKey, leaseID)
+			ReleaseConcurrencyLease(context.Background(), ipKey, leaseID)
+			ReleaseConcurrencyLease(context.Background(), globalKey, leaseID)
+		})
+	}, true
+}
+
+func checkTaskArtifactInvalidAttempt(c *gin.Context, ip string, limits system_setting.TaskArtifactAccessLimits) bool {
+	if common.RedisEnabled && common.RDB != nil {
+		allowed, _, _, err := redisFixedWindowTake(c.Request.Context(), redisIPRateLimitKey("artifact_invalid", ip), limits.InvalidRatePerMinute, 60)
+		if err == nil {
+			return allowed
+		}
+	}
+	return taskArtifactAnonymousLimiter.invalidAttempt(time.Now(), ip)
+}
+
 // TokenOrTaskArtifactAccessAuth accepts the normal relay API Bearer token or a
 // route-bound capability. Capabilities are verified before any database read.
 func TokenOrTaskArtifactAccessAuth(taskParam, artifactParam string) gin.HandlerFunc {
@@ -197,7 +243,7 @@ func TokenOrTaskArtifactAccessAuth(taskParam, artifactParam string) gin.HandlerF
 			ip = "unknown"
 		}
 		if invalid || !service.VerifyTaskArtifactAccess(rawAccess, taskID, artifactKey) {
-			if !taskArtifactAnonymousLimiter.invalidAttempt(time.Now(), ip) {
+			if !checkTaskArtifactInvalidAttempt(c, ip, taskArtifactAnonymousLimiter.limits) {
 				writeTaskArtifactAccessLimited(c)
 				return
 			}
@@ -205,7 +251,7 @@ func TokenOrTaskArtifactAccessAuth(taskParam, artifactParam string) gin.HandlerF
 			return
 		}
 
-		release, ok := taskArtifactAnonymousLimiter.acquire(ip, taskID, artifactKey)
+		release, ok := acquireTaskArtifactAccess(c.Request.Context(), ip, taskID, artifactKey, taskArtifactAnonymousLimiter.limits)
 		if !ok {
 			writeTaskArtifactAccessLimited(c)
 			return

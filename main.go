@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"runtime/debug"
 	"strconv"
 	"strings"
 	"syscall"
@@ -184,17 +185,24 @@ func main() {
 		return
 	}
 	server.Use(gin.CustomRecovery(func(c *gin.Context, err any) {
-		common.SysLog(fmt.Sprintf("panic detected: %v", err))
+		requestID := c.GetString(common.RequestIdKey)
+		common.SysError(fmt.Sprintf("panic detected [request_id=%s]: %v\nstack:\n%s", requestID, err, string(debug.Stack())))
+		msg := "An unexpected internal server error occurred. Please contact administrator."
+		if requestID != "" {
+			msg = fmt.Sprintf("An unexpected internal server error occurred. Please contact administrator with Request ID: %s", requestID)
+		}
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"error": gin.H{
-				"message": fmt.Sprintf("Panic detected, error: %v. Please submit a issue here: https://github.com/Calcium-Ion/new-api", err),
-				"type":    "new_api_panic",
+				"message": msg,
+				"type":    "internal_server_error",
+				"code":    "internal_error",
 			},
 		})
 	}))
 	// This will cause SSE not to work!!!
 	//server.Use(gzip.Gzip(gzip.DefaultCompression))
 	server.Use(middleware.RequestId())
+	server.Use(middleware.SecurityHeaders())
 	server.Use(middleware.Version())
 	server.Use(middleware.I18n())
 	middleware.SetUpLogger(server)

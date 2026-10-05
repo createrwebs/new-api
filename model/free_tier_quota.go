@@ -47,6 +47,9 @@ func IsFreeTierUser(userID int) (bool, error) {
 	if user.Role >= common.RoleAdminUser {
 		return false, nil
 	}
+	if user.Quota > 0 {
+		return false, nil
+	}
 	var count int64
 	now := common.GetTimestamp()
 	if err := DB.Model(&UserSubscription{}).

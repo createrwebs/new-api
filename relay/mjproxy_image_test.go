@@ -330,3 +330,103 @@ func TestRelayMidjourneyImageAuthorization(t *testing.T) {
 		assert.Contains(t, resp.Body.String(), "permission_denied")
 	}
 }
+
+func TestRelayMidjourneyImageResponseCeiling(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db := setupMJImageTestDB(t)
+
+	origSecret := common.CryptoSecret
+	common.CryptoSecret = "mj-auth-test-secret-key-12345"
+	defer func() { common.CryptoSecret = origSecret }()
+
+	originalFetchSetting := *system_setting.GetFetchSetting()
+	system_setting.GetFetchSetting().EnableSSRFProtection = false
+	system_setting.GetFetchSetting().AllowPrivateIp = true
+	system_setting.GetFetchSetting().AllowedPorts = []string{"1-65535"}
+	t.Cleanup(func() { *system_setting.GetFetchSetting() = originalFetchSetting })
+
+	// Mock upstream returning 60MB (which exceeds 50MB default ceiling)
+	oversizedServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "image/png")
+		w.Header().Set("Content-Length", fmt.Sprintf("%d", 60<<20))
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer oversizedServer.Close()
+
+	chanSetting := fmt.Sprintf(`{"proxy":"%s"}`, oversizedServer.URL)
+	channel := &model.Channel{
+		Type:    constant.ChannelTypeMidjourney,
+		Status:  common.ChannelStatusEnabled,
+		Setting: &chanSetting,
+	}
+	require.NoError(t, db.Create(channel).Error)
+
+	userA := &model.User{Username: "userCeiling", Role: common.RoleCommonUser, Status: common.UserStatusEnabled}
+	require.NoError(t, db.Create(userA).Error)
+
+	task := &model.Midjourney{
+		MjId:      "mj-oversized-123",
+		UserId:    userA.Id,
+		ChannelId: channel.Id,
+		ImageUrl:  oversizedServer.URL + "/image.png",
+	}
+	require.NoError(t, db.Create(task).Error)
+
+	tokenA, err := service.IssueMJImageAccess("mj-oversized-123", userA.Id, time.Hour)
+	require.NoError(t, err)
+
+	router := gin.New()
+	router.GET("/mj/image/:id", func(c *gin.Context) {
+		c.Set("id", userA.Id)
+		c.Set("role", userA.Role)
+		RelayMidjourneyImage(c)
+	})
+
+	req, _ := http.NewRequest(http.MethodGet, "/mj/image/mj-oversized-123?access="+tokenA, nil)
+	resp := httptest.NewRecorder()
+	router.ServeHTTP(resp, req)
+
+	assert.Equal(t, http.StatusRequestEntityTooLarge, resp.Code)
+	assert.Contains(t, resp.Body.String(), "exceeds maximum allowed limit")
+
+	// Test chunked streaming exceeding limit without Content-Length
+	chunkedServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "image/png")
+		chunk := make([]byte, 1024*1024) // 1MB chunk
+		for i := 0; i < 55; i++ {
+			_, err := w.Write(chunk)
+			if err != nil {
+				return
+			}
+		}
+	}))
+	defer chunkedServer.Close()
+
+	chanSettingChunked := fmt.Sprintf(`{"proxy":"%s"}`, chunkedServer.URL)
+	channelChunked := &model.Channel{
+		Type:    constant.ChannelTypeMidjourney,
+		Status:  common.ChannelStatusEnabled,
+		Setting: &chanSettingChunked,
+	}
+	require.NoError(t, db.Create(channelChunked).Error)
+
+	taskChunked := &model.Midjourney{
+		MjId:      "mj-chunked-123",
+		UserId:    userA.Id,
+		ChannelId: channelChunked.Id,
+		ImageUrl:  chunkedServer.URL + "/image.png",
+	}
+	require.NoError(t, db.Create(taskChunked).Error)
+
+	tokenChunked, err := service.IssueMJImageAccess("mj-chunked-123", userA.Id, time.Hour)
+	require.NoError(t, err)
+
+	reqChunked, _ := http.NewRequest(http.MethodGet, "/mj/image/mj-chunked-123?access="+tokenChunked, nil)
+	respChunked := httptest.NewRecorder()
+	router.ServeHTTP(respChunked, reqChunked)
+
+	// Stream must be truncated at maxBytes + 1 (50MB + 1), never transferring the full 55MB
+	maxAllowedBytes := int(getMaxMJImageBytes())
+	assert.True(t, respChunked.Body.Len() <= maxAllowedBytes+1, "chunked stream must be truncated at ceiling")
+	assert.True(t, respChunked.Body.Len() < 55*1024*1024, "chunked stream must not read entire 55MB")
+}

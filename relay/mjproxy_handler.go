@@ -146,6 +146,22 @@ func RelayMidjourneyImage(c *gin.Context) {
 	relayMidjourneyImageContent(c, midjourneyTask)
 }
 
+const (
+	defaultMaxMJImageSizeMB = 50
+	minMaxMJImageSizeMB     = 10
+	maxMaxMJImageSizeMB     = 200
+)
+
+func getMaxMJImageBytes() int64 {
+	mb := common.GetEnvOrDefault("MJ_IMAGE_MAX_SIZE_MB", defaultMaxMJImageSizeMB)
+	if mb < minMaxMJImageSizeMB {
+		mb = minMaxMJImageSizeMB
+	} else if mb > maxMaxMJImageSizeMB {
+		mb = maxMaxMJImageSizeMB
+	}
+	return int64(mb) << 20
+}
+
 func relayMidjourneyImageContent(c *gin.Context, midjourneyTask *model.Midjourney) {
 	var httpClient *http.Client
 	var proxy string
@@ -186,8 +202,17 @@ func relayMidjourneyImageContent(c *gin.Context, midjourneyTask *model.Midjourne
 		return
 	}
 	defer resp.Body.Close()
+
+	maxBytes := getMaxMJImageBytes()
+	if resp.ContentLength > maxBytes {
+		c.JSON(http.StatusRequestEntityTooLarge, gin.H{
+			"error": fmt.Sprintf("image size (%d bytes) exceeds maximum allowed limit of %d bytes", resp.ContentLength, maxBytes),
+		})
+		return
+	}
+
 	if resp.StatusCode != http.StatusOK {
-		responseBody, _ := io.ReadAll(resp.Body)
+		responseBody, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 		c.JSON(resp.StatusCode, gin.H{
 			"error": string(responseBody),
 		})
@@ -201,8 +226,13 @@ func relayMidjourneyImageContent(c *gin.Context, midjourneyTask *model.Midjourne
 	}
 	// 设置响应的内容类型
 	c.Writer.Header().Set("Content-Type", contentType)
-	// 将图片流式传输到响应体
-	_, err = io.Copy(c.Writer, resp.Body)
+	// 将图片流式传输到响应体，使用 LimitReader 严格限制最大传输字节数
+	limitReader := io.LimitReader(resp.Body, maxBytes+1)
+	written, err := io.Copy(c.Writer, limitReader)
+	if written > maxBytes {
+		log.Printf("image stream truncated: exceeded maximum limit of %d bytes\n", maxBytes)
+		return
+	}
 	if err != nil {
 		log.Println("Failed to stream image:", err)
 	}

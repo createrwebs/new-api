@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
@@ -582,4 +583,41 @@ func TestNewStreamScannerCallerLimit(t *testing.T) {
 	require.True(t, scanner.Scan())
 	assert.Equal(t, "data: ok", scanner.Text())
 	require.NoError(t, scanner.Err())
+}
+
+func TestStreamScannerHandler_OverallLifetimeTimeout(t *testing.T) {
+	oldTimeout := common.RelayTimeout
+	common.RelayTimeout = 1 // 1 second
+	defer func() { common.RelayTimeout = oldTimeout }()
+
+	r, w := io.Pipe()
+	defer r.Close()
+
+	stopCh := make(chan struct{})
+	go func() {
+		ticker := time.NewTicker(50 * time.Millisecond)
+		defer ticker.Stop()
+		i := 0
+		for {
+			select {
+			case <-stopCh:
+				return
+			case <-ticker.C:
+				i++
+				_, err := fmt.Fprintf(w, "data: {\"token\": %d}\n", i)
+				if err != nil {
+					return
+				}
+			}
+		}
+	}()
+
+	c, resp, info := setupStreamTest(t, r)
+	StreamScannerHandler(c, resp, info, func(data string, sr *StreamResult) {})
+
+	close(stopCh)
+	_ = w.Close()
+
+	require.NotNil(t, info.StreamStatus)
+	assert.Equal(t, relaycommon.StreamEndReasonTimeout, info.StreamStatus.EndReason)
 }

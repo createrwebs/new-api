@@ -2,8 +2,10 @@ package service
 
 import (
 	"errors"
+	"fmt"
 	"time"
 
+	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
 )
 
@@ -33,8 +35,9 @@ type FundingSource interface {
 var ErrInsufficientWalletQuota = errors.New("wallet quota insufficient")
 
 type WalletFunding struct {
-	userId   int
-	consumed int // 实际预扣的用户额度
+	requestId string
+	userId    int
+	consumed  int // 实际预扣的用户额度
 }
 
 func (w *WalletFunding) Source() string { return BillingSourceWallet }
@@ -43,18 +46,24 @@ func (w *WalletFunding) PreConsume(amount int) error {
 	if amount <= 0 {
 		return nil
 	}
-	reserved, err := model.TryReserveUserQuota(w.userId, amount)
-	if err != nil {
-		return err
+	if w.requestId == "" {
+		w.requestId = fmt.Sprintf("wallet-%d-%d-%s", w.userId, common.GetTimestamp(), common.GetRandomString(8))
 	}
-	if !reserved {
-		return ErrInsufficientWalletQuota
+	err := model.PreConsumeUserWallet(w.requestId, w.userId, amount)
+	if err != nil {
+		if errors.Is(err, model.ErrWalletQuotaInsufficient) {
+			return ErrInsufficientWalletQuota
+		}
+		return err
 	}
 	w.consumed = amount
 	return nil
 }
 
 func (w *WalletFunding) Settle(delta int) error {
+	if w.requestId != "" && w.consumed > 0 {
+		_ = model.SettleUserWalletPreConsume(w.requestId)
+	}
 	if delta == 0 {
 		return nil
 	}
@@ -68,8 +77,11 @@ func (w *WalletFunding) Refund() error {
 	if w.consumed <= 0 {
 		return nil
 	}
-	// IncreaseUserQuota 是 quota += N 的非幂等操作，不能重试，否则会多退额度。
-	// 订阅的 RefundSubscriptionPreConsume 有 requestId 幂等保护所以可以重试。
+	if w.requestId != "" {
+		return refundWithRetry(func() error {
+			return model.RefundUserWalletPreConsume(w.requestId)
+		})
+	}
 	return model.IncreaseUserQuota(w.userId, w.consumed, false)
 }
 

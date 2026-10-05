@@ -83,7 +83,9 @@ func runSubscriptionQuotaResetOnce() {
 	}
 	lastCleanup := time.Unix(subscriptionCleanupLast.Load(), 0)
 	if time.Since(lastCleanup) >= subscriptionCleanupInterval {
+		_, _ = model.ReconcileOrphanedWalletPreConsumes(600)
 		if _, err := model.CleanupSubscriptionPreConsumeRecords(7 * 24 * 3600); err == nil {
+			_, _ = model.CleanupWalletPreConsumeRecords(7 * 24 * 3600)
 			subscriptionCleanupLast.Store(time.Now().Unix())
 		}
 	}

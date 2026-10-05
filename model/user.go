@@ -590,6 +590,15 @@ func (user *User) TransferAffQuotaToQuota(quota int) error {
 		return fmt.Errorf("转移额度最小为%s！", logger.LogQuota(common.QuotaFromFloat(common.QuotaPerUnit)))
 	}
 
+	if err := common.ValidateWalletQuota(quota); err != nil {
+		return err
+	}
+
+	maxCurrentQuota, err := topUpQuotaMaxCurrent(quota)
+	if err != nil {
+		return err
+	}
+
 	// 开始数据库事务
 	tx := DB.Begin()
 	if tx.Error != nil {
@@ -598,27 +607,47 @@ func (user *User) TransferAffQuotaToQuota(quota int) error {
 	defer tx.Rollback() // 确保在函数退出时事务能回滚
 
 	// 加锁查询用户以确保数据一致性
-	err := lockForUpdate(tx).First(user, user.Id).Error
+	var currentUser User
+	err = lockForUpdate(tx).First(&currentUser, user.Id).Error
 	if err != nil {
 		return err
 	}
 
 	// 再次检查用户的AffQuota是否足够
-	if user.AffQuota < quota {
+	if currentUser.AffQuota < quota {
 		return errors.New("邀请额度不足！")
 	}
 
-	// 更新用户额度
-	user.AffQuota -= quota
-	user.Quota += quota
+	if currentUser.Quota > maxCurrentQuota {
+		return ErrTopUpQuotaLimitExceeded
+	}
 
-	// 保存用户状态
-	if err := tx.Save(user).Error; err != nil {
-		return err
+	// 原子更新用户额度，不执行整行 tx.Save(user) 以免覆盖并发修改
+	result := tx.Model(&User{}).
+		Where("id = ? AND aff_quota >= ? AND quota <= ?", user.Id, quota, maxCurrentQuota).
+		Updates(map[string]any{
+			"aff_quota": gorm.Expr("aff_quota - ?", quota),
+			"quota":     gorm.Expr("quota + ?", quota),
+		})
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected == 0 {
+		return errors.New("转移额度失败或额度超限")
 	}
 
 	// 提交事务
-	return tx.Commit().Error
+	if err := tx.Commit().Error; err != nil {
+		return err
+	}
+
+	// 事务提交后，同步更新用户额度缓存，避免预扣路径在缓存TTL内不可用
+	syncCreditUserQuotaCache(user.Id, quota, "aff transfer")
+
+	user.AffQuota = currentUser.AffQuota - quota
+	user.Quota = currentUser.Quota + quota
+
+	return nil
 }
 
 func (user *User) prepareForInsert(tx *gorm.DB) error {
@@ -1368,8 +1397,17 @@ func IncreaseUserQuota(id int, quota int, db bool) (err error) {
 	return nil
 }
 
-func increaseUserQuota(id int, quota int) (err error) {
-	result := DB.Model(&User{}).
+func IncreaseUserQuotaTx(tx *gorm.DB, id int, quota int) (err error) {
+	if quota < 0 {
+		return errors.New("quota 不能为负数！")
+	}
+	if err := common.ValidateWalletQuota(quota); err != nil {
+		return err
+	}
+	if tx == nil {
+		tx = DB
+	}
+	result := tx.Model(&User{}).
 		Where("id = ? AND quota <= ?", id, common.MaxWalletQuota-quota).
 		Update("quota", gorm.Expr("quota + ?", quota))
 	if result.Error != nil {
@@ -1379,13 +1417,17 @@ func increaseUserQuota(id int, quota int) (err error) {
 		return nil
 	}
 	var count int64
-	if err := DB.Model(&User{}).Where("id = ?", id).Count(&count).Error; err != nil {
+	if err := tx.Model(&User{}).Where("id = ?", id).Count(&count).Error; err != nil {
 		return err
 	}
 	if count == 0 {
 		return gorm.ErrRecordNotFound
 	}
 	return ErrWalletQuotaLimitExceeded
+}
+
+func increaseUserQuota(id int, quota int) (err error) {
+	return IncreaseUserQuotaTx(DB, id, quota)
 }
 
 func DecreaseUserQuota(id int, quota int, db bool) (err error) {

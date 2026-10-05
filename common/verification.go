@@ -51,7 +51,11 @@ func RegisterVerificationCodeWithKey(key string, code string, purpose string) {
 		return
 	}
 
-	if RedisEnabled && RDB != nil {
+	if RedisEnabled {
+		if RDB == nil {
+			SysError("redis is enabled but RDB is nil")
+			return
+		}
 		ctx := context.Background()
 		ttl := time.Duration(VerificationValidMinutes) * time.Minute
 		pipe := RDB.Pipeline()
@@ -61,6 +65,7 @@ func RegisterVerificationCodeWithKey(key string, code string, purpose string) {
 		if err != nil {
 			SysError(fmt.Sprintf("failed to save verification code to redis: %v", err))
 		}
+		return
 	}
 
 	verificationMutex.Lock()
@@ -152,9 +157,12 @@ func VerifyCodeWithKey(key string, code string, purpose string) bool {
 
 func DeleteKey(key string, purpose string) {
 	key = strings.ToLower(strings.TrimSpace(key))
-	if RedisEnabled && RDB != nil {
-		ctx := context.Background()
-		RDB.Del(ctx, redisVerificationKey(purpose, key), redisVerificationAttemptsKey(purpose, key))
+	if RedisEnabled {
+		if RDB != nil {
+			ctx := context.Background()
+			RDB.Del(ctx, redisVerificationKey(purpose, key), redisVerificationAttemptsKey(purpose, key))
+		}
+		return
 	}
 	verificationMutex.Lock()
 	defer verificationMutex.Unlock()

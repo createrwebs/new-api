@@ -328,7 +328,8 @@ func markPluginRouteHit(c *gin.Context) {
 func pluginRouteRecovery() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		defer func() {
-			if recover() == nil {
+			r := recover()
+			if r == nil {
 				return
 			}
 			common.SysError("panic recovered in plugin route")
