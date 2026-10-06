@@ -848,4 +848,26 @@ func AdminDispatchDistributions(c *gin.Context) {
 	})
 }
 
+// AdminInspectNewsPostURL triggers a selective Google URL inspection for a specific post (Section 7)
+func AdminInspectNewsPostURL(c *gin.Context) {
+	postId, _ := strconv.Atoi(c.Param("id"))
+	insp, err := service.PerformSelectiveUrlInspection(c.Request.Context(), postId)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": insp})
+}
+
+// AdminTriggerGrowthIteration triggers an on-demand growth & SEO collection cycle (Section 5 & 20)
+func AdminTriggerGrowthIteration(c *gin.Context) {
+	res, err := service.RunGrowthCollectorIteration(c.Request.Context())
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": res})
+}
+
+
 

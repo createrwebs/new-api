@@ -159,6 +159,7 @@ func main() {
 	controller.RegisterScheduledSystemTasks()
 	service.StartSystemTaskRunner()
 	service.StartNewsScoutRunner()
+	service.StartNewsGrowthCollectorRunner()
 	service.LogExternalAPIConfigSummary(context.Background())
 
 	if os.Getenv("BATCH_UPDATE_ENABLED") == "true" {

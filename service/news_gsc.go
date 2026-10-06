@@ -11,12 +11,38 @@ import (
 	"net/url"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/model"
 	"golang.org/x/oauth2/jwt"
+)
+
+// Normalized GSC status definitions (Section 2)
+const (
+	GSCStatusNotConfigured = "NOT_CONFIGURED"
+	GSCStatusConfigured    = "CONFIGURED"
+	GSCStatusConnected     = "CONNECTED"
+	GSCStatusDataAvailable = "DATA_AVAILABLE"
+	GSCStatusError         = "ERROR"
+)
+
+type GSCStatusOverview struct {
+	Status          string `json:"status"` // NOT_CONFIGURED, CONFIGURED, CONNECTED, DATA_AVAILABLE, ERROR
+	SiteURL         string `json:"site_url"`
+	PermissionLevel string `json:"permission_level"`
+	RowCount        int64  `json:"row_count"`
+	DataAvailable   bool   `json:"data_available"`
+	LastSyncAt      int64  `json:"last_sync_at"`
+	LastError       string `json:"last_error,omitempty"`
+}
+
+var (
+	cachedGSCStatus GSCStatusOverview
+	cachedGSCMu     sync.RWMutex
+	lastGSCCheckAt  int64
 )
 
 // GSCMetricRow represents a single query/page performance row from Search Console
@@ -32,10 +58,24 @@ type GSCMetricRow struct {
 	Date        string  `json:"date"`
 }
 
+// GSCSitemap represents sitemap state in Search Console
+type GSCSitemap struct {
+	Path           string    `json:"path"`
+	LastSubmitted  time.Time `json:"last_submitted"`
+	IsPending      bool      `json:"is_pending"`
+	IsSitemapsList bool      `json:"is_sitemaps_list"`
+	LastDownloaded time.Time `json:"last_downloaded"`
+	Warnings       int64     `json:"warnings"`
+	Errors         int64     `json:"errors"`
+}
+
 // GSCClient defines the search console interface for live queries or mock testing
 type GSCClient interface {
+	VerifySiteAccess(ctx context.Context, siteUrl string) (string, error)
 	QuerySearchAnalytics(ctx context.Context, siteUrl string, startDate, endDate string, dimensions []string) ([]GSCMetricRow, error)
 	InspectURL(ctx context.Context, siteUrl string, inspectionUrl string) (isIndexed bool, verdict string, err error)
+	InspectURLDetails(ctx context.Context, siteUrl string, inspectionUrl string) (*model.NewsUrlInspection, error)
+	GetGSCSitemaps(ctx context.Context, siteUrl string) ([]GSCSitemap, error)
 }
 
 // DefaultGSCClient connects to Google Search Console via official API
@@ -46,8 +86,8 @@ type DefaultGSCClient struct {
 }
 
 func NewDefaultGSCClient() *DefaultGSCClient {
-	credsFile := os.Getenv("GSC_CREDENTIALS_FILE")
-	credsJSON := os.Getenv("GSC_CREDENTIALS_JSON")
+	credsFile := common.GetGSCCredentialsFile()
+	credsJSON := common.GetGSCCredentialsJSON()
 	gac := os.Getenv("GOOGLE_APPLICATION_CREDENTIALS")
 
 	// If file path is specified, safely load file contents without logging secrets
@@ -56,7 +96,6 @@ func NewDefaultGSCClient() *DefaultGSCClient {
 			credsJSON = string(content)
 		}
 	} else if credsJSON == "" && gac != "" {
-		// Check if GOOGLE_APPLICATION_CREDENTIALS points to an accessible JSON file
 		if content, err := os.ReadFile(gac); err == nil {
 			credsFile = gac
 			credsJSON = string(content)
@@ -101,6 +140,43 @@ func (c *DefaultGSCClient) getAuthenticatedClient(ctx context.Context) (*http.Cl
 	return jwtConf.Client(ctx), nil
 }
 
+// VerifySiteAccess checks property verification and permissions on GSC
+func (c *DefaultGSCClient) VerifySiteAccess(ctx context.Context, siteUrl string) (string, error) {
+	client, err := c.getAuthenticatedClient(ctx)
+	if err != nil {
+		return "", err
+	}
+	if siteUrl == "" {
+		siteUrl = common.GetGSCSiteURL()
+	}
+	escapedSite := url.QueryEscape(siteUrl)
+	apiURL := fmt.Sprintf("https://www.googleapis.com/webmasters/v3/sites/%s", escapedSite)
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, apiURL, nil)
+	if err != nil {
+		return "", err
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("GSC site verification request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= 400 {
+		body, _ := io.ReadAll(resp.Body)
+		return "", fmt.Errorf("GSC site verification failed HTTP %d: %s", resp.StatusCode, string(body))
+	}
+
+	var res struct {
+		SiteUrl         string `json:"siteUrl"`
+		PermissionLevel string `json:"permissionLevel"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&res); err != nil {
+		return "", err
+	}
+	return res.PermissionLevel, nil
+}
+
 func (c *DefaultGSCClient) QuerySearchAnalytics(ctx context.Context, siteUrl string, startDate, endDate string, dimensions []string) ([]GSCMetricRow, error) {
 	client, err := c.getAuthenticatedClient(ctx)
 	if err != nil {
@@ -113,7 +189,7 @@ func (c *DefaultGSCClient) QuerySearchAnalytics(ctx context.Context, siteUrl str
 		startDate = time.Now().AddDate(0, 0, -28).Format("2006-01-02")
 	}
 	if endDate == "" {
-		endDate = time.Now().Format("2006-01-02")
+		endDate = time.Now().AddDate(0, 0, -1).Format("2006-01-02")
 	}
 	if len(dimensions) == 0 {
 		dimensions = []string{"page", "query"}
@@ -183,10 +259,11 @@ func (c *DefaultGSCClient) QuerySearchAnalytics(ctx context.Context, siteUrl str
 	return results, nil
 }
 
-func (c *DefaultGSCClient) InspectURL(ctx context.Context, siteUrl string, inspectionUrl string) (bool, string, error) {
+// InspectURLDetails queries Google's URL Inspection API and returns a structured model
+func (c *DefaultGSCClient) InspectURLDetails(ctx context.Context, siteUrl string, inspectionUrl string) (*model.NewsUrlInspection, error) {
 	client, err := c.getAuthenticatedClient(ctx)
 	if err != nil {
-		return false, "UNCONFIGURED", err
+		return nil, err
 	}
 	if siteUrl == "" {
 		siteUrl = common.GetGSCSiteURL()
@@ -198,43 +275,136 @@ func (c *DefaultGSCClient) InspectURL(ctx context.Context, siteUrl string, inspe
 	}
 	reqBytes, err := json.Marshal(reqPayload)
 	if err != nil {
-		return false, "ERROR", err
+		return nil, err
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, apiURL, bytes.NewBuffer(reqBytes))
 	if err != nil {
-		return false, "ERROR", err
+		return nil, err
 	}
 	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := client.Do(req)
 	if err != nil {
-		return false, "ERROR", err
+		return nil, err
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode >= 400 {
 		body, _ := io.ReadAll(resp.Body)
-		return false, "ERROR", fmt.Errorf("GSC inspection HTTP %d: %s", resp.StatusCode, string(body))
+		return nil, fmt.Errorf("GSC inspection HTTP %d: %s", resp.StatusCode, string(body))
 	}
 
 	var res struct {
 		InspectionResult struct {
 			IndexStatusResult struct {
-				Verdict       string `json:"verdict"`
-				CoverageState string `json:"coverageState"`
+				Verdict         string `json:"verdict"`
+				CoverageState   string `json:"coverageState"`
+				RobotsTxtState  string `json:"robotsTxtState"`
+				IndexingState   string `json:"indexingState"`
+				LastCrawlTime   string `json:"lastCrawlTime"`
+				PageFetchState  string `json:"pageFetchState"`
+				GoogleCanonical string `json:"googleCanonical"`
+				UserCanonical   string `json:"userCanonical"`
 			} `json:"indexStatusResult"`
 		} `json:"inspectionResult"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&res); err != nil {
-		return false, "ERROR", fmt.Errorf("failed to decode GSC inspection response: %w", err)
+		return nil, fmt.Errorf("failed to decode GSC inspection response: %w", err)
 	}
-	verdict := res.InspectionResult.IndexStatusResult.Verdict
-	isIndexed := verdict == "PASS"
-	return isIndexed, verdict, nil
+
+	idx := res.InspectionResult.IndexStatusResult
+	now := common.GetTimestamp()
+	insp := &model.NewsUrlInspection{
+		InspectionUrl:   inspectionUrl,
+		Verdict:         idx.Verdict,
+		CoverageState:   idx.CoverageState,
+		RobotsTxtState:  idx.RobotsTxtState,
+		IndexingState:   idx.IndexingState,
+		LastCrawlTime:   idx.LastCrawlTime,
+		PageFetchState:  idx.PageFetchState,
+		GoogleCanonical: idx.GoogleCanonical,
+		UserCanonical:   idx.UserCanonical,
+		InspectionTime:  now,
+		CreatedAt:       now,
+	}
+	return insp, nil
 }
 
-// IngestSearchMetrics processes incoming Search Console metrics into database
-func IngestSearchMetrics(rows []GSCMetricRow) error {
+// InspectURL satisfies the legacy simple interface with strict indexing truth
+func (c *DefaultGSCClient) InspectURL(ctx context.Context, siteUrl string, inspectionUrl string) (bool, string, error) {
+	insp, err := c.InspectURLDetails(ctx, siteUrl, inspectionUrl)
+	if err != nil {
+		return false, "ERROR", err
+	}
+	// "Do not claim indexing merely because inspection API responded HTTP 200"
+	isIndexed := insp.Verdict == "PASS" && strings.Contains(strings.ToLower(insp.CoverageState), "indexed")
+	return isIndexed, insp.Verdict, nil
+}
+
+// GetGSCSitemaps queries GSC for registered sitemaps
+func (c *DefaultGSCClient) GetGSCSitemaps(ctx context.Context, siteUrl string) ([]GSCSitemap, error) {
+	client, err := c.getAuthenticatedClient(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if siteUrl == "" {
+		siteUrl = common.GetGSCSiteURL()
+	}
+	escapedSite := url.QueryEscape(siteUrl)
+	apiURL := fmt.Sprintf("https://www.googleapis.com/webmasters/v3/sites/%s/sitemaps", escapedSite)
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, apiURL, nil)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("GSC sitemaps query failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= 400 {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("GSC sitemaps query failed HTTP %d: %s", resp.StatusCode, string(body))
+	}
+
+	var res struct {
+		Sitemap []struct {
+			Path           string `json:"path"`
+			LastSubmitted  string `json:"lastSubmitted"`
+			IsPending      bool   `json:"isPending"`
+			IsSitemapsList bool   `json:"isSitemapsList"`
+			LastDownloaded string `json:"lastDownloaded"`
+		} `json:"sitemap"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&res); err != nil {
+		return nil, err
+	}
+
+	var list []GSCSitemap
+	for _, s := range res.Sitemap {
+		item := GSCSitemap{
+			Path:           s.Path,
+			IsPending:      s.IsPending,
+			IsSitemapsList: s.IsSitemapsList,
+		}
+		if t, err := time.Parse(time.RFC3339, s.LastSubmitted); err == nil {
+			item.LastSubmitted = t
+		}
+		if t, err := time.Parse(time.RFC3339, s.LastDownloaded); err == nil {
+			item.LastDownloaded = t
+		}
+		list = append(list, item)
+	}
+	return list, nil
+}
+
+// IngestSearchMetrics processes incoming Search Console metrics with deduplication
+func IngestSearchMetrics(rows []GSCMetricRow) (int, error) {
+	if len(rows) == 0 {
+		return 0, nil
+	}
+	ingested := 0
 	for _, r := range rows {
 		slug := ExtractSlugFromURL(r.Page)
 		var postId int
@@ -243,6 +413,19 @@ func IngestSearchMetrics(rows []GSCMetricRow) error {
 			if post != nil {
 				postId = post.Id
 			}
+		}
+
+		// Avoid duplicate metric snapshots
+		var existing model.NewsSeoMetric
+		err := model.DB.Where("snapshot_date = ? AND page_url = ? AND query = ?", r.Date, r.Page, r.Query).First(&existing).Error
+		if err == nil {
+			// Update existing record
+			existing.Clicks = r.Clicks
+			existing.Impressions = r.Impressions
+			existing.Ctr = r.CTR
+			existing.Position = r.Position
+			_ = model.DB.Save(&existing)
+			continue
 		}
 
 		metric := &model.NewsSeoMetric{
@@ -259,11 +442,11 @@ func IngestSearchMetrics(rows []GSCMetricRow) error {
 			CreatedAt:    common.GetTimestamp(),
 		}
 
-		if err := model.CreateNewsSeoMetric(metric); err != nil {
-			return err
+		if err := model.CreateNewsSeoMetric(metric); err == nil {
+			ingested++
 		}
 	}
-	return nil
+	return ingested, nil
 }
 
 // ExtractSlugFromURL parses the post slug from a canonical URL path
@@ -280,12 +463,73 @@ func ExtractSlugFromURL(urlStr string) string {
 	return sub
 }
 
-// DetectSeoOpportunities analyzes metrics and posts to classify high-value SEO improvements
+// PerformSelectiveUrlInspection inspects a specific post's URL and persists the observation
+func PerformSelectiveUrlInspection(ctx context.Context, postId int) (*model.NewsUrlInspection, error) {
+	post, err := model.GetNewsPostById(postId)
+	if err != nil || post == nil {
+		return nil, fmt.Errorf("post %d not found", postId)
+	}
+	targetUrl := post.CanonicalUrl
+	if targetUrl == "" {
+		targetUrl = fmt.Sprintf("%s/news/%s", common.GetCanonicalBaseURL(), post.Slug)
+	}
+
+	client := NewDefaultGSCClient()
+	insp, err := client.InspectURLDetails(ctx, common.GetGSCSiteURL(), targetUrl)
+	if err != nil {
+		return nil, err
+	}
+	insp.PostId = postId
+
+	// Save to DB
+	_ = model.CreateNewsUrlInspection(insp)
+	logger.LogInfo(ctx, fmt.Sprintf("[GSC] Selective inspection for post %d (%s): verdict=%s, coverage=%s", postId, targetUrl, insp.Verdict, insp.CoverageState))
+
+	now := common.GetTimestamp()
+	// Real observation: CANONICAL_MISMATCH
+	if insp.GoogleCanonical != "" && insp.UserCanonical != "" && insp.GoogleCanonical != insp.UserCanonical {
+		_ = model.CreateNewsSeoOpportunity(&model.NewsSeoOpportunity{
+			PostId:            postId,
+			OpportunityType:   model.OpportunityCanonicalMismatch,
+			Observation:       fmt.Sprintf("Google selected canonical %q differs from user declared canonical %q", insp.GoogleCanonical, insp.UserCanonical),
+			EvidenceJSON:      fmt.Sprintf(`{"google_canonical":%q,"user_canonical":%q}`, insp.GoogleCanonical, insp.UserCanonical),
+			Hypothesis:        "Aligning rel=canonical will prevent link equity dilution across duplicate URLs",
+			ProposedAction:    fmt.Sprintf("Enforce declared canonical %q in header and sitemaps", insp.UserCanonical),
+			RiskClass:         "low",
+			Status:            "detected",
+			CooldownExpiresAt: now + 7*86400,
+		})
+	}
+
+	// Real observation: INDEXING_ANOMALY
+	if insp.Verdict == "FAIL" || strings.Contains(strings.ToLower(insp.CoverageState), "error") {
+		_ = model.CreateNewsSeoOpportunity(&model.NewsSeoOpportunity{
+			PostId:            postId,
+			OpportunityType:   model.OpportunityIndexingAnomaly,
+			Observation:       fmt.Sprintf("URL inspection reported verdict %q with coverage %q", insp.Verdict, insp.CoverageState),
+			EvidenceJSON:      fmt.Sprintf(`{"verdict":%q,"coverage_state":%q,"robots":%q}`, insp.Verdict, insp.CoverageState, insp.RobotsTxtState),
+			Hypothesis:        "Remediating robots or server fetch issues will restore Googlebot crawler access",
+			ProposedAction:    "Verify HTTP response and robots.txt rules for the article URL",
+			RiskClass:         "medium",
+			Status:            "detected",
+			CooldownExpiresAt: now + 7*86400,
+		})
+	}
+
+	return insp, nil
+}
+
+// DetectSeoOpportunities generates SEO opportunities ONLY from real observations (Section 8)
+// Zero opportunities synthesized if metrics are missing or delayed (Section 6)
 func DetectSeoOpportunities(posts []*model.NewsPost, metrics []GSCMetricRow) ([]*model.NewsSeoOpportunity, error) {
+	if len(metrics) == 0 {
+		// Strict truthfulness: NO_DATA_YET. Never synthesize opportunities from empty data!
+		return nil, nil
+	}
+
 	var opportunities []*model.NewsSeoOpportunity
 	now := common.GetTimestamp()
 
-	// Index metrics by page URL
 	metricsByPage := make(map[string][]GSCMetricRow)
 	for _, m := range metrics {
 		metricsByPage[m.Page] = append(metricsByPage[m.Page], m)
@@ -297,19 +541,20 @@ func DetectSeoOpportunities(posts []*model.NewsPost, metrics []GSCMetricRow) ([]
 			pageUrl = fmt.Sprintf("%s/news/%s", common.GetCanonicalBaseURL(), post.Slug)
 		}
 		pageMetrics := metricsByPage[pageUrl]
+		if len(pageMetrics) == 0 {
+			continue
+		}
 
-		// 1. High Impressions, Low CTR (Target: Title/Meta Tag rewriting)
 		totalImp := 0
 		totalClicks := 0
 		for _, m := range pageMetrics {
 			totalImp += m.Impressions
 			totalClicks += m.Clicks
 		}
+
+		// 1. HIGH_IMPRESSION_LOW_CTR: Impressions >= 100, CTR < 2.0%
 		if totalImp >= 100 {
-			overallCTR := 0.0
-			if totalImp > 0 {
-				overallCTR = (float64(totalClicks) / float64(totalImp)) * 100.0
-			}
+			overallCTR := (float64(totalClicks) / float64(totalImp)) * 100.0
 			if overallCTR < 2.0 {
 				opportunities = append(opportunities, &model.NewsSeoOpportunity{
 					PostId:              post.Id,
@@ -318,29 +563,32 @@ func DetectSeoOpportunities(posts []*model.NewsPost, metrics []GSCMetricRow) ([]
 					CurrentImpressions:  totalImp,
 					CurrentClicks:       totalClicks,
 					CurrentCTR:          overallCTR,
-					Hypothesis:          "Rewriting SEO title and meta description with developer-focused action verbs and model names will raise CTR above 3.5%",
-					ProposedAction:      "Rewrite title to include high-intent keywords and optimize meta description",
-					ProposedChangesDiff: fmt.Sprintf("Title: %s -> %s [Optimized]\nMeta: %s", post.Title, post.Title, post.Summary),
+					Observation:         fmt.Sprintf("Page received %d impressions with CTR %.2f%% over 28-day window", totalImp, overallCTR),
+					EvidenceJSON:        fmt.Sprintf(`{"impressions":%d,"clicks":%d,"ctr":%.2f,"window_days":28}`, totalImp, totalClicks, overallCTR),
+					Hypothesis:          "Improving headline click appeal and meta description clarity will raise CTR toward 4.0%",
+					ProposedAction:      "Rewrite title and meta description with developer value hook and model benchmarks",
 					RiskClass:           "low",
 					Status:              "detected",
-					CooldownExpiresAt:   now + 7*86400, // 7 days cooldown
+					CooldownExpiresAt:   now + 7*86400,
 					CreatedAt:           now,
 				})
 			}
 		}
 
-		// 2. Position 5 to 20 Striking Distance (Target: Content enrichment)
+		// 2. POSITION_8_TO_20: Ranking in striking distance with latent impressions
 		for _, m := range pageMetrics {
-			if m.Impressions >= 30 && m.Position >= 5.0 && m.Position <= 20.0 {
+			if m.Position >= 8.0 && m.Position <= 20.0 && m.Impressions >= 20 {
 				opportunities = append(opportunities, &model.NewsSeoOpportunity{
 					PostId:              post.Id,
-					OpportunityType:     model.OpportunityPosition5To20,
+					OpportunityType:     model.OpportunityPosition8To20,
 					Query:               m.Query,
 					CurrentImpressions:  m.Impressions,
 					CurrentClicks:       m.Clicks,
 					CurrentCTR:          m.CTR,
 					CurrentPosition:     m.Position,
-					Hypothesis:          fmt.Sprintf("Enriching code examples and benchmarks for query %q will push ranking from pos %.1f into top 3", m.Query, m.Position),
+					Observation:         fmt.Sprintf("Striking distance ranking (pos %.1f) with %d impressions for query %q", m.Position, m.Impressions, m.Query),
+					EvidenceJSON:        fmt.Sprintf(`{"query":%q,"position":%.1f,"impressions":%d,"clicks":%d}`, m.Query, m.Position, m.Impressions, m.Clicks),
+					Hypothesis:          fmt.Sprintf("Enriching code examples and benchmarks for query %q will push ranking from pos %.1f into top 5", m.Query, m.Position),
 					ProposedAction:      fmt.Sprintf("Add dedicated H3 section and Python/cURL example covering %q", m.Query),
 					RiskClass:           "medium",
 					Status:              "detected",
@@ -350,7 +598,7 @@ func DetectSeoOpportunities(posts []*model.NewsPost, metrics []GSCMetricRow) ([]
 			}
 		}
 
-		// 3. New Query Opportunity (User searches terms not explicitly in headings or body)
+		// 3. RISING_QUERY / NEW_QUERY_OPPORTUNITY: Queries not yet covered in body
 		for _, m := range pageMetrics {
 			if m.Impressions >= 25 && m.Query != "" && m.Query != "aggregate" {
 				queryLower := strings.ToLower(m.Query)
@@ -358,13 +606,15 @@ func DetectSeoOpportunities(posts []*model.NewsPost, metrics []GSCMetricRow) ([]
 				if !strings.Contains(contentLower, queryLower) {
 					opportunities = append(opportunities, &model.NewsSeoOpportunity{
 						PostId:              post.Id,
-						OpportunityType:     model.OpportunityNewQuery,
+						OpportunityType:     model.OpportunityRisingQuery,
 						Query:               m.Query,
 						CurrentImpressions:  m.Impressions,
 						CurrentClicks:       m.Clicks,
 						CurrentCTR:          m.CTR,
 						CurrentPosition:     m.Position,
-						Hypothesis:          fmt.Sprintf("Content lacks explicit section for discovered search query %q; adding explanation will capture latent impressions", m.Query),
+						Observation:         fmt.Sprintf("Search query %q drove %d impressions but is not mentioned in article body", m.Query, m.Impressions),
+						EvidenceJSON:        fmt.Sprintf(`{"query":%q,"impressions":%d,"clicks":%d,"position":%.1f}`, m.Query, m.Impressions, m.Clicks, m.Position),
+						Hypothesis:          fmt.Sprintf("Adding explanation for query %q will capture high-intent developer searches", m.Query),
 						ProposedAction:      fmt.Sprintf("Add technical FAQ / explanation for %q", m.Query),
 						RiskClass:           "low",
 						Status:              "detected",
@@ -373,21 +623,6 @@ func DetectSeoOpportunities(posts []*model.NewsPost, metrics []GSCMetricRow) ([]
 					})
 				}
 			}
-		}
-
-		// 4. Content Decay (Published > 60 days ago with zero impressions or declining traffic)
-		if now-post.PublishedAt > 60*86400 && totalImp < 10 {
-			opportunities = append(opportunities, &model.NewsSeoOpportunity{
-				PostId:            post.Id,
-				OpportunityType:   model.OpportunityContentDecay,
-				Query:             "evergreen-decay",
-				Hypothesis:        "Content published > 60 days ago has lost search freshness. Refreshing benchmarks and updating API versions will restore traffic",
-				ProposedAction:    "Refresh model pricing, add latest SDK version updates, and re-verify factual claims",
-				RiskClass:         "low",
-				Status:            "detected",
-				CooldownExpiresAt: now + 7*86400,
-				CreatedAt:         now,
-			})
 		}
 	}
 
@@ -413,8 +648,8 @@ func CanRemediatePost(postId int) (bool, string, error) {
 	return true, "", nil
 }
 
-// ApplySeoRemediation applies an approved or autonomous SEO fix with strict cooldown enforcement
-func ApplySeoRemediation(ctx context.Context, opp *model.NewsSeoOpportunity) error {
+// ApplyOptimizationExperiment applies an SEO optimization and records it as an experiment (Section 9 & 10)
+func ApplyOptimizationExperiment(ctx context.Context, opp *model.NewsSeoOpportunity) error {
 	if opp == nil {
 		return errors.New("nil opportunity")
 	}
@@ -424,7 +659,7 @@ func ApplySeoRemediation(ctx context.Context, opp *model.NewsSeoOpportunity) err
 		return err
 	}
 	if !eligible {
-		return fmt.Errorf("remediation blocked by safety guard: %s", reason)
+		return fmt.Errorf("optimization blocked by safety guard: %s", reason)
 	}
 
 	post, err := model.GetNewsPostById(opp.PostId)
@@ -433,32 +668,62 @@ func ApplySeoRemediation(ctx context.Context, opp *model.NewsSeoOpportunity) err
 	}
 
 	now := common.GetTimestamp()
-	// Apply changes depending on opportunity type
+	changeType := "generic_refresh"
+	beforeVal := ""
+	afterVal := ""
+
 	switch opp.OpportunityType {
-	case model.OpportunityHighImpLowCTR:
+	case model.OpportunityHighImpLowCTR, model.OpportunityHighImpLowCTRAlt:
+		changeType = "title_and_meta"
+		beforeVal = fmt.Sprintf("Title: %s | Desc: %s", post.SeoTitle, post.SeoDescription)
 		if !strings.Contains(post.SeoTitle, "⚡") {
 			post.SeoTitle = fmt.Sprintf("⚡ %s | Tora AI News", post.Title)
 		}
 		if post.SeoDescription == "" || len(post.SeoDescription) < 50 {
 			post.SeoDescription = post.Summary
 		}
+		afterVal = fmt.Sprintf("Title: %s | Desc: %s", post.SeoTitle, post.SeoDescription)
 		if err := model.UpdateNewsPost(post); err != nil {
 			return err
 		}
-	case model.OpportunityNewQuery:
+
+	case model.OpportunityRisingQuery, model.OpportunityNewQuery:
+		changeType = "faq_section"
+		beforeVal = "(none)"
 		if opp.Query != "" && !strings.Contains(strings.ToLower(post.ContentMarkdown), strings.ToLower(opp.Query)) {
 			addition := fmt.Sprintf("\n\n### ข้อมูลเพิ่มเติมเกี่ยวกับ %s\n\nสำหรับนักพัฒนาที่สนใจในประเด็น **%s** โมเดลนี้รองรับการทำงานร่วมกับ Tora API Gateway และรองรับการสลับ Fallback อัตโนมัติ\n", opp.Query, opp.Query)
 			post.ContentMarkdown += addition
 			post.ContentHTML = RenderMarkdownToSafeHTML(post.ContentMarkdown)
+			afterVal = addition
 			if err := model.UpdateNewsPost(post); err != nil {
 				return err
 			}
 		}
+
 	default:
-		// Generic low-risk refresh
+		changeType = "content_freshness"
+		beforeVal = fmt.Sprintf("UpdatedAt: %d", post.UpdatedAt)
 		post.UpdatedAt = now
+		afterVal = fmt.Sprintf("UpdatedAt: %d", post.UpdatedAt)
 		_ = model.UpdateNewsPost(post)
 	}
+
+	// Persist experiment record
+	exp := &model.NewsSeoExperiment{
+		OpportunityId:       opp.Id,
+		PostId:              opp.PostId,
+		ChangeType:          changeType,
+		BeforeValue:         beforeVal,
+		AfterValue:          afterVal,
+		AppliedAt:           now,
+		BaselineImpressions: opp.CurrentImpressions,
+		BaselineClicks:      opp.CurrentClicks,
+		BaselineCTR:         opp.CurrentCTR,
+		BaselinePosition:    opp.CurrentPosition,
+		ResultVerdict:       "in_progress",
+		CreatedAt:           now,
+	}
+	_ = model.CreateNewsSeoExperiment(exp)
 
 	// Update opportunity state and lock in 7-day cooldown
 	opp.Status = "applied"
@@ -467,38 +732,66 @@ func ApplySeoRemediation(ctx context.Context, opp *model.NewsSeoOpportunity) err
 	return model.UpdateNewsSeoOpportunity(opp)
 }
 
-// RunSeoAutopilotIteration executes the recurring SEO intelligence and opportunity discovery loop
-func RunSeoAutopilotIteration(ctx context.Context, gscClient GSCClient) (int, error) {
-	posts, _, err := model.GetPublishedNewsPosts(1, 1000, "", "", "")
+// ApplySeoRemediation redirects to ApplyOptimizationExperiment
+func ApplySeoRemediation(ctx context.Context, opp *model.NewsSeoOpportunity) error {
+	return ApplyOptimizationExperiment(ctx, opp)
+}
+
+// GetNormalizedGSCStatus retrieves the truthful GSC status without fake claims (Section 2)
+func GetNormalizedGSCStatus(ctx context.Context, forceRefresh bool) GSCStatusOverview {
+	cachedGSCMu.RLock()
+	if !forceRefresh && time.Now().Unix()-lastGSCCheckAt < 300 && cachedGSCStatus.Status != "" {
+		defer cachedGSCMu.RUnlock()
+		return cachedGSCStatus
+	}
+	cachedGSCMu.RUnlock()
+
+	cachedGSCMu.Lock()
+	defer cachedGSCMu.Unlock()
+
+	siteUrl := common.GetGSCSiteURL()
+	credFile := common.GetGSCCredentialsFile()
+	credJSON := common.GetGSCCredentialsJSON()
+	gac := os.Getenv("GOOGLE_APPLICATION_CREDENTIALS")
+
+	res := GSCStatusOverview{
+		SiteURL: siteUrl,
+	}
+
+	if credFile == "" && credJSON == "" && gac == "" {
+		res.Status = GSCStatusNotConfigured
+		cachedGSCStatus = res
+		lastGSCCheckAt = time.Now().Unix()
+		return res
+	}
+
+	res.Status = GSCStatusConfigured
+
+	var rowCount int64
+	if model.DB != nil {
+		_ = model.DB.Model(&model.NewsSeoMetric{}).Count(&rowCount).Error
+	}
+	res.RowCount = rowCount
+	res.DataAvailable = rowCount > 0
+
+	client := NewDefaultGSCClient()
+	perm, err := client.VerifySiteAccess(ctx, siteUrl)
 	if err != nil {
-		return 0, err
+		res.Status = GSCStatusError
+		res.LastError = err.Error()
+		cachedGSCStatus = res
+		lastGSCCheckAt = time.Now().Unix()
+		return res
 	}
 
-	if gscClient == nil {
-		gscClient = NewDefaultGSCClient()
+	res.PermissionLevel = perm
+	if rowCount > 0 {
+		res.Status = GSCStatusDataAvailable
+	} else {
+		res.Status = GSCStatusConnected
 	}
 
-	// Fetch metrics if connected
-	startDate := time.Now().AddDate(0, 0, -28).Format("2006-01-02")
-	endDate := time.Now().AddDate(0, 0, -1).Format("2006-01-02")
-	rows, err := gscClient.QuerySearchAnalytics(ctx, common.GetGSCSiteURL(), startDate, endDate, []string{"page", "query"})
-	if err != nil {
-		logger.LogWarn(ctx, fmt.Sprintf("Search Console API query returned: %v; running local heuristic detection", err))
-		// Fallback: analyze local post inventory for decay, missing meta, or content freshness
-		rows = nil
-	}
-
-	opps, err := DetectSeoOpportunities(posts, rows)
-	if err != nil {
-		return 0, err
-	}
-
-	createdCount := 0
-	for _, opp := range opps {
-		if err := model.CreateNewsSeoOpportunity(opp); err == nil {
-			createdCount++
-		}
-	}
-
-	return createdCount, nil
+	cachedGSCStatus = res
+	lastGSCCheckAt = time.Now().Unix()
+	return res
 }

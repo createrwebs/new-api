@@ -644,15 +644,120 @@ func CreateNewsSeoMetric(m *NewsSeoMetric) error {
 }
 
 const (
-	OpportunityHighImpLowCTR   = "HIGH_IMPRESSIONS_LOW_CTR"
-	OpportunityPosition5To20   = "POSITION_5_TO_20"
-	OpportunityIndexingProblem = "INDEXING_PROBLEM"
-	OpportunityContentDecay    = "CONTENT_DECAY"
-	OpportunityNewQuery        = "NEW_QUERY_OPPORTUNITY"
-	OpportunityCannibalization = "CANNIBALIZATION"
-	OpportunityInternalLink    = "INTERNAL_LINK_OPPORTUNITY"
-	OpportunityCtrUnderperform = "CTR_UNDERPERFORMANCE"
+	OpportunityHighImpLowCTR           = "HIGH_IMPRESSION_LOW_CTR"
+	OpportunityHighImpLowCTRAlt        = "HIGH_IMPRESSIONS_LOW_CTR"
+	OpportunityPosition8To20           = "POSITION_8_TO_20"
+	OpportunityPosition5To20           = "POSITION_5_TO_20"
+	OpportunityRisingQuery             = "RISING_QUERY"
+	OpportunityContentDecay            = "CONTENT_DECAY"
+	OpportunityQueryNoLanding          = "QUERY_WITHOUT_GOOD_LANDING_PAGE"
+	OpportunityCanonicalMismatch       = "CANONICAL_MISMATCH"
+	OpportunityIndexingAnomaly         = "INDEXING_ANOMALY"
+	OpportunityIndexingProblem         = "INDEXING_PROBLEM"
+	OpportunityNewQuery                = "NEW_QUERY_OPPORTUNITY"
+	OpportunityCannibalization         = "CANNIBALIZATION"
+	OpportunityInternalLink            = "INTERNAL_LINK_OPPORTUNITY"
+	OpportunityCtrUnderperform         = "CTR_UNDERPERFORMANCE"
 )
+
+// NewsUrlInspection stores Google Search Console URL inspection results
+type NewsUrlInspection struct {
+	Id              int    `json:"id" gorm:"primaryKey;autoIncrement"`
+	PostId          int    `json:"post_id" gorm:"index;not null"`
+	InspectionUrl   string `json:"inspection_url" gorm:"type:varchar(512);index;not null"`
+	Verdict         string `json:"verdict" gorm:"type:varchar(32);not null"` // PASS, NEUTRAL, FAIL
+	CoverageState   string `json:"coverage_state" gorm:"type:varchar(128);default:''"`
+	RobotsTxtState  string `json:"robots_txt_state" gorm:"type:varchar(64);default:''"`
+	IndexingState   string `json:"indexing_state" gorm:"type:varchar(64);default:''"`
+	LastCrawlTime   string `json:"last_crawl_time" gorm:"type:varchar(64);default:''"`
+	PageFetchState  string `json:"page_fetch_state" gorm:"type:varchar(64);default:''"`
+	GoogleCanonical string `json:"google_canonical" gorm:"type:varchar(512);default:''"`
+	UserCanonical   string `json:"user_canonical" gorm:"type:varchar(512);default:''"`
+	InspectionTime  int64  `json:"inspection_time" gorm:"bigint;index"`
+	CreatedAt       int64  `json:"created_at" gorm:"bigint"`
+}
+
+func (u *NewsUrlInspection) BeforeCreate(tx *gorm.DB) error {
+	if u.CreatedAt == 0 {
+		u.CreatedAt = common.GetTimestamp()
+	}
+	if u.InspectionTime == 0 {
+		u.InspectionTime = u.CreatedAt
+	}
+	return nil
+}
+
+func CreateNewsUrlInspection(insp *NewsUrlInspection) error {
+	if DB == nil || insp == nil {
+		return nil
+	}
+	return DB.Create(insp).Error
+}
+
+func GetLatestUrlInspectionByPostId(postId int) (*NewsUrlInspection, error) {
+	var insp NewsUrlInspection
+	err := DB.Where("post_id = ?", postId).Order("inspection_time DESC").First(&insp).Error
+	if err != nil {
+		return nil, err
+	}
+	return &insp, nil
+}
+
+// NewsSeoExperiment tracks an optimization change as an experiment with baseline & follow-up metrics
+type NewsSeoExperiment struct {
+	Id                  int     `json:"id" gorm:"primaryKey;autoIncrement"`
+	OpportunityId       int     `json:"opportunity_id" gorm:"index;default:0"`
+	PostId              int     `json:"post_id" gorm:"index;not null"`
+	ChangeType          string  `json:"change_type" gorm:"type:varchar(64);not null"` // title, meta_description, faq_section, etc.
+	BeforeValue         string  `json:"before_value" gorm:"type:text"`
+	AfterValue          string  `json:"after_value" gorm:"type:text"`
+	AppliedAt           int64   `json:"applied_at" gorm:"bigint;not null"`
+	BaselineImpressions int     `json:"baseline_impressions" gorm:"default:0"`
+	BaselineClicks      int     `json:"baseline_clicks" gorm:"default:0"`
+	BaselineCTR         float64 `json:"baseline_ctr" gorm:"type:float;default:0"`
+	BaselinePosition    float64 `json:"baseline_position" gorm:"type:float;default:0"`
+	Metrics7dJSON       string  `json:"metrics_7d_json" gorm:"type:text"`
+	Metrics14dJSON      string  `json:"metrics_14d_json" gorm:"type:text"`
+	Metrics28dJSON      string  `json:"metrics_28d_json" gorm:"type:text"`
+	ResultVerdict       string  `json:"result_verdict" gorm:"type:varchar(32);default:'in_progress'"` // in_progress, improved, neutral, regressed
+	CreatedAt           int64   `json:"created_at" gorm:"bigint"`
+	UpdatedAt           int64   `json:"updated_at" gorm:"bigint"`
+}
+
+func (e *NewsSeoExperiment) BeforeCreate(tx *gorm.DB) error {
+	now := common.GetTimestamp()
+	e.CreatedAt = now
+	e.UpdatedAt = now
+	if e.AppliedAt == 0 {
+		e.AppliedAt = now
+	}
+	return nil
+}
+
+func (e *NewsSeoExperiment) BeforeUpdate(tx *gorm.DB) error {
+	e.UpdatedAt = common.GetTimestamp()
+	return nil
+}
+
+func CreateNewsSeoExperiment(exp *NewsSeoExperiment) error {
+	if DB == nil || exp == nil {
+		return nil
+	}
+	return DB.Create(exp).Error
+}
+
+func UpdateNewsSeoExperiment(exp *NewsSeoExperiment) error {
+	if DB == nil || exp == nil {
+		return nil
+	}
+	return DB.Save(exp).Error
+}
+
+func GetSeoExperimentsByPostId(postId int) ([]*NewsSeoExperiment, error) {
+	var exps []*NewsSeoExperiment
+	err := DB.Where("post_id = ?", postId).Order("applied_at DESC").Find(&exps).Error
+	return exps, err
+}
 
 // NewsSeoOpportunity stores detected SEO opportunities and proposed remediations.
 type NewsSeoOpportunity struct {

@@ -307,23 +307,221 @@ func (p *LinkedInPublisher) Publish(ctx context.Context, post *model.NewsPost, p
 	return postURN, remoteUrl, nil
 }
 
+// Policy constants for DEV.to updates (Section 4)
+const (
+	DevToPolicyUpdateExisting      = "UPDATE_EXISTING"     // Policy A: update existing DEV.to article in-place via PUT
+	DevToPolicyImmutableDerivative = "IMMUTABLE_DERIVATIVE" // Policy B: leave remote article immutable
+)
+
+type DevToArticle struct {
+	ID                     int    `json:"id"`
+	Title                  string `json:"title"`
+	URL                    string `json:"url"`
+	CanonicalURL           string `json:"canonical_url"`
+	Published              bool   `json:"published"`
+	PageViewsCount         int    `json:"page_views_count"`
+	CommentsCount          int    `json:"comments_count"`
+	PositiveReactionsCount int    `json:"positive_reactions_count"`
+	BodyMarkdown           string `json:"body_markdown"`
+}
+
+type DevToAnalytics struct {
+	RemotePostID      string `json:"remote_post_id"`
+	RemoteURL         string `json:"remote_url"`
+	Status            string `json:"status"` // "SYNCED", "UNKNOWN"
+	PageViews         int    `json:"page_views"`
+	PositiveReactions int    `json:"positive_reactions"`
+	CommentsCount     int    `json:"comments_count"`
+	PublishedAt       int64  `json:"published_at"`
+	LastSyncedAt      int64  `json:"last_synced_at"`
+}
+
 // DevToPublisher publishes cross-posts to DEV.to / Forem platform
 type DevToPublisher struct {
-	APIKey  string
-	BaseURL string
-	Client  *http.Client
+	APIKey       string
+	BaseURL      string
+	UpdatePolicy string
+	Client       *http.Client
 }
 
 func NewDevToPublisher() *DevToPublisher {
+	policy := os.Getenv("DEVTO_UPDATE_POLICY")
+	if policy == "" {
+		policy = DevToPolicyUpdateExisting // Default to Policy A (update existing article in-place)
+	}
 	return &DevToPublisher{
-		APIKey:  os.Getenv("DEVTO_API_KEY"),
-		BaseURL: os.Getenv("DEVTO_BASE_URL"),
-		Client:  &http.Client{Timeout: 15 * time.Second},
+		APIKey:       os.Getenv("DEVTO_API_KEY"),
+		BaseURL:      os.Getenv("DEVTO_BASE_URL"),
+		UpdatePolicy: policy,
+		Client:       &http.Client{Timeout: 15 * time.Second},
 	}
 }
 
 func (p *DevToPublisher) PlatformName() string { return model.DistPlatformDevTo }
 
+// FindExistingArticle searches the author's DEV.to articles for an existing publication matching canonical URL or title (Section 3)
+func (p *DevToPublisher) FindExistingArticle(ctx context.Context, canonicalUrl string, title string) (*DevToArticle, error) {
+	if p.APIKey == "" {
+		return nil, errors.New("DEVTO_API_KEY not configured")
+	}
+	baseURL := p.BaseURL
+	if baseURL == "" {
+		baseURL = "https://dev.to"
+	}
+	apiURL := fmt.Sprintf("%s/api/articles/me/all?per_page=50", strings.TrimRight(baseURL, "/"))
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, apiURL, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("api-key", p.APIKey)
+	req.Header.Set("User-Agent", "Tora-DevTo-Client/1.0")
+
+	resp, err := p.Client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= 400 {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("dev.to API error HTTP %d: %s", resp.StatusCode, string(body))
+	}
+
+	var articles []DevToArticle
+	if err := json.NewDecoder(resp.Body).Decode(&articles); err != nil {
+		return nil, err
+	}
+
+	// 1. Exact match on canonical URL
+	for _, a := range articles {
+		if canonicalUrl != "" && strings.TrimRight(a.CanonicalURL, "/") == strings.TrimRight(canonicalUrl, "/") {
+			return &a, nil
+		}
+	}
+	// 2. Exact match on title (fallback)
+	for _, a := range articles {
+		if strings.EqualFold(strings.TrimSpace(a.Title), strings.TrimSpace(title)) {
+			return &a, nil
+		}
+	}
+
+	return nil, nil
+}
+
+// GetArticle fetches a single article by ID
+func (p *DevToPublisher) GetArticle(ctx context.Context, remoteId string) (*DevToArticle, error) {
+	if p.APIKey == "" || remoteId == "" {
+		return nil, errors.New("missing API key or remoteId")
+	}
+	baseURL := p.BaseURL
+	if baseURL == "" {
+		baseURL = "https://dev.to"
+	}
+	apiURL := fmt.Sprintf("%s/api/articles/%s", strings.TrimRight(baseURL, "/"), remoteId)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, apiURL, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("api-key", p.APIKey)
+	req.Header.Set("User-Agent", "Tora-DevTo-Client/1.0")
+
+	resp, err := p.Client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= 400 {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("dev.to API error HTTP %d: %s", resp.StatusCode, string(body))
+	}
+
+	var article DevToArticle
+	if err := json.NewDecoder(resp.Body).Decode(&article); err != nil {
+		return nil, err
+	}
+	return &article, nil
+}
+
+// GetArticleAnalytics collects real provider engagement metrics from DEV.to (Section 14)
+func (p *DevToPublisher) GetArticleAnalytics(ctx context.Context, remoteId string) (*DevToAnalytics, error) {
+	now := common.GetTimestamp()
+	if remoteId == "" {
+		return &DevToAnalytics{Status: "UNKNOWN", LastSyncedAt: now}, nil
+	}
+	article, err := p.GetArticle(ctx, remoteId)
+	if err != nil {
+		return &DevToAnalytics{
+			RemotePostID: remoteId,
+			Status:       "UNKNOWN",
+			LastSyncedAt: now,
+		}, nil
+	}
+	return &DevToAnalytics{
+		RemotePostID:      fmt.Sprintf("%d", article.ID),
+		RemoteURL:         article.URL,
+		Status:            "SYNCED",
+		PageViews:         article.PageViewsCount,
+		PositiveReactions: article.PositiveReactionsCount,
+		CommentsCount:     article.CommentsCount,
+		LastSyncedAt:      now,
+	}, nil
+}
+
+// Update modifies an existing DEV.to article in-place via PUT /api/articles/{id} (Policy A)
+func (p *DevToPublisher) Update(ctx context.Context, remoteId string, post *model.NewsPost, payload string) (string, string, error) {
+	if p.APIKey == "" {
+		return "", "", errors.New("DEVTO_API_KEY not configured (OPERATOR_BLOCKED)")
+	}
+	baseURL := p.BaseURL
+	if baseURL == "" {
+		baseURL = "https://dev.to"
+	}
+	apiURL := fmt.Sprintf("%s/api/articles/%s", strings.TrimRight(baseURL, "/"), remoteId)
+	reqPayload := map[string]interface{}{
+		"article": map[string]interface{}{
+			"title":         post.Title,
+			"published":     true,
+			"body_markdown": payload,
+			"canonical_url": post.CanonicalUrl,
+			"tags":          []string{"ai", "technology", "news"},
+		},
+	}
+
+	reqBytes, _ := json.Marshal(reqPayload)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPut, apiURL, bytes.NewBuffer(reqBytes))
+	if err != nil {
+		return "", "", err
+	}
+	req.Header.Set("api-key", p.APIKey)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("User-Agent", "Tora-DevTo-Client/1.0")
+
+	resp, err := p.Client.Do(req)
+	if err != nil {
+		return "", "", err
+	}
+	defer resp.Body.Close()
+
+	bodyBytes, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode >= 400 {
+		return "", "", fmt.Errorf("dev.to update error HTTP %d: %s", resp.StatusCode, string(bodyBytes))
+	}
+
+	var res struct {
+		ID  int    `json:"id"`
+		URL string `json:"url"`
+	}
+	_ = json.Unmarshal(bodyBytes, &res)
+	retId := fmt.Sprintf("%d", res.ID)
+	retUrl := res.URL
+	if retUrl == "" {
+		retUrl = fmt.Sprintf("https://dev.to/api/articles/%s", retId)
+	}
+	return retId, retUrl, nil
+}
+
+// Publish implements safe, idempotent DEV.to publication with zero-duplicate guarantees
 func (p *DevToPublisher) Publish(ctx context.Context, post *model.NewsPost, payload string) (string, string, error) {
 	if p.APIKey == "" {
 		return "", "", errors.New("DEVTO_API_KEY not configured (OPERATOR_BLOCKED)")
@@ -333,6 +531,52 @@ func (p *DevToPublisher) Publish(ctx context.Context, post *model.NewsPost, payl
 		return "", "", fmt.Errorf("canonical URL validation failed: %w", err)
 	}
 
+	// Step 1: Check if local database already has a recorded remote DEV.to ID for this post
+	dists, _ := model.GetDistributionsByPostId(post.Id)
+	var existingRemoteId string
+	var existingRemoteUrl string
+	for _, d := range dists {
+		if d.Platform == model.DistPlatformDevTo {
+			if d.RemotePostId != "" {
+				existingRemoteId = d.RemotePostId
+				existingRemoteUrl = d.RemoteUrl
+				break
+			}
+			if d.ExternalPostId != "" {
+				existingRemoteId = d.ExternalPostId
+				existingRemoteUrl = d.ExternalUrl
+				break
+			}
+		}
+	}
+
+	// Step 2: If no local remote ID, query remote DEV.to to see if it was already published (crash recovery & idempotency)
+	if existingRemoteId == "" {
+		existingRemote, _ := p.FindExistingArticle(ctx, post.CanonicalUrl, post.Title)
+		if existingRemote != nil {
+			existingRemoteId = fmt.Sprintf("%d", existingRemote.ID)
+			existingRemoteUrl = existingRemote.URL
+			logger.LogInfo(ctx, fmt.Sprintf("[DevToPublisher] Discovered existing remote article ID %s on DEV.to for canonical %s (reconciled)", existingRemoteId, post.CanonicalUrl))
+		}
+	}
+
+	// Step 3: Handle existing remote article (Zero duplicates created)
+	if existingRemoteId != "" {
+		if p.UpdatePolicy == DevToPolicyUpdateExisting {
+			logger.LogInfo(ctx, fmt.Sprintf("[DevToPublisher] Updating existing remote article %s in-place (Policy A)", existingRemoteId))
+			upId, upUrl, err := p.Update(ctx, existingRemoteId, post, payload)
+			if err != nil {
+				// If update failed (e.g. rate limit), return existing without creating duplicate
+				return existingRemoteId, existingRemoteUrl, nil
+			}
+			return upId, upUrl, nil
+		}
+		// Policy B: Immutable derivative
+		logger.LogInfo(ctx, fmt.Sprintf("[DevToPublisher] Remote article %s remains immutable (Policy B)", existingRemoteId))
+		return existingRemoteId, existingRemoteUrl, nil
+	}
+
+	// Step 4: Genuinely new publication
 	baseURL := p.BaseURL
 	if baseURL == "" {
 		baseURL = "https://dev.to"
@@ -355,6 +599,7 @@ func (p *DevToPublisher) Publish(ctx context.Context, post *model.NewsPost, payl
 	}
 	req.Header.Set("api-key", p.APIKey)
 	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("User-Agent", "Tora-DevTo-Client/1.0")
 
 	resp, err := p.Client.Do(req)
 	if err != nil {

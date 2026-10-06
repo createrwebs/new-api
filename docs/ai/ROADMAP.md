@@ -458,6 +458,34 @@ Status: **COMPLETED (DEV.TO & GSC LIVE PROVEN IN PRODUCTION)**
   - Post 8 distribution record updated to `status = "published"` in PostgreSQL `new-api`.
   - Zero committed or logged secrets. All release gates passing.
 
+## R11-GROWTH-CLOSED-LOOP — Real GSC Feedback + DEV.to Idempotency + Autonomous Readiness
+
+Status: **COMPLETED**
+
+- **GSC Status Model Normalization**:
+  - Truthful states defined: `NOT_CONFIGURED`, `CONFIGURED`, `CONNECTED`, `DATA_AVAILABLE`, `ERROR`.
+  - Verified property `sc-domain:toraapi.com` with `siteFullUser` reports `CONNECTED` without synthesizing fake rows while Search Analytics is warming up (`NO_DATA_YET`).
+  - Thread-safe cached TTL checks avoid spamming Google API quotas.
+- **DEV.to Idempotency & Analytics Collection**:
+  - Strict update policy (`DEVTO_UPDATE_POLICY=UPDATE_EXISTING` / Policy A).
+  - Pre-flight remote check against `GET /api/articles/me/all` using canonical URL and title matching.
+  - In-place updates via `PUT /api/articles/{id}` preventing duplicate article creation.
+  - Real engagement analytics collection (views, reactions, comments) via `GET /api/articles/{id}`.
+- **Persistent Growth Worker & Opportunities**:
+  - `StartNewsGrowthCollectorRunner` running hourly on the master node.
+  - Ingests Search Analytics rows, generates internal `NewsDailyGrowthReview`, and evaluates opportunity types (`HIGH_IMPRESSION_LOW_CTR`, `POSITION_8_TO_20`, `RISING_QUERY`, `CANONICAL_MISMATCH`, etc.).
+  - 7-day cooldown guard enforced per post to prevent optimization thrashing.
+- **Additive Database Schema**:
+  - `NewsUrlInspection` (`news_url_inspections`) stores Google Search Console inspection verdicts, index coverage, and canonical comparisons.
+  - `NewsSeoExperiment` (`news_seo_experiments`) tracks controlled SEO optimizations and outcome evaluation.
+  - GORM AutoMigrate additive-only migration.
+- **Decoupled IndexNow & Internal Links**:
+  - Decoupled `IndexNowClient` submitting batch URLs to Bing/IndexNow endpoints.
+  - `RecommendInternalLinks` linking articles to high-intent conversion hubs (`/`, `/pricing`, `/docs`) and peer cluster nodes.
+- **Admin UI Exposure**:
+  - React Admin News dashboard (`web/src/features/news/`) equipped with GSC status badge, DEV.to status, safety controls, on-demand growth loop sync, and post growth inspection modal.
+
+
 
 
 

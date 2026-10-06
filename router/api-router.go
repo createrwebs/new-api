@@ -359,7 +359,9 @@ func SetApiRouter(router *gin.Engine) {
 			newsAdminRoute.POST("/scout/trigger", controller.AdminTriggerNewsScout)
 			newsAdminRoute.GET("/posts/:id/distributions", controller.AdminGetPostDistributions)
 			newsAdminRoute.GET("/posts/:id/growth", controller.AdminGetPostGrowthRecord)
+			newsAdminRoute.POST("/posts/:id/inspect", controller.AdminInspectNewsPostURL)
 			newsAdminRoute.GET("/growth/overview", controller.AdminGetGrowthOverview)
+			newsAdminRoute.POST("/growth/sync", controller.AdminTriggerGrowthIteration)
 			newsAdminRoute.POST("/distributions/dispatch", controller.AdminDispatchDistributions)
 		}
 

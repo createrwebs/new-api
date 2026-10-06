@@ -401,6 +401,8 @@ func migrateDB() error {
 		&NewsSeoOpportunity{},
 		&NewsConversionEvent{},
 		&NewsDailyGrowthReview{},
+		&NewsUrlInspection{},
+		&NewsSeoExperiment{},
 	)
 	if err != nil {
 		return err

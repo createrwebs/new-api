@@ -1,6 +1,7 @@
 package service
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"time"
@@ -102,23 +103,38 @@ func GenerateDailyGrowthReview(targetDate string) (*model.NewsDailyGrowthReview,
 	return review, nil
 }
 
-// PostGrowthRecord provides an unified growth and distribution record for a post (Section 19)
+// GrowthTimelineEvent models a chronological milestone in an article's growth lifecycle (Section 15)
+type GrowthTimelineEvent struct {
+	Timestamp int64  `json:"timestamp"`
+	EventType string `json:"event_type"` // "published", "distributed", "inspected", "metrics_updated", "opportunity_detected", "experiment_applied"
+	Channel   string `json:"channel,omitempty"`
+	Summary   string `json:"summary"`
+	Status    string `json:"status"`
+}
+
+// PostGrowthRecord provides an unified growth and distribution record for a post (Section 15)
 type PostGrowthRecord struct {
-	PostId           int                         `json:"post_id"`
-	Slug             string                      `json:"slug"`
-	Title            string                      `json:"title"`
-	ContentType      string                      `json:"content_type"`
-	Status           string                      `json:"status"`
-	PublishedAt      int64                       `json:"published_at"`
-	CanonicalUrl     string                      `json:"canonical_url"`
-	Distributions    []*model.NewsDistribution   `json:"distributions"`
-	SeoMetrics       []*model.NewsSeoMetric      `json:"seo_metrics"`
-	TotalImpressions int                         `json:"total_impressions"`
-	TotalClicks      int                         `json:"total_clicks"`
-	AverageCTR       float64                     `json:"average_ctr"`
-	Opportunities    []*model.NewsSeoOpportunity `json:"opportunities"`
-	SignupsCount     int                         `json:"signups_count"`
-	ConversionsCount int                         `json:"conversions_count"`
+	PostId           int                          `json:"post_id"`
+	Slug             string                       `json:"slug"`
+	Title            string                       `json:"title"`
+	ContentType      string                       `json:"content_type"`
+	Status           string                       `json:"status"`
+	PublishedAt      int64                        `json:"published_at"`
+	CanonicalUrl     string                       `json:"canonical_url"`
+	Distributions    []*model.NewsDistribution    `json:"distributions"`
+	SeoMetrics       []*model.NewsSeoMetric       `json:"seo_metrics"`
+	TotalImpressions int                          `json:"total_impressions"`
+	TotalClicks      int                          `json:"total_clicks"`
+	AverageCTR       float64                      `json:"average_ctr"`
+	AveragePosition  float64                      `json:"average_position"`
+	Opportunities    []*model.NewsSeoOpportunity  `json:"opportunities"`
+	UrlInspection    *model.NewsUrlInspection     `json:"url_inspection,omitempty"`
+	Experiments      []*model.NewsSeoExperiment   `json:"experiments,omitempty"`
+	DevToAnalytics   *DevToAnalytics              `json:"devto_analytics,omitempty"`
+	InternalLinks    []InternalLinkRecommendation `json:"internal_links,omitempty"`
+	Timeline         []GrowthTimelineEvent        `json:"timeline,omitempty"`
+	SignupsCount     int                          `json:"signups_count"`
+	ConversionsCount int                          `json:"conversions_count"`
 }
 
 // GetPostGrowthRecord compiles all growth telemetry associated with a single news post
@@ -131,16 +147,25 @@ func GetPostGrowthRecord(postId int) (*PostGrowthRecord, error) {
 	dists, _ := model.GetDistributionsByPostId(postId)
 	metrics, _ := model.GetNewsSeoMetricsByPostId(postId, 50)
 	opps, _ := model.GetSeoOpportunitiesByPost(postId)
+	insp, _ := model.GetLatestUrlInspectionByPostId(postId)
+	exps, _ := model.GetSeoExperimentsByPostId(postId)
+	links, _ := RecommendInternalLinks(postId)
 
 	totalImp := 0
 	totalClicks := 0
+	var weightedPosSum float64
 	for _, m := range metrics {
 		totalImp += m.Impressions
 		totalClicks += m.Clicks
+		if m.Impressions > 0 {
+			weightedPosSum += m.Position * float64(m.Impressions)
+		}
 	}
 	avgCTR := 0.0
+	avgPos := 0.0
 	if totalImp > 0 {
 		avgCTR = (float64(totalClicks) / float64(totalImp)) * 100.0
+		avgPos = weightedPosSum / float64(totalImp)
 	}
 
 	contentIdStr := fmt.Sprintf("%d", postId)
@@ -148,6 +173,65 @@ func GetPostGrowthRecord(postId int) (*PostGrowthRecord, error) {
 	var conversions int64
 	model.DB.Model(&model.NewsConversionEvent{}).Where("content_id = ? AND event_type = ?", contentIdStr, ConversionSignup).Count(&signups)
 	model.DB.Model(&model.NewsConversionEvent{}).Where("content_id = ? AND event_type IN ?", contentIdStr, []string{ConversionTopup, ConversionSubscription}).Count(&conversions)
+
+	// Fetch real DEV.to analytics if remote article exists (Section 14)
+	var devToAnalytics *DevToAnalytics
+	for _, d := range dists {
+		if d.Platform == model.DistPlatformDevTo && (d.RemotePostId != "" || d.ExternalPostId != "") {
+			remoteId := d.RemotePostId
+			if remoteId == "" {
+				remoteId = d.ExternalPostId
+			}
+			pub := NewDevToPublisher()
+			analytics, err := pub.GetArticleAnalytics(context.Background(), remoteId)
+			if err == nil {
+				analytics.PublishedAt = d.PublishedAt
+				devToAnalytics = analytics
+			}
+			break
+		}
+	}
+
+	// Build unified chronological timeline (Section 15)
+	var timeline []GrowthTimelineEvent
+	if post.PublishedAt > 0 {
+		timeline = append(timeline, GrowthTimelineEvent{
+			Timestamp: post.PublishedAt,
+			EventType: "published",
+			Channel:   "tora_web",
+			Summary:   fmt.Sprintf("Published on Tora News at %s", post.CanonicalUrl),
+			Status:    "active",
+		})
+	}
+	for _, d := range dists {
+		if d.PublishedAt > 0 {
+			timeline = append(timeline, GrowthTimelineEvent{
+				Timestamp: d.PublishedAt,
+				EventType: "distributed",
+				Channel:   d.Platform,
+				Summary:   fmt.Sprintf("Cross-posted to %s (Remote ID: %s)", d.Platform, d.RemotePostId),
+				Status:    d.Status,
+			})
+		}
+	}
+	if insp != nil && insp.InspectionTime > 0 {
+		timeline = append(timeline, GrowthTimelineEvent{
+			Timestamp: insp.InspectionTime,
+			EventType: "inspected",
+			Channel:   "google_search_console",
+			Summary:   fmt.Sprintf("Google Search Console URL inspection: %s (Verdict: %s)", insp.CoverageState, insp.Verdict),
+			Status:    insp.Verdict,
+		})
+	}
+	for _, exp := range exps {
+		timeline = append(timeline, GrowthTimelineEvent{
+			Timestamp: exp.AppliedAt,
+			EventType: "experiment_applied",
+			Channel:   "seo_autopilot",
+			Summary:   fmt.Sprintf("Applied SEO experiment (%s): %s", exp.ChangeType, exp.ResultVerdict),
+			Status:    exp.ResultVerdict,
+		})
+	}
 
 	return &PostGrowthRecord{
 		PostId:           post.Id,
@@ -162,13 +246,19 @@ func GetPostGrowthRecord(postId int) (*PostGrowthRecord, error) {
 		TotalImpressions: totalImp,
 		TotalClicks:      totalClicks,
 		AverageCTR:       avgCTR,
+		AveragePosition:  avgPos,
 		Opportunities:    opps,
+		UrlInspection:    insp,
+		Experiments:      exps,
+		DevToAnalytics:   devToAnalytics,
+		InternalLinks:    links,
+		Timeline:         timeline,
 		SignupsCount:     int(signups),
 		ConversionsCount: int(conversions),
 	}, nil
 }
 
-// GlobalGrowthOverview provides an operational snapshot of the growth engine (Section 19 & 21)
+// GlobalGrowthOverview provides an operational snapshot of the growth engine (Section 2, 18, 21)
 type GlobalGrowthOverview struct {
 	GlobalKillSwitchActive bool                         `json:"global_kill_switch_active"`
 	DistributionEnabled    bool                         `json:"distribution_enabled"`
@@ -176,6 +266,12 @@ type GlobalGrowthOverview struct {
 	AllowlistPostIDs       []int                        `json:"allowlist_post_ids"`
 	PendingQueueDepth      map[string]int64             `json:"pending_queue_depth"`
 	LatestDailyReview      *model.NewsDailyGrowthReview `json:"latest_daily_review"`
+	GSCStatus              string                       `json:"gsc_status"`
+	GSCDataAvailable       bool                         `json:"gsc_data_available"`
+	GSCRowCount            int64                        `json:"gsc_row_count"`
+	GSCSiteURL             string                       `json:"gsc_site_url"`
+	MassAutopublish        bool                         `json:"mass_autopublish"`
+	DevToUpdatePolicy      string                       `json:"devto_update_policy"`
 }
 
 // GetGlobalGrowthOverview evaluates runtime growth state across all channels
@@ -185,14 +281,12 @@ func GetGlobalGrowthOverview() (*GlobalGrowthOverview, error) {
 
 	channelStatuses := make(map[string]string)
 
-	// GSC
-	if os.Getenv("GSC_CREDENTIALS_FILE") != "" || os.Getenv("GSC_CREDENTIALS_JSON") != "" || os.Getenv("GOOGLE_APPLICATION_CREDENTIALS") != "" {
-		channelStatuses["gsc"] = "CONFIGURED"
-	} else {
-		channelStatuses["gsc"] = "OPERATOR_BLOCKED"
-	}
+	// Normalized GSC state (Section 2)
+	gscStatus := GetNormalizedGSCStatus(context.Background(), false)
+	channelStatuses["gsc"] = gscStatus.Status
 
 	// DEV.to
+	devPub := NewDevToPublisher()
 	if os.Getenv("DEVTO_API_KEY") != "" {
 		if !IsPlatformDistributionEnabled(model.DistPlatformDevTo) {
 			channelStatuses["devto"] = "DISABLED_BY_CONFIG"
@@ -225,7 +319,7 @@ func GetGlobalGrowthOverview() (*GlobalGrowthOverview, error) {
 		channelStatuses["linkedin"] = "OPERATOR_BLOCKED"
 	}
 
-	// Allowlist post IDs
+	// Allowlist post IDs (Section 18: empty fails closed in canary mode)
 	allowlistMap := GetDistributionAllowlistPostIDs()
 	var allowlistIDs []int
 	for id := range allowlistMap {
@@ -261,5 +355,11 @@ func GetGlobalGrowthOverview() (*GlobalGrowthOverview, error) {
 		AllowlistPostIDs:       allowlistIDs,
 		PendingQueueDepth:      queueDepth,
 		LatestDailyReview:      latestReview,
+		GSCStatus:              gscStatus.Status,
+		GSCDataAvailable:       gscStatus.DataAvailable,
+		GSCRowCount:            gscStatus.RowCount,
+		GSCSiteURL:             gscStatus.SiteURL,
+		MassAutopublish:        false, // Strictly disabled (Section 17)
+		DevToUpdatePolicy:      devPub.UpdatePolicy,
 	}, nil
 }

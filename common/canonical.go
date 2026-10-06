@@ -43,3 +43,14 @@ func GetGSCSiteURL() string {
 	}
 	return val
 }
+
+// GetGSCCredentialsFile returns the mounted path to the Google Service Account JSON
+func GetGSCCredentialsFile() string {
+	return strings.TrimSpace(os.Getenv("GSC_CREDENTIALS_FILE"))
+}
+
+// GetGSCCredentialsJSON returns raw Google Service Account JSON content
+func GetGSCCredentialsJSON() string {
+	return strings.TrimSpace(os.Getenv("GSC_CREDENTIALS_JSON"))
+}
+

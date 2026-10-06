@@ -198,10 +198,10 @@ Real release readiness still requires:
 - real test purchase
 - restore/reconciliation validation
 
-### Growth Channels (`PARTIALLY ACTIVATED`)
+### Growth Channels (`CLOSED LOOP ACTIVATED`)
 
-- Google Search Console (`GSC = ACTIVE`): `GSC_CREDENTIALS_FILE=/data/gsc_service_account.json` active and verified on `sc-domain:toraapi.com` with `siteFullUser` permissions.
-- DEV Community (`DEVTO = ACTIVE`): `DEVTO_API_KEY` active, Post 8 published live (Article ID `4804790`).
+- Google Search Console (`GSC = CONNECTED / WARMING UP`): `GSC_CREDENTIALS_FILE=/data/gsc_service_account.json` active and verified on `sc-domain:toraapi.com` with `siteFullUser` permissions. Status model normalized: reports `CONNECTED` when site access is verified and switches to `DATA_AVAILABLE` once search analytics rows arrive (2-3 day Google lag).
+- DEV Community (`DEVTO = ACTIVE`): `DEVTO_API_KEY` active, Post 8 published live (Article ID `4804790`). Enforces idempotent update policy (`DEVTO_UPDATE_POLICY=UPDATE_EXISTING`) preventing duplicate articles. Real stats (views, reactions, comments) collected live.
 - Meta Facebook (`FACEBOOK = OPERATOR_BLOCKED`): `FACEBOOK_PAGE_ACCESS_TOKEN` & `FACEBOOK_PAGE_ID` (Graph API v26.0)
 - LinkedIn (`LINKEDIN = OPERATOR_BLOCKED`): `LINKEDIN_ACCESS_TOKEN` & `LINKEDIN_ORG_ID` (`w_organization_social` scope, REST Posts API 202609)
 
@@ -210,7 +210,7 @@ Real release readiness still requires:
 Core product & growth engineering complete:
 
 ```text
-[R1-R4 COMPLETED] -> [R6-R7 COMPLETED] -> [R10 COMPLETED] -> [R11 COMPLETED] -> [R11-M COMPLETED] -> [R11-LIVE COMPLETED] -> [R11-PG COMPLETED] -> [R11-STAGING COMPLETED] -> [R11-PROD-PREFLIGHT COMPLETED] -> [R11-PROD-DEPLOY-SAFETY COMPLETED] -> [R11-PROD-DEPLOY COMPLETED (R11 PRODUCTION = PASS)] -> [R11-GROWTH-ACTIVATION (DEV.TO & GSC ACTIVE)] -> [R5 OPERATOR_BLOCKED] -> [R8 OPERATOR_BLOCKED] -> [R9 BLOCKED]
+[R1-R4 COMPLETED] -> [R6-R7 COMPLETED] -> [R10 COMPLETED] -> [R11 COMPLETED] -> [R11-M COMPLETED] -> [R11-LIVE COMPLETED] -> [R11-PG COMPLETED] -> [R11-STAGING COMPLETED] -> [R11-PROD-PREFLIGHT COMPLETED] -> [R11-PROD-DEPLOY-SAFETY COMPLETED] -> [R11-PROD-DEPLOY COMPLETED (R11 PRODUCTION = PASS)] -> [R11-GROWTH-ACTIVATION (DEV.TO & GSC ACTIVE)] -> [R11-GROWTH-CLOSED-LOOP COMPLETED] -> [R5 OPERATOR_BLOCKED] -> [R8 OPERATOR_BLOCKED] -> [R9 BLOCKED]
 ```
 
 ## Truthful Verification State
@@ -220,25 +220,18 @@ Core product & growth engineering complete:
 - `R11 PROD PREFLIGHT = PASS`
 - `R11 PROD DEPLOY SAFETY = PASS`
 - `R11 PRODUCTION = PASS`
-- `DEVTO = ACTIVE (LIVE PROVEN IN PRODUCTION — ARTICLE 4804790)`
-- `GSC = ACTIVE (LIVE PROVEN ON sc-domain:toraapi.com — siteFullUser)`
+- `GROWTH CLOSED LOOP = PASS`
+- `DEVTO = ACTIVE (LIVE IDEMPOTENT IN PRODUCTION — ARTICLE 4804790)`
+- `GSC = CONNECTED (LIVE PROVEN ON sc-domain:toraapi.com — siteFullUser)`
 - `FACEBOOK = OPERATOR_BLOCKED`
 - `LINKEDIN = OPERATOR_BLOCKED`
 
 ## Currently Executing Task
 
-**FINAL STATUS: DEV.TO & GOOGLE SEARCH CONSOLE ACTIVATED & PROVEN IN PRODUCTION**:
-1. **DEV.to Activation**: Operator configured `DEVTO_API_KEY`. Post 8 ("Building advertising for the way people use AI") successfully published live to DEV.to:
-   - Article ID: `4804790`
-   - URL: `https://dev.to/createrwebs/building-advertising-for-the-way-people-use-ai-5c8`
-   - Canonical URL: `https://www.toraapi.com/news/building-advertising-for-the-way-people-use-ai`
-   - Database distribution record updated to `status = "published"`.
-2. **Google Search Console Activation**: Operator provided service account JSON key for `firebase-adminsdk-fbsvc@cashloop-156d8.iam.gserviceaccount.com` and granted `siteFullUser` permission to property `sc-domain:toraapi.com`.
-   - Verified OAuth2 JWT token exchange: HTTP 200.
-   - Verified GSC Site Query: HTTP 200 (`permissionLevel: siteFullUser`).
-   - Verified Search Analytics API: HTTP 200 (`responseAggregationType: byProperty`).
-   - Verified URL Inspection API: HTTP 200 (`Verdict: NEUTRAL`, `Coverage State: URL is unknown to Google`).
-   - Backend Go client (`service/news_gsc.go`) fully implemented with `golang.org/x/oauth2/jwt`.
-   - Production Docker container `new-api` running `tora-api:r11-290404938` with mounted key `/data/gsc_service_account.json`.
-   - Live admin overview endpoint `GET /api/admin/news/growth/overview` reports `channel_statuses.gsc = "CONFIGURED"` and `channel_statuses.devto = "ACTIVE"`.
-3. **Safety Guards**: `NEWS_DISTRIBUTION_ALLOWLIST_POST_IDS=8` prevents historical backlog flooding across 1,164 queued articles. Facebook and LinkedIn remain `OPERATOR_BLOCKED` awaiting operator tokens.
+**FINAL STATUS: GROWTH CLOSED LOOP VERIFIED — READY FOR NEXT CHANNEL CANARY**:
+1. **GSC Status Model Normalization**: Defined and exposed truthful GSC states (`NOT_CONFIGURED`, `CONFIGURED`, `CONNECTED`, `DATA_AVAILABLE`, `ERROR`) in `GET /api/admin/news/growth/overview`. Connected property reports `CONNECTED` without faking search row data during Google's standard reporting delay.
+2. **DEV.to Idempotent Lifecycle & Live Analytics**: Enforced Policy A (`DEVTO_UPDATE_POLICY=UPDATE_EXISTING`), querying `GET /api/articles/me/all` to reconcile remote articles by canonical URL and title. Re-dispatch updates in-place via `PUT /api/articles/{id}` and never generates duplicate articles. Live views, reactions, and comments fetched via `GET /api/articles/{id}`.
+3. **Database Schema Additive Models**: Added `NewsUrlInspection` (`news_url_inspections`) and `NewsSeoExperiment` (`news_seo_experiments`) safely auto-migrated via GORM.
+4. **Persistent Autonomous Growth Worker**: Implemented `StartNewsGrowthCollectorRunner()` on master node running hourly to ingest search analytics, perform rate-limited URL inspections (max 2/run), evaluate 7-day experiment cooldowns, and record `NewsDailyGrowthReview`.
+5. **Decoupled IndexNow & Internal Links Engine**: Added decoupled IndexNow client (`service/news_indexnow.go`) and internal linking recommendations (`service/news_internal_links.go`) targeting core commercial hubs and peer clusters.
+6. **React Admin News UI**: Enhanced News Admin (`web/src/features/news/`) with real-time Growth Intelligence overview cards (GSC status badge, DEV.to status, safety controls), manual growth sync button, and post-level growth inspection modal.

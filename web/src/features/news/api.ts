@@ -5,8 +5,11 @@ import type {
   DailyGrowthReview,
   GetNewsPostsParams,
   GetNewsPostsResponse,
+  GlobalGrowthOverview,
   NewsPost,
   NewsSource,
+  NewsUrlInspection,
+  PostGrowthRecord,
 } from './types'
 
 export async function getAdminNewsPosts(
@@ -50,5 +53,25 @@ export async function triggerAdminNewsScout(): Promise<ApiResponse<{ sources_pro
 
 export async function getAdminDailyGrowthReviews(): Promise<ApiResponse<DailyGrowthReview[]>> {
   const res = await api.get('/api/admin/news/reviews/daily')
+  return res.data
+}
+
+export async function getAdminGrowthOverview(): Promise<ApiResponse<GlobalGrowthOverview>> {
+  const res = await api.get('/api/admin/news/growth/overview')
+  return res.data
+}
+
+export async function getAdminPostGrowthRecord(id: number): Promise<ApiResponse<PostGrowthRecord>> {
+  const res = await api.get(`/api/admin/news/posts/${id}/growth`)
+  return res.data
+}
+
+export async function inspectAdminPostURL(id: number): Promise<ApiResponse<NewsUrlInspection>> {
+  const res = await api.post(`/api/admin/news/posts/${id}/inspect`)
+  return res.data
+}
+
+export async function triggerAdminGrowthSync(): Promise<ApiResponse<{ gsc_ingested: boolean; message: string }>> {
+  const res = await api.post('/api/admin/news/growth/sync')
   return res.data
 }

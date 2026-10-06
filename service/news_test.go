@@ -37,6 +37,8 @@ func setupServiceNewsTestDB(t *testing.T) {
 		&model.NewsSeoOpportunity{},
 		&model.NewsConversionEvent{},
 		&model.NewsDailyGrowthReview{},
+		&model.NewsUrlInspection{},
+		&model.NewsSeoExperiment{},
 	))
 	sqlDB, err := db.DB()
 	require.NoError(t, err)
@@ -477,9 +479,9 @@ func TestNewsGSC_OpportunityDetectionAndCooldown(t *testing.T) {
 		oppTypes[opp.OpportunityType] = true
 	}
 
-	assert.True(t, oppTypes[model.OpportunityHighImpLowCTR], "High impressions (185) with low CTR (1.08%) should trigger OpportunityHighImpLowCTR")
-	assert.True(t, oppTypes[model.OpportunityPosition5To20], "Position 12.4 with 150 impressions should trigger OpportunityPosition5To20")
-	assert.True(t, oppTypes[model.OpportunityNewQuery], "Query 'prompt caching discount' not in text should trigger OpportunityNewQuery")
+	assert.True(t, oppTypes[model.OpportunityHighImpLowCTR] || oppTypes[model.OpportunityHighImpLowCTRAlt], "High impressions (185) with low CTR (1.08%) should trigger OpportunityHighImpLowCTR")
+	assert.True(t, oppTypes[model.OpportunityPosition8To20] || oppTypes[model.OpportunityPosition5To20], "Position 12.4 with 150 impressions should trigger striking distance opportunity")
+	assert.True(t, oppTypes[model.OpportunityRisingQuery] || oppTypes[model.OpportunityNewQuery], "Query 'prompt caching discount' not in text should trigger new query opportunity")
 
 	// Test 7-Day Cooldown Enforcement
 	canRemediate, reason, err := CanRemediatePost(post.Id)
