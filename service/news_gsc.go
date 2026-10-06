@@ -56,6 +56,8 @@ type GSCMetricRow struct {
 	Country     string  `json:"country"`
 	Device      string  `json:"device"`
 	Date        string  `json:"date"`
+	DataState   string  `json:"data_state"` // FINAL or PARTIAL
+	IsFinal     bool    `json:"is_final"`
 }
 
 // GSCSitemap represents sitemap state in Search Console
@@ -73,6 +75,8 @@ type GSCSitemap struct {
 type GSCClient interface {
 	VerifySiteAccess(ctx context.Context, siteUrl string) (string, error)
 	QuerySearchAnalytics(ctx context.Context, siteUrl string, startDate, endDate string, dimensions []string) ([]GSCMetricRow, error)
+	QuerySearchAnalyticsWithDataState(ctx context.Context, siteUrl string, startDate, endDate string, dimensions []string, dataState string) ([]GSCMetricRow, error)
+	QueryDeltaSearchAnalytics(ctx context.Context, siteUrl string) ([]GSCMetricRow, error)
 	InspectURL(ctx context.Context, siteUrl string, inspectionUrl string) (isIndexed bool, verdict string, err error)
 	InspectURLDetails(ctx context.Context, siteUrl string, inspectionUrl string) (*model.NewsUrlInspection, error)
 	GetGSCSitemaps(ctx context.Context, siteUrl string) ([]GSCSitemap, error)
@@ -178,6 +182,11 @@ func (c *DefaultGSCClient) VerifySiteAccess(ctx context.Context, siteUrl string)
 }
 
 func (c *DefaultGSCClient) QuerySearchAnalytics(ctx context.Context, siteUrl string, startDate, endDate string, dimensions []string) ([]GSCMetricRow, error) {
+	return c.QuerySearchAnalyticsWithDataState(ctx, siteUrl, startDate, endDate, dimensions, "all")
+}
+
+// QuerySearchAnalyticsWithDataState queries GSC with explicit dataState ("all" or "final")
+func (c *DefaultGSCClient) QuerySearchAnalyticsWithDataState(ctx context.Context, siteUrl string, startDate, endDate string, dimensions []string, dataState string) ([]GSCMetricRow, error) {
 	client, err := c.getAuthenticatedClient(ctx)
 	if err != nil {
 		return nil, err
@@ -189,10 +198,13 @@ func (c *DefaultGSCClient) QuerySearchAnalytics(ctx context.Context, siteUrl str
 		startDate = time.Now().AddDate(0, 0, -28).Format("2006-01-02")
 	}
 	if endDate == "" {
-		endDate = time.Now().AddDate(0, 0, -1).Format("2006-01-02")
+		endDate = time.Now().Format("2006-01-02")
 	}
 	if len(dimensions) == 0 {
 		dimensions = []string{"page", "query"}
+	}
+	if dataState == "" {
+		dataState = "all"
 	}
 
 	escapedSite := url.QueryEscape(siteUrl)
@@ -202,6 +214,7 @@ func (c *DefaultGSCClient) QuerySearchAnalytics(ctx context.Context, siteUrl str
 		"startDate":  startDate,
 		"endDate":    endDate,
 		"dimensions": dimensions,
+		"dataState":  dataState,
 		"rowLimit":   5000,
 	}
 	reqBytes, err := json.Marshal(reqPayload)
@@ -248,15 +261,47 @@ func (c *DefaultGSCClient) QuerySearchAnalytics(ctx context.Context, siteUrl str
 			Position:    row.Position,
 			Date:        endDate,
 		}
-		if len(row.Keys) > 0 {
-			m.Page = row.Keys[0]
+		for i, dim := range dimensions {
+			if i < len(row.Keys) {
+				switch dim {
+				case "page":
+					m.Page = row.Keys[i]
+				case "query":
+					m.Query = row.Keys[i]
+				case "date":
+					m.Date = row.Keys[i]
+				case "country":
+					m.Country = row.Keys[i]
+				case "device":
+					m.Device = row.Keys[i]
+				}
+			}
 		}
-		if len(row.Keys) > 1 {
-			m.Query = row.Keys[1]
+
+		// Google considers Search Analytics data older than ~3 days final; more recent is partial
+		rowDate, parseErr := time.Parse("2006-01-02", m.Date)
+		if parseErr == nil && time.Since(rowDate) > 3*24*time.Hour {
+			m.IsFinal = true
+			m.DataState = "FINAL"
+		} else {
+			m.IsFinal = false
+			m.DataState = "PARTIAL"
 		}
+
 		results = append(results, m)
 	}
 	return results, nil
+}
+
+// QueryDeltaSearchAnalytics implements delta-aware scheduling: queries only missing or recent partitions
+func (c *DefaultGSCClient) QueryDeltaSearchAnalytics(ctx context.Context, siteUrl string) ([]GSCMetricRow, error) {
+	latestFinal, _ := model.GetLatestFinalizedSeoMetricDate()
+	today := time.Now().Format("2006-01-02")
+	startDate := latestFinal
+	if startDate == "" {
+		startDate = time.Now().AddDate(0, 0, -28).Format("2006-01-02")
+	}
+	return c.QuerySearchAnalyticsWithDataState(ctx, siteUrl, startDate, today, []string{"page", "query", "date"}, "all")
 }
 
 // InspectURLDetails queries Google's URL Inspection API and returns a structured model
@@ -419,26 +464,52 @@ func IngestSearchMetrics(rows []GSCMetricRow) (int, error) {
 		var existing model.NewsSeoMetric
 		err := model.DB.Where("snapshot_date = ? AND page_url = ? AND query = ?", r.Date, r.Page, r.Query).First(&existing).Error
 		if err == nil {
-			// Update existing record
-			existing.Clicks = r.Clicks
-			existing.Impressions = r.Impressions
-			existing.Ctr = r.CTR
-			existing.Position = r.Position
-			_ = model.DB.Save(&existing)
+			// Partition immutability: if existing is FINAL, keep cached/immutable
+			if existing.IsFinal && !r.IsFinal {
+				continue
+			}
+			// If existing was PARTIAL and incoming is FINAL, upgrade it
+			if !existing.IsFinal && r.IsFinal {
+				existing.Clicks = r.Clicks
+				existing.Impressions = r.Impressions
+				existing.Ctr = r.CTR
+				existing.Position = r.Position
+				existing.DataState = "FINAL"
+				existing.IsFinal = true
+				_ = model.DB.Save(&existing)
+			} else if !existing.IsFinal {
+				// Refresh recent partial observations
+				existing.Clicks = r.Clicks
+				existing.Impressions = r.Impressions
+				existing.Ctr = r.CTR
+				existing.Position = r.Position
+				_ = model.DB.Save(&existing)
+			}
 			continue
 		}
 
+		dataState := r.DataState
+		if dataState == "" {
+			if r.IsFinal {
+				dataState = "FINAL"
+			} else {
+				dataState = "PARTIAL"
+			}
+		}
+
 		metric := &model.NewsSeoMetric{
-			PostId:      postId,
-			PageUrl:     r.Page,
-			Query:       r.Query,
-			Clicks:      r.Clicks,
-			Impressions: r.Impressions,
+			PostId:       postId,
+			PageUrl:      r.Page,
+			Query:        r.Query,
+			Clicks:       r.Clicks,
+			Impressions:  r.Impressions,
 			Ctr:          r.CTR,
 			Position:     r.Position,
 			Country:      r.Country,
 			Device:       r.Device,
 			SnapshotDate: r.Date,
+			DataState:    dataState,
+			IsFinal:      r.IsFinal,
 			CreatedAt:    common.GetTimestamp(),
 		}
 

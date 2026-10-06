@@ -485,6 +485,36 @@ Status: **COMPLETED**
 - **Admin UI Exposure**:
   - React Admin News dashboard (`web/src/features/news/`) equipped with GSC status badge, DEV.to status, safety controls, on-demand growth loop sync, and post growth inspection modal.
 
+## R11-SOCIAL-CANARY — Real Social Channel Canary (Facebook + LinkedIn Controlled Activation)
+
+Status: **COMPLETED** (Canaries Partially Verified — Operator Credentials Required)
+
+- **GSC Scheduling Optimization & Delta-Aware Ingestion**:
+  - Search Analytics ingestion made delta-aware (`QueryDeltaSearchAnalytics`), caching `FINAL` partitions (observations older than 3 days) immutably and querying missing/partial dates with `dataState=all`.
+  - Added `DataState` ("FINAL" vs "PARTIAL") and `IsFinal` to `NewsSeoMetric`.
+  - Hourly worker switched to delta range to avoid repetitive expensive Google API queries.
+  - Selective URL inspection limited to max 2 per worker run.
+- **GA4 Readiness Audit & Read-Only Client**:
+  - Audited `https://www.toraapi.com` web frontend and runtime environment. Confirmed no active `gtag.js` or Measurement ID installed; marked `GA4 = OPERATOR_BLOCKED`.
+  - Implemented read-only GA4 Data API client in `service/news_ga4.go` (`QueryLandingPageMetrics`, `QueryConversionEvents`, `GetNormalizedGA4Status`) with TTL caching and graceful operator boundary handling.
+- **Facebook & LinkedIn Connectors & Pre-Flight Idempotency**:
+  - Facebook Graph API v26.0 connector with Page ID and token validation (`VerifyPageAccess`). Enforced pre-flight idempotency checks to avoid duplicate page posts.
+  - LinkedIn REST API 202609 connector with Organization ID verification (`VerifyOrgAccess`) and pre-flight idempotency checks.
+  - Verified EC2 environment: credentials not yet provided -> marked `FACEBOOK = OPERATOR_BLOCKED` and `LINKEDIN = OPERATOR_BLOCKED`.
+- **Backlog Invariant & Mathematical Suppression Reporting**:
+  - Separated backlog metrics in `GlobalGrowthOverview`: `raw_pending_count` (~4,743 rows), `canary_eligible_count` (1), `eligible_pending_count` (1), and `suppressed_historical_count` (~4,742 rows).
+  - Ensured historical backlog cannot leak into distribution channels during canary activation.
+- **Autonomous Mode Policy Engine (Section 13)**:
+  - Built `service/news_policy.go` with risk-based decision matrix:
+    - Canonical Tora publication verified first (`post.Status == "published"`).
+    - `HIGH` risk -> `NEVER_AUTOPUBLISH`.
+    - `MEDIUM` risk -> `REVIEW_REQUIRED`.
+    - `LOW` risk + quality pass + verified source -> `CANDIDATE_FUTURE_AUTOPUBLISH`.
+  - `MASS_AUTOPUBLISH=false` ("v1-controlled-staged") strictly preserved.
+- **Frontend Admin Growth Overview**:
+  - React Admin News dashboard updated to display Backlog Safety Invariant, GA4 & Autopilot Policy card, and multi-channel distribution state.
+
+
 
 
 

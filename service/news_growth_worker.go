@@ -41,15 +41,12 @@ func RunGrowthCollectorIteration(ctx context.Context) (*GrowthCollectorResult, e
 	gscStatus := GetNormalizedGSCStatus(ctx, true)
 	res.GSCStatus = gscStatus.Status
 
-	// 2. Collect Search Analytics if connected
+	// 2. Collect Search Analytics if connected (Delta-aware, Section 1)
 	if gscStatus.Status == GSCStatusConnected || gscStatus.Status == GSCStatusDataAvailable {
 		gscClient := NewDefaultGSCClient()
-		startDate := time.Now().AddDate(0, 0, -28).Format("2006-01-02")
-		endDate := time.Now().AddDate(0, 0, -1).Format("2006-01-02")
-
-		rows, err := gscClient.QuerySearchAnalytics(ctx, common.GetGSCSiteURL(), startDate, endDate, []string{"page", "query"})
+		rows, err := gscClient.QueryDeltaSearchAnalytics(ctx, common.GetGSCSiteURL())
 		if err != nil {
-			logger.LogWarn(ctx, fmt.Sprintf("[GrowthWorker] GSC query returned: %v", err))
+			logger.LogWarn(ctx, fmt.Sprintf("[GrowthWorker] GSC delta query returned: %v", err))
 			res.LastError = err.Error()
 		} else if len(rows) > 0 {
 			ingested, ingestErr := IngestSearchMetrics(rows)
@@ -60,7 +57,7 @@ func RunGrowthCollectorIteration(ctx context.Context) (*GrowthCollectorResult, e
 				logger.LogInfo(ctx, fmt.Sprintf("[GrowthWorker] Successfully ingested %d GSC metric rows", ingested))
 			}
 
-			// Generate opportunities ONLY from real observed metrics
+			// Daily full SEO opportunity evaluation is sufficient (Section 1)
 			posts, _, _ := model.GetPublishedNewsPosts(1, 100, "", "", "")
 			opps, _ := DetectSeoOpportunities(posts, rows)
 			for _, opp := range opps {

@@ -258,6 +258,15 @@ func GetPostGrowthRecord(postId int) (*PostGrowthRecord, error) {
 	}, nil
 }
 
+// BacklogMetrics reports distribution queue depth and prove historical backlog suppression (Section 9)
+type BacklogMetrics struct {
+	RawPendingCount           int64            `json:"raw_pending_count"`
+	EligiblePendingCount      int64            `json:"eligible_pending_count"`
+	SuppressedHistoricalCount int64            `json:"suppressed_historical_count"`
+	CanaryEligibleCount       int64            `json:"canary_eligible_count"`
+	ByPlatform                map[string]int64 `json:"by_platform"`
+}
+
 // GlobalGrowthOverview provides an operational snapshot of the growth engine (Section 2, 18, 21)
 type GlobalGrowthOverview struct {
 	GlobalKillSwitchActive bool                         `json:"global_kill_switch_active"`
@@ -265,12 +274,17 @@ type GlobalGrowthOverview struct {
 	ChannelStatuses        map[string]string            `json:"channel_statuses"`
 	AllowlistPostIDs       []int                        `json:"allowlist_post_ids"`
 	PendingQueueDepth      map[string]int64             `json:"pending_queue_depth"`
+	BacklogMetrics         BacklogMetrics               `json:"backlog_metrics"`
 	LatestDailyReview      *model.NewsDailyGrowthReview `json:"latest_daily_review"`
 	GSCStatus              string                       `json:"gsc_status"`
 	GSCDataAvailable       bool                         `json:"gsc_data_available"`
 	GSCRowCount            int64                        `json:"gsc_row_count"`
 	GSCSiteURL             string                       `json:"gsc_site_url"`
+	GA4Status              string                       `json:"ga4_status"`
+	GA4DataAvailable       bool                         `json:"ga4_data_available"`
+	GA4PropertyID          string                       `json:"ga4_property_id"`
 	MassAutopublish        bool                         `json:"mass_autopublish"`
+	AutonomousPolicy       MassAutoPublishState         `json:"autonomous_policy"`
 	DevToUpdatePolicy      string                       `json:"devto_update_policy"`
 }
 
@@ -284,6 +298,11 @@ func GetGlobalGrowthOverview() (*GlobalGrowthOverview, error) {
 	// Normalized GSC state (Section 2)
 	gscStatus := GetNormalizedGSCStatus(context.Background(), false)
 	channelStatuses["gsc"] = gscStatus.Status
+
+	// GA4 Readiness (Section 2)
+	ga4Client := NewDefaultGA4Client()
+	ga4Status := ga4Client.GetNormalizedGA4Status(context.Background(), false)
+	channelStatuses["ga4"] = ga4Status.Status
 
 	// DEV.to
 	devPub := NewDevToPublisher()
@@ -326,7 +345,7 @@ func GetGlobalGrowthOverview() (*GlobalGrowthOverview, error) {
 		allowlistIDs = append(allowlistIDs, id)
 	}
 
-	// Queue depth
+	// Queue depth by platform
 	queueDepth := make(map[string]int64)
 	type QueueRow struct {
 		Platform string
@@ -342,11 +361,43 @@ func GetGlobalGrowthOverview() (*GlobalGrowthOverview, error) {
 		queueDepth[r.Platform] = r.Count
 	}
 
+	// Backlog metrics and invariant calculations (Section 9)
+	var rawPending int64
+	model.DB.Model(&model.NewsDistribution{}).Where("status = ?", "pending").Count(&rawPending)
+
+	var canaryEligible int64
+	if len(allowlistIDs) > 0 {
+		model.DB.Model(&model.NewsDistribution{}).Where("status = ? AND post_id IN ?", "pending", allowlistIDs).Count(&canaryEligible)
+	}
+
+	var eligiblePending int64
+	for platform := range queueDepth {
+		if IsPlatformDistributionEnabled(platform) && len(allowlistIDs) > 0 {
+			var eligibleForPlatform int64
+			model.DB.Model(&model.NewsDistribution{}).
+				Where("status = ? AND platform = ? AND post_id IN ?", "pending", platform, allowlistIDs).
+				Count(&eligibleForPlatform)
+			eligiblePending += eligibleForPlatform
+		}
+	}
+
+	suppressedHistorical := rawPending - eligiblePending
+	backlogMetrics := BacklogMetrics{
+		RawPendingCount:           rawPending,
+		EligiblePendingCount:      eligiblePending,
+		SuppressedHistoricalCount: suppressedHistorical,
+		CanaryEligibleCount:       canaryEligible,
+		ByPlatform:                queueDepth,
+	}
+
 	recentReviews, _ := model.GetRecentDailyGrowthReviews(1)
 	var latestReview *model.NewsDailyGrowthReview
 	if len(recentReviews) > 0 {
 		latestReview = recentReviews[0]
 	}
+
+	samplePosts, _, _ := model.GetPublishedNewsPosts(1, 50, "", "", "")
+	policyState := GetMassAutoPublishPolicyState(samplePosts)
 
 	return &GlobalGrowthOverview{
 		GlobalKillSwitchActive: killSwitchActive,
@@ -354,12 +405,17 @@ func GetGlobalGrowthOverview() (*GlobalGrowthOverview, error) {
 		ChannelStatuses:        channelStatuses,
 		AllowlistPostIDs:       allowlistIDs,
 		PendingQueueDepth:      queueDepth,
+		BacklogMetrics:         backlogMetrics,
 		LatestDailyReview:      latestReview,
 		GSCStatus:              gscStatus.Status,
 		GSCDataAvailable:       gscStatus.DataAvailable,
 		GSCRowCount:            gscStatus.RowCount,
 		GSCSiteURL:             gscStatus.SiteURL,
-		MassAutopublish:        false, // Strictly disabled (Section 17)
+		GA4Status:              ga4Status.Status,
+		GA4DataAvailable:       ga4Status.DataAvailable,
+		GA4PropertyID:          ga4Status.PropertyID,
+		MassAutopublish:        false, // Strictly disabled (Section 12)
+		AutonomousPolicy:       policyState,
 		DevToUpdatePolicy:      devPub.UpdatePolicy,
 	}, nil
 }

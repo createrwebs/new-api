@@ -603,12 +603,18 @@ type NewsSeoMetric struct {
 	Ctr          float64 `json:"ctr" gorm:"type:float;default:0"`
 	Position     float64 `json:"position" gorm:"type:float;default:0"`
 	SnapshotDate string  `json:"snapshot_date" gorm:"type:varchar(32);index;not null"`
+	DataState    string  `json:"data_state" gorm:"type:varchar(16);default:'FINAL'"` // FINAL or PARTIAL
+	IsFinal      bool    `json:"is_final" gorm:"default:true"`
 	CreatedAt    int64   `json:"created_at" gorm:"bigint"`
 }
 
 func (m *NewsSeoMetric) BeforeCreate(tx *gorm.DB) error {
 	if m.CreatedAt == 0 {
 		m.CreatedAt = common.GetTimestamp()
+	}
+	if m.DataState == "" {
+		m.DataState = "FINAL"
+		m.IsFinal = true
 	}
 	return nil
 }
@@ -618,6 +624,15 @@ func SaveNewsSeoMetric(m *NewsSeoMetric) error {
 		return nil
 	}
 	return DB.Create(m).Error
+}
+
+func GetLatestFinalizedSeoMetricDate() (string, error) {
+	if DB == nil {
+		return "", nil
+	}
+	var maxDate string
+	err := DB.Model(&NewsSeoMetric{}).Where("is_final = ?", true).Select("COALESCE(MAX(snapshot_date), '')").Scan(&maxDate).Error
+	return maxDate, err
 }
 
 func GetNewsSeoMetricsByPostId(postId int, limit int) ([]*NewsSeoMetric, error) {

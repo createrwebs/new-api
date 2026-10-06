@@ -139,19 +139,46 @@ export interface PostGrowthRecord {
   timeline: GrowthTimelineEvent[]
 }
 
+export interface BacklogMetrics {
+  raw_pending_count: number
+  eligible_pending_count: number
+  suppressed_historical_count: number
+  canary_eligible_count: number
+  by_platform: Record<string, number>
+}
+
+export interface AutonomousPolicyState {
+  mass_autopublish_enabled: boolean
+  policy_version: string
+  active_rule_summary: string
+  candidates_count: number
+  review_required_count: number
+  never_publish_count: number
+}
+
 export interface GlobalGrowthOverview {
-  total_published_posts: number
-  total_organic_views: number
+  global_kill_switch_active?: boolean
+  distribution_enabled?: boolean
+  channel_statuses?: Record<string, string>
+  allowlist_post_ids?: number[]
+  pending_queue_depth?: Record<string, number>
+  backlog_metrics?: BacklogMetrics
+  total_published_posts?: number
+  total_organic_views?: number
   gsc_status: string
   gsc_data_available: boolean
   gsc_row_count: number
   gsc_site_url: string
+  ga4_status?: string
+  ga4_data_available?: boolean
+  ga4_property_id?: string
   mass_autopublish: boolean
-  devto_status: string
+  autonomous_policy?: AutonomousPolicyState
+  devto_status?: string
   devto_update_policy: string
-  active_experiments: number
-  daily_reviews_count: number
-  recent_opportunities: NewsGrowthOpportunity[]
+  active_experiments?: number
+  daily_reviews_count?: number
+  recent_opportunities?: NewsGrowthOpportunity[]
 }
 
 export interface GetNewsPostsParams {

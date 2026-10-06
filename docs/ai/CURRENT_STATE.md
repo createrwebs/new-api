@@ -198,19 +198,22 @@ Real release readiness still requires:
 - real test purchase
 - restore/reconciliation validation
 
-### Growth Channels (`CLOSED LOOP ACTIVATED`)
+### Growth Channels (`CONTROLLED ACTIVATION & SOCIAL CANARY`)
 
-- Google Search Console (`GSC = CONNECTED / WARMING UP`): `GSC_CREDENTIALS_FILE=/data/gsc_service_account.json` active and verified on `sc-domain:toraapi.com` with `siteFullUser` permissions. Status model normalized: reports `CONNECTED` when site access is verified and switches to `DATA_AVAILABLE` once search analytics rows arrive (2-3 day Google lag).
+- Google Search Console (`GSC = CONNECTED / WARMING UP`): Delta-aware ingestion implemented (`service/news_gsc.go`), caching `FINAL` partitions (age > 3 days) immutably and querying missing/partial dates with `dataState=all`. Hourly worker queries delta partitions; selective URL inspection limited to max 2/run.
+- Google Analytics 4 (`GA4 = OPERATOR_BLOCKED`): Production web audit revealed no active `gtag.js` or Measurement ID installed (comments only); `GA4_PROPERTY_ID` not configured. Read-only GA4 Data API client built in `service/news_ga4.go` ready for activation upon operator credential provision.
 - DEV Community (`DEVTO = ACTIVE`): `DEVTO_API_KEY` active, Post 8 published live (Article ID `4804790`). Enforces idempotent update policy (`DEVTO_UPDATE_POLICY=UPDATE_EXISTING`) preventing duplicate articles. Real stats (views, reactions, comments) collected live.
-- Meta Facebook (`FACEBOOK = OPERATOR_BLOCKED`): `FACEBOOK_PAGE_ACCESS_TOKEN` & `FACEBOOK_PAGE_ID` (Graph API v26.0)
-- LinkedIn (`LINKEDIN = OPERATOR_BLOCKED`): `LINKEDIN_ACCESS_TOKEN` & `LINKEDIN_ORG_ID` (`w_organization_social` scope, REST Posts API 202609)
+- Meta Facebook (`FACEBOOK = OPERATOR_BLOCKED`): Graph API v26.0 connector with Page ID and permissions verification, Thai text formatting, and pre-flight idempotency checks. Awaiting `FACEBOOK_PAGE_ACCESS_TOKEN` & `FACEBOOK_PAGE_ID`.
+- LinkedIn (`LINKEDIN = OPERATOR_BLOCKED`): REST API 202609 connector with Organization ID verification and pre-flight idempotency checks. Awaiting `LINKEDIN_ACCESS_TOKEN` & `LINKEDIN_ORG_ID`.
+- Backlog Safety Invariant: Historical backlog (~4,742 distributions across platforms) strictly suppressed. Only allowlisted canary posts (`NEWS_DISTRIBUTION_ALLOWLIST_POST_IDS=8`) are eligible.
+- Autonomous Mode Policy Gate: Section 13 policy engine (`service/news_policy.go`) active with risk tiers (LOW, MEDIUM, HIGH) requiring successful canonical publication first. `MASS_AUTOPUBLISH=false` strictly enforced.
 
 ## Active Engineering Direction
 
 Core product & growth engineering complete:
 
 ```text
-[R1-R4 COMPLETED] -> [R6-R7 COMPLETED] -> [R10 COMPLETED] -> [R11 COMPLETED] -> [R11-M COMPLETED] -> [R11-LIVE COMPLETED] -> [R11-PG COMPLETED] -> [R11-STAGING COMPLETED] -> [R11-PROD-PREFLIGHT COMPLETED] -> [R11-PROD-DEPLOY-SAFETY COMPLETED] -> [R11-PROD-DEPLOY COMPLETED (R11 PRODUCTION = PASS)] -> [R11-GROWTH-ACTIVATION (DEV.TO & GSC ACTIVE)] -> [R11-GROWTH-CLOSED-LOOP COMPLETED] -> [R5 OPERATOR_BLOCKED] -> [R8 OPERATOR_BLOCKED] -> [R9 BLOCKED]
+[R1-R4 COMPLETED] -> [R6-R7 COMPLETED] -> [R10 COMPLETED] -> [R11 COMPLETED] -> [R11-M COMPLETED] -> [R11-LIVE COMPLETED] -> [R11-PG COMPLETED] -> [R11-STAGING COMPLETED] -> [R11-PROD-PREFLIGHT COMPLETED] -> [R11-PROD-DEPLOY-SAFETY COMPLETED] -> [R11-PROD-DEPLOY COMPLETED (R11 PRODUCTION = PASS)] -> [R11-GROWTH-ACTIVATION COMPLETED] -> [R11-GROWTH-CLOSED-LOOP COMPLETED] -> [R11-SOCIAL-CANARY COMPLETED (DEV.TO LIVE, GSC CONNECTED, FB/LI OPERATOR_BLOCKED)] -> [R5 OPERATOR_BLOCKED] -> [R8 OPERATOR_BLOCKED] -> [R9 BLOCKED]
 ```
 
 ## Truthful Verification State
@@ -222,16 +225,19 @@ Core product & growth engineering complete:
 - `R11 PRODUCTION = PASS`
 - `GROWTH CLOSED LOOP = PASS`
 - `DEVTO = ACTIVE (LIVE IDEMPOTENT IN PRODUCTION — ARTICLE 4804790)`
-- `GSC = CONNECTED (LIVE PROVEN ON sc-domain:toraapi.com — siteFullUser)`
-- `FACEBOOK = OPERATOR_BLOCKED`
-- `LINKEDIN = OPERATOR_BLOCKED`
+- `GSC = CONNECTED (LIVE PROVEN ON sc-domain:toraapi.com — DELTA-AWARE INGESTION)`
+- `GA4 = OPERATOR_BLOCKED (NO ACTIVE GTAG / MEASUREMENT ID ON WEB ORIGIN)`
+- `FACEBOOK = OPERATOR_BLOCKED (AWAITING OPERATOR CREDENTIALS)`
+- `LINKEDIN = OPERATOR_BLOCKED (AWAITING OPERATOR CREDENTIALS)`
+- `BACKLOG SAFETY INVARIANT = PASS (SUPPRESSED HISTORICAL BACKLOG)`
+- `AUTONOMOUS POLICY GATE = PASS (MASS_AUTOPUBLISH=FALSE STRICTLY ENFORCED)`
 
 ## Currently Executing Task
 
-**FINAL STATUS: GROWTH CLOSED LOOP VERIFIED — READY FOR NEXT CHANNEL CANARY**:
-1. **GSC Status Model Normalization**: Defined and exposed truthful GSC states (`NOT_CONFIGURED`, `CONFIGURED`, `CONNECTED`, `DATA_AVAILABLE`, `ERROR`) in `GET /api/admin/news/growth/overview`. Connected property reports `CONNECTED` without faking search row data during Google's standard reporting delay.
-2. **DEV.to Idempotent Lifecycle & Live Analytics**: Enforced Policy A (`DEVTO_UPDATE_POLICY=UPDATE_EXISTING`), querying `GET /api/articles/me/all` to reconcile remote articles by canonical URL and title. Re-dispatch updates in-place via `PUT /api/articles/{id}` and never generates duplicate articles. Live views, reactions, and comments fetched via `GET /api/articles/{id}`.
-3. **Database Schema Additive Models**: Added `NewsUrlInspection` (`news_url_inspections`) and `NewsSeoExperiment` (`news_seo_experiments`) safely auto-migrated via GORM.
-4. **Persistent Autonomous Growth Worker**: Implemented `StartNewsGrowthCollectorRunner()` on master node running hourly to ingest search analytics, perform rate-limited URL inspections (max 2/run), evaluate 7-day experiment cooldowns, and record `NewsDailyGrowthReview`.
-5. **Decoupled IndexNow & Internal Links Engine**: Added decoupled IndexNow client (`service/news_indexnow.go`) and internal linking recommendations (`service/news_internal_links.go`) targeting core commercial hubs and peer clusters.
-6. **React Admin News UI**: Enhanced News Admin (`web/src/features/news/`) with real-time Growth Intelligence overview cards (GSC status badge, DEV.to status, safety controls), manual growth sync button, and post-level growth inspection modal.
+**FINAL STATUS: SOCIAL CANARIES PARTIALLY VERIFIED — OPERATOR CREDENTIALS REQUIRED**:
+1. **Delta-Aware GSC Scheduling**: Made Search Analytics ingestion delta-aware; cached finalized historical partitions immutably; fetching only missing/recent partitions with `dataState=all`; tagged observations as `FINAL` (age > 3 days) or `PARTIAL`; selective URL inspection limited to 2/run.
+2. **GA4 Readiness Audit**: Audited `https://www.toraapi.com` web frontend — no active GA4 tag found; marked `GA4 = OPERATOR_BLOCKED`. Implemented complete read-only GA4 Data API client in `service/news_ga4.go`.
+3. **Facebook & LinkedIn Connectors & Operator Boundary**: Graph API v26.0 and LinkedIn REST API 202609 connectors updated with token/ID verification, pre-flight idempotency checks, and explicit `OPERATOR_BLOCKED` failure classification when credentials are not configured.
+4. **Backlog Safety Invariant**: Enforced strict suppression of historical backlog (~4,742 rows) while allowing canary allowlist post 8. Computed and exposed `raw_pending_count`, `eligible_pending_count`, `suppressed_historical_count`, and `canary_eligible_count` in overview telemetry.
+5. **Autonomous Mode Policy Engine**: Built `service/news_policy.go` evaluating publish eligibility based on editorial risk (`LOW` -> candidate for future auto-publish, `MEDIUM` -> review required, `HIGH` -> never auto-publish). Canonical Tora publication verified first. `MASS_AUTOPUBLISH=false` strictly enforced.
+

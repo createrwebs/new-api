@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"strconv"
 	"strings"
@@ -107,9 +108,14 @@ func IsPlatformDistributionEnabled(platform string) bool {
 	if !IsGlobalDistributionEnabled() {
 		return false
 	}
-	envKey := strings.ToUpper(platform) + "_DISTRIBUTION_ENABLED"
-	val := strings.ToLower(strings.TrimSpace(os.Getenv(envKey)))
-	if val == "false" || val == "0" || val == "off" || val == "disabled" {
+	envKey1 := "NEWS_DISTRIBUTION_" + strings.ToUpper(platform) + "_ENABLED"
+	val1 := strings.ToLower(strings.TrimSpace(os.Getenv(envKey1)))
+	if val1 == "false" || val1 == "0" || val1 == "off" || val1 == "disabled" {
+		return false
+	}
+	envKey2 := strings.ToUpper(platform) + "_DISTRIBUTION_ENABLED"
+	val2 := strings.ToLower(strings.TrimSpace(os.Getenv(envKey2)))
+	if val2 == "false" || val2 == "0" || val2 == "off" || val2 == "disabled" {
 		return false
 	}
 	return true
@@ -156,13 +162,63 @@ func NewFacebookPublisher() *FacebookPublisher {
 
 func (p *FacebookPublisher) PlatformName() string { return model.DistPlatformFacebook }
 
+// VerifyPageAccess validates that the Page ID resolves and token possesses Page publish authority
+func (p *FacebookPublisher) VerifyPageAccess(ctx context.Context) (string, error) {
+	if p.PageToken == "" || p.PageID == "" {
+		return "", errors.New("FACEBOOK_PAGE_ACCESS_TOKEN or FACEBOOK_PAGE_ID not configured (OPERATOR_BLOCKED)")
+	}
+	baseURL := p.BaseURL
+	if baseURL == "" {
+		baseURL = fmt.Sprintf("https://graph.facebook.com/%s", GetFacebookGraphAPIVersion())
+	}
+	apiURL := fmt.Sprintf("%s/%s?fields=id,name&access_token=%s", strings.TrimRight(baseURL, "/"), p.PageID, url.QueryEscape(p.PageToken))
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, apiURL, nil)
+	if err != nil {
+		return "", err
+	}
+	resp, err := p.Client.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+
+	bodyBytes, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode >= 400 {
+		return "", fmt.Errorf("facebook Page verification HTTP %d: %s", resp.StatusCode, string(bodyBytes))
+	}
+	var res struct {
+		ID   string `json:"id"`
+		Name string `json:"name"`
+	}
+	_ = json.Unmarshal(bodyBytes, &res)
+	if res.ID == "" {
+		return "", fmt.Errorf("facebook Page ID mismatch or empty response")
+	}
+	return res.Name, nil
+}
+
 func (p *FacebookPublisher) Publish(ctx context.Context, post *model.NewsPost, payload string) (string, string, error) {
 	if p.PageToken == "" || p.PageID == "" {
 		return "", "", errors.New("FACEBOOK_PAGE_ACCESS_TOKEN or FACEBOOK_PAGE_ID not configured (OPERATOR_BLOCKED)")
 	}
 
+	if !IsPlatformDistributionEnabled(model.DistPlatformFacebook) {
+		return "", "", errors.New("facebook distribution disabled by provider switch (NEWS_DISTRIBUTION_FACEBOOK_ENABLED=false)")
+	}
+
 	if err := ValidateDistributionUrl(post.CanonicalUrl); err != nil {
 		return "", "", fmt.Errorf("canonical URL validation failed: %w", err)
+	}
+
+	// Idempotency check: prevent duplicate remote posts (Section 5)
+	if model.DB != nil {
+		var existingDist model.NewsDistribution
+		if err := model.DB.Where("post_id = ? AND platform = ?", post.Id, model.DistPlatformFacebook).First(&existingDist).Error; err == nil {
+			if existingDist.RemotePostId != "" && existingDist.Status == "published" {
+				logger.LogInfo(ctx, fmt.Sprintf("[FacebookPublisher] Post %d already published on Facebook as %s (idempotent no-op)", post.Id, existingDist.RemotePostId))
+				return existingDist.RemotePostId, existingDist.RemoteUrl, nil
+			}
+		}
 	}
 
 	baseURL := p.BaseURL
@@ -223,13 +279,72 @@ func NewLinkedInPublisher() *LinkedInPublisher {
 
 func (p *LinkedInPublisher) PlatformName() string { return model.DistPlatformLinkedIn }
 
+// VerifyOrgAccess validates that the configured LinkedIn Organization exists and token possesses organization access
+func (p *LinkedInPublisher) VerifyOrgAccess(ctx context.Context) (string, error) {
+	if p.AccessToken == "" || p.OrgID == "" {
+		return "", errors.New("LINKEDIN_ACCESS_TOKEN or LINKEDIN_ORG_ID not configured (OPERATOR_BLOCKED)")
+	}
+	baseURL := p.BaseURL
+	if baseURL == "" {
+		baseURL = "https://api.linkedin.com"
+	}
+	cleanOrgID := strings.TrimPrefix(p.OrgID, "urn:li:organization:")
+	apiURL := fmt.Sprintf("%s/rest/organizations/%s", strings.TrimRight(baseURL, "/"), cleanOrgID)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, apiURL, nil)
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("Authorization", "Bearer "+p.AccessToken)
+	req.Header.Set("LinkedIn-Version", p.APIVersion)
+	req.Header.Set("X-Restli-Protocol-Version", "2.0.0")
+
+	resp, err := p.Client.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+
+	bodyBytes, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode >= 400 {
+		return "", fmt.Errorf("linkedIn Organization verification HTTP %d: %s", resp.StatusCode, string(bodyBytes))
+	}
+	var res struct {
+		LocalizedName string `json:"localizedName"`
+		VanityName    string `json:"vanityName"`
+	}
+	_ = json.Unmarshal(bodyBytes, &res)
+	name := res.LocalizedName
+	if name == "" {
+		name = res.VanityName
+	}
+	if name == "" {
+		name = cleanOrgID
+	}
+	return name, nil
+}
+
 func (p *LinkedInPublisher) Publish(ctx context.Context, post *model.NewsPost, payload string) (string, string, error) {
 	if p.AccessToken == "" || p.OrgID == "" {
 		return "", "", errors.New("LINKEDIN_ACCESS_TOKEN or LINKEDIN_ORG_ID not configured (OPERATOR_BLOCKED)")
 	}
 
+	if !IsPlatformDistributionEnabled(model.DistPlatformLinkedIn) {
+		return "", "", errors.New("linkedIn distribution disabled by provider switch (NEWS_DISTRIBUTION_LINKEDIN_ENABLED=false)")
+	}
+
 	if err := ValidateDistributionUrl(post.CanonicalUrl); err != nil {
 		return "", "", fmt.Errorf("canonical URL validation failed: %w", err)
+	}
+
+	// Idempotency check: prevent duplicate remote posts (Section 8)
+	if model.DB != nil {
+		var existingDist model.NewsDistribution
+		if err := model.DB.Where("post_id = ? AND platform = ?", post.Id, model.DistPlatformLinkedIn).First(&existingDist).Error; err == nil {
+			if existingDist.RemotePostId != "" && existingDist.Status == "published" {
+				logger.LogInfo(ctx, fmt.Sprintf("[LinkedInPublisher] Post %d already published on LinkedIn as %s (idempotent no-op)", post.Id, existingDist.RemotePostId))
+				return existingDist.RemotePostId, existingDist.RemoteUrl, nil
+			}
+		}
 	}
 
 	// Official LinkedIn Posts API (w_organization_social scope)

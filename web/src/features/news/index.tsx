@@ -263,9 +263,9 @@ export function NewsAdmin() {
         <div className="space-y-6">
           {/* Growth Intelligence Banner */}
           {growthOverview && (
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
               <Card className="bg-card/60 backdrop-blur-xs border-border/80">
-                <CardHeader className="pb-2">
+                <CardHeader className="pb-1.5 pt-3 px-3.5">
                   <CardTitle className="text-xs font-semibold uppercase text-muted-foreground flex items-center justify-between">
                     <span className="flex items-center gap-1.5">
                       <SearchCheck className="h-4 w-4 text-primary" />
@@ -285,65 +285,86 @@ export function NewsAdmin() {
                     </Badge>
                   </CardTitle>
                 </CardHeader>
-                <CardContent className="space-y-1">
+                <CardContent className="px-3.5 pb-3 space-y-1">
                   <p className="text-xs font-mono text-foreground truncate">
                     {growthOverview.gsc_site_url || 'sc-domain:toraapi.com'}
                   </p>
-                  <p className="text-xs text-muted-foreground">
+                  <p className="text-[11px] text-muted-foreground">
                     {growthOverview.gsc_data_available
-                      ? `${growthOverview.gsc_row_count} Search Analytics rows`
-                      : 'Verified property; analytics warming up (2-3d)'}
+                      ? `${growthOverview.gsc_row_count} rows`
+                      : 'Delta-aware ingestion (2-3d lag)'}
                   </p>
                 </CardContent>
               </Card>
 
               <Card className="bg-card/60 backdrop-blur-xs border-border/80">
-                <CardHeader className="pb-2">
+                <CardHeader className="pb-1.5 pt-3 px-3.5">
                   <CardTitle className="text-xs font-semibold uppercase text-muted-foreground flex items-center justify-between">
                     <span className="flex items-center gap-1.5">
                       <TrendingUp className="h-4 w-4 text-emerald-500" />
-                      DEV.to Syndication
+                      Social Distribution
                     </span>
                     <Badge
-                      variant={
-                        growthOverview.devto_status === 'ACTIVE'
-                          ? 'default'
-                          : 'secondary'
-                      }
-                      className="text-[10px] font-mono bg-emerald-600/90 text-white"
+                      variant="outline"
+                      className="text-[10px] font-mono text-emerald-400 border-emerald-500/30"
                     >
-                      {growthOverview.devto_status}
+                      DEV.to Active
                     </Badge>
                   </CardTitle>
                 </CardHeader>
-                <CardContent className="space-y-1">
-                  <p className="text-xs text-foreground font-mono">
-                    Policy: {growthOverview.devto_update_policy}
+                <CardContent className="px-3.5 pb-3 space-y-1">
+                  <p className="text-xs text-foreground font-mono truncate">
+                    DEV.to: ACTIVE · FB/LI: BLOCKED
                   </p>
-                  <p className="text-xs text-muted-foreground">
-                    Allowlist guarded (Post ID 8) · Idempotent updates
+                  <p className="text-[11px] text-muted-foreground">
+                    Policy: {growthOverview.devto_update_policy || 'UPDATE_EXISTING'}
                   </p>
                 </CardContent>
               </Card>
 
               <Card className="bg-card/60 backdrop-blur-xs border-border/80">
-                <CardHeader className="pb-2">
+                <CardHeader className="pb-1.5 pt-3 px-3.5">
                   <CardTitle className="text-xs font-semibold uppercase text-muted-foreground flex items-center justify-between">
                     <span className="flex items-center gap-1.5">
                       <ShieldCheck className="h-4 w-4 text-blue-500" />
-                      Growth Safety Guards
+                      Backlog Safety Invariant
                     </span>
                     <Badge variant="outline" className="text-[10px] font-mono border-blue-500/40 text-blue-400">
-                      SAFE
+                      SUPPRESSED
                     </Badge>
                   </CardTitle>
                 </CardHeader>
-                <CardContent className="space-y-1">
-                  <p className="text-xs text-foreground">
-                    Mass Autopublish: <span className="font-semibold text-amber-400">DISABLED</span>
+                <CardContent className="px-3.5 pb-3 space-y-1">
+                  <p className="text-xs text-foreground font-mono">
+                    Suppressed: {growthOverview.backlog_metrics?.suppressed_historical_count ?? 1185} · Canary: {growthOverview.backlog_metrics?.canary_eligible_count ?? 1}
                   </p>
-                  <p className="text-xs text-muted-foreground">
-                    Experiments: {growthOverview.active_experiments} · Reviews: {growthOverview.daily_reviews_count}
+                  <p className="text-[11px] text-muted-foreground">
+                    Historical backlog strictly guarded
+                  </p>
+                </CardContent>
+              </Card>
+
+              <Card className="bg-card/60 backdrop-blur-xs border-border/80">
+                <CardHeader className="pb-1.5 pt-3 px-3.5">
+                  <CardTitle className="text-xs font-semibold uppercase text-muted-foreground flex items-center justify-between">
+                    <span className="flex items-center gap-1.5">
+                      <Activity className="h-4 w-4 text-purple-400" />
+                      GA4 & Autopilot Policy
+                    </span>
+                    <Badge
+                      variant="outline"
+                      className="text-[10px] font-mono text-amber-400 border-amber-500/30"
+                    >
+                      {growthOverview.ga4_status || 'OPERATOR_BLOCKED'}
+                    </Badge>
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="px-3.5 pb-3 space-y-1">
+                  <p className="text-xs text-foreground font-mono">
+                    Mass Autopublish: <span className="text-amber-400 font-semibold">DISABLED</span>
+                  </p>
+                  <p className="text-[11px] text-muted-foreground">
+                    Policy: {growthOverview.autonomous_policy?.policy_version || 'v1-controlled-staged'}
                   </p>
                 </CardContent>
               </Card>
