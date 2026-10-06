@@ -1,0 +1,14 @@
+service/news_gsc.go
+  h_f97827f62b0fea 4,6,9-11,19,75,79-183,187-229,231-233
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.3",
+  "base_commit_sha": "29040493830f71ed75d5054db81bc41be38d3334",
+  "prompts": {},
+  "humans": {
+    "h_f97827f62b0fea": {
+      "author": "NOPPANAN THEERACHARTE <noppanan.the@axonstech.com>"
+    }
+  }
+}
