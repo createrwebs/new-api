@@ -170,6 +170,8 @@ When an item is blocked by operator-dependent external access (such as Apple Sto
 | **R11-PG PostgreSQL Staging-Clone Migration & Proof** | `COMPLETED (STAGING-CLONE VERIFIED)` | PostgreSQL 15.19 AutoMigrate verified (56 tables, 9 news tables), zero production/staging mutation proven, safety guard active, full runtime smoke tests, write lifecycle, and autopilot validated, TrueType Thai OG cards rendered, React Admin News UI integrated, 100% release gates pass. |
 | **R11-STAGING Live Staging Migration & Canary** | `COMPLETED (STAGING VERIFIED)` | PostgreSQL 15.19 Live Staging (tora_staging) migrated (56 tables, 9 news tables), backup verified with test restore, additive-only changes confirmed, tora-api-staging deployed with Thai fonts, public SSR, admin write lifecycle, autopilot canary, and 10/10 release gates passed. |
 | **R11-PROD-PREFLIGHT Same-Origin Prod Release Gate** | `COMPLETED (PRODUCTION READY)` | Unified https://www.toraapi.com same-origin architecture verified, stale domain references eradicated, GSC property architecture defined, robots.txt Disallow /news-admin, HEAD support, rollback runbook corrected, read-only new-api DB preflight passed (16 additive tables, 0 destructive changes). |
+| **R11-PROD-DEPLOY-SAFETY Production Deployment Hardening** | `COMPLETED` | Docker Compose bridge network preserved, --network host rejected, rollback tag tora-api:rollback-pre-r11-20261006 preserved, fresh backup created. |
+| **R11-PROD-DEPLOY Controlled Production Deployment & Canary** | `COMPLETED (R11 PRODUCTION = PASS)` | PostgreSQL 15.19 production database new-api migrated additively from 40 to 56 tables. Immutable image tora-api:r11-b43005f89 deployed behind Caddy on https://www.toraapi.com. All 14 news/core HTTP gates, desktop/mobile real browser canary, admin auth & write lifecycle canary passed. Growth channels remain DISABLED. |
 
 ## External / Operator Blockers
 
@@ -195,7 +197,7 @@ Real release readiness still requires:
 - real test purchase
 - restore/reconciliation validation
 
-### Growth Channels (`OPERATOR_BLOCKED`)
+### Growth Channels (`NOT ACTIVATED / OPERATOR_BLOCKED`)
 
 - Google Search Console: `GSC_CREDENTIALS_FILE` or `GSC_CREDENTIALS_JSON` service account with Search Console read access
 - Meta Facebook: `FACEBOOK_PAGE_ACCESS_TOKEN` & `FACEBOOK_PAGE_ID`
@@ -207,12 +209,21 @@ Real release readiness still requires:
 Core product & growth engineering complete:
 
 ```text
-[R1-R4 COMPLETED] -> [R6-R7 COMPLETED] -> [R10 COMPLETED] -> [R11 COMPLETED] -> [R11-M COMPLETED] -> [R11-LIVE COMPLETED] -> [R11-PG COMPLETED] -> [R11-STAGING COMPLETED] -> [R11-PROD-PREFLIGHT COMPLETED] -> [R11-PROD-DEPLOY-SAFETY COMPLETED] -> [R5 OPERATOR_BLOCKED] -> [R8 OPERATOR_BLOCKED] -> [R9 BLOCKED]
+[R1-R4 COMPLETED] -> [R6-R7 COMPLETED] -> [R10 COMPLETED] -> [R11 COMPLETED] -> [R11-M COMPLETED] -> [R11-LIVE COMPLETED] -> [R11-PG COMPLETED] -> [R11-STAGING COMPLETED] -> [R11-PROD-PREFLIGHT COMPLETED] -> [R11-PROD-DEPLOY-SAFETY COMPLETED] -> [R11-PROD-DEPLOY COMPLETED (R11 PRODUCTION = PASS)] -> [R5 OPERATOR_BLOCKED] -> [R8 OPERATOR_BLOCKED] -> [R9 BLOCKED]
 ```
+
+## Truthful Verification State
+
+- `R11 LOCAL POSTGRES = PASS`
+- `R11 STAGING = PASS`
+- `R11 PROD PREFLIGHT = PASS`
+- `R11 PROD DEPLOY SAFETY = PASS`
+- `R11 PRODUCTION = PASS`
+- `GROWTH CHANNELS = NOT ACTIVATED`
 
 ## Currently Executing Task
 
-**FINAL STATUS: PRODUCTION DEPLOYMENT RUNBOOK VERIFIED — AWAITING OPERATOR DEPLOY APPROVAL**:
-Production topology inspected (Docker Compose v2, bridge network `new-api_new-api-network`, port 3000 -> Caddy 127.0.0.1:3000, PostgreSQL 15.19 & Redis isolated on bridge network). Unsafe `--network host` runbook assumption eradicated. Real deployment mechanism verified as `docker compose up -d --no-deps --force-recreate new-api`. Running production image (`tora-api:budget-v1-61b112146`, ID `sha256:2251984e822e...`) immutably preserved as `tora-api:rollback-pre-r11-20261006`. Pre-deploy backup created and verified (`new_api_pre_r11_20261006_040424.dump`, 308K, 428 TOC entries). Production database `new-api` (40 tables, 0 news tables) remains 100% untouched. Hardened restore runbook with active connection termination defined. Production deployment awaiting operator approval.
+**FINAL STATUS: R11 PRODUCTION DEPLOYED & VERIFIED — READY FOR GROWTH ACTIVATION**:
+Production deployment executed and verified under operator authorization. Target origin: `https://www.toraapi.com`. Target database: `new-api` on PostgreSQL 15.19. Production table count migrated additively from 40 to 56 tables (100% match with staging, 0 dropped tables/columns). Immutable image `tora-api:r11-b43005f89` running in Docker Compose with bridge network `new-api_new-api-network`. All core APIs and SPA pages verified. Public News SSR, Thai TrueType OG PNG (1200x630), XML sitemaps, robots.txt crawlable. Real browser canary (desktop & mobile 390x844) confirmed 0 overflow and 0 console errors. Section 16 Admin authorization gates (unauthenticated 401, non-admin 403, admin 200) and Section 17 Write Canary (create draft -> DB verify -> public 404 verify -> edit -> delete -> 0 rows remaining) 100% passed. Observation window >20 minutes: 0 restarts, 0 errors, CPU 0.00%, RAM 59 MiB (3.21%). Social distribution channels remain strictly DISABLED. Project is fully operational and ready for growth activation.
 
 

@@ -370,6 +370,64 @@ Status: **COMPLETED (DEPLOYMENT RUNBOOK VERIFIED — AWAITING OPERATOR DEPLOY AP
   - External Growth channels (Facebook, LinkedIn, DEV.to, GSC submissions) remain strictly disabled.
   - Baseline probes recorded and post-deploy validation matrix ready.
 
+## R11-PROD-DEPLOY — Controlled Production Deployment & Canary
+
+Status: **COMPLETED (R11 PRODUCTION = PASS — GROWTH CHANNELS NOT ACTIVATED)**
+
+- **Authorized Production Target & Revision Baseline**:
+  - Origin: `https://www.toraapi.com` behind Caddy reverse proxy on AWS EC2 `51.20.174.90`.
+  - Database: `new-api` on PostgreSQL 15.19.
+  - Git Revision: `DEPLOY_COMMIT = b43005f89de011eb5705601b9018f3163ece40fd` on branch `feat/formobile`.
+- **Pre-Deployment Safety & Artifact Preservation**:
+  - Pre-deployment logical backup: `/home/ubuntu/backups/new_api_pre_r11_20261006_041520.dump` (308KB, 428 TOC entries, SHA-256 `c2fa6d77ec389b933085f40b24477cf19da6f6e5e7b6c77d3089cbfb7cd73204`).
+  - Running production image preserved under immutable tag: `tora-api:rollback-pre-r11-20261006` (`sha256:2251984e822e...`).
+- **Additive Database Schema Migration**:
+  - Baseline table count: 40 tables (0 news/growth tables).
+  - Post-migration table count: 56 tables (100% exact match with staging).
+  - 16 new additive tables created: `free_tier_daily_usages`, `news_analytic_events`, `news_conversion_events`, `news_daily_growth_reviews`, `news_distributions`, `news_posts`, `news_seo_metrics`, `news_seo_opportunities`, `news_sources`, `routes`, `store_product_mappings`, `store_subscription_bindings`, `store_transactions`, `story_clusters`, `user_providers`, `wallet_pre_consume_records`.
+  - 3 new nullable columns on `tokens`: `primary_route_id`, `fallback_route_ids`, `key_hash`.
+  - Destructive changes: 0 dropped tables, 0 dropped columns, 0 destructive alters.
+- **Immutable Release Image Built & Deployed**:
+  - Built image `tora-api:r11-b43005f89` (ID `sha256:e7f4a8148ee15f67ef69fa063378227cab21f8ea01bb2a06e501a0380fcb6219`, `arm64`, 350MB) including Debian packages, Bun assets, and `fonts-thai-tlwg-ttf`.
+  - Deployed via safe Compose override `/home/ubuntu/new-api/docker-compose.r11.yml` using `docker compose -f docker-compose.yml -f docker-compose.r11.yml up -d --no-deps --force-recreate new-api`.
+  - Preserved Compose bridge networking `new-api_new-api-network` with internal DNS to `postgres:5432` and `redis:6379`.
+- **Public News HTTP & SEO Assets Verified**:
+  - `GET /news`: HTTP 200 (semantic HTML, dark mode catalog).
+  - `GET /news/openai-gpt-4-5-release-analysis`: HTTP 200 (canonical link `https://www.toraapi.com/news/...`, zero staging leaks).
+  - `GET /news/nonexistent-slug-xyz`: HTTP 404 (crawlable 404).
+  - `GET /news/openai-gpt-4-5-release-analysis/og.png`: HTTP 200 (1200x630 TrueType RGBA PNG).
+  - `GET /sitemap.xml`: HTTP 200 (10 URLs).
+  - `GET /news-sitemap.xml`: HTTP 200 (strict 48-hour freshness boundary).
+  - `GET /robots.txt`: HTTP 200 (Disallow `/news-admin/`, allow public paths).
+- **Core Production Regression Verification**:
+  - `GET /`: HTTP 200.
+  - `GET /pricing`: HTTP 200.
+  - `GET /api/status`: HTTP 200 (`server_address = https://www.toraapi.com`, `passkey_rp_id = www.toraapi.com`).
+  - `GET /api/about`: HTTP 200.
+  - `GET /v1/models` without auth: HTTP 401 token required.
+  - `GET /api/pricing`: HTTP 200 (pricing models, group ratios).
+- **Real Browser Canary**:
+  - Chrome DevTools inspected via SSH tunnel `127.0.0.1:13000 -> 127.0.0.1:3000`.
+  - Desktop & mobile (390x844) responsive layout: verified `hasOverflow: false` (0 horizontal overflow).
+  - Thai TrueType typography rendered cleanly; 0 console errors.
+  - `/news-admin`: unauthenticated redirect to `/sign-in?redirect=%2Fnews-admin` verified.
+- **Section 16 Admin News Authorization Gates**:
+  - Unauthenticated request: HTTP 401 `AUTH_UNAUTHORIZED`.
+  - Non-admin user (role 1): HTTP 403 `AUTH_INSUFFICIENT_PRIVILEGE`.
+  - Admin user (role 100): HTTP 200 OK.
+- **Section 17 Production Write Canary**:
+  - Created test draft `[CANARY-INTERNAL] Tora AI Production News Write Proof` (ID 1088).
+  - Verified row persisted in PostgreSQL `new-api` database.
+  - Verified draft privacy: `GET /news/canary-internal-write-proof` returns HTTP 404; draft excluded from `/news` catalog.
+  - Verified edit: `PUT /api/admin/news/posts/1088` updated title in DB.
+  - Verified delete: `DELETE /api/admin/news/posts/1088` removed row completely (0 rows remaining).
+  - Ephemeral test users and sessions cleaned up.
+- **Canary Observation Window**:
+  - >20 minutes continuous uptime; 0 restarts, 0 panics, 0 database/Redis errors.
+  - CPU: 0.00%, Memory: ~59 MiB (3.21%).
+  - Social distribution channels: strictly `DISABLED` (0 requests to Facebook, LinkedIn, DEV.to, GSC).
+
+
 
 
 
