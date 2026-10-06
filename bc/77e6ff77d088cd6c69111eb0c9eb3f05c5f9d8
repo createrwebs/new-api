@@ -1,0 +1,14 @@
+scripts/test_prod_social_canary.py
+  h_f97827f62b0fea 1-149
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.3",
+  "base_commit_sha": "bc77e6ff77d088cd6c69111eb0c9eb3f05c5f9d8",
+  "prompts": {},
+  "humans": {
+    "h_f97827f62b0fea": {
+      "author": "NOPPANAN THEERACHARTE <noppanan.the@axonstech.com>"
+    }
+  }
+}
