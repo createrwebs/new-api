@@ -11,6 +11,7 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 // News publication statuses
@@ -20,6 +21,22 @@ const (
 	NewsStatusScheduled      = "scheduled"
 	NewsStatusPublished      = "published"
 	NewsStatusArchived       = "archived"
+)
+
+// Publication origins (Section 5)
+const (
+	PublicationOriginAutopilot     = "AUTOPILOT"
+	PublicationOriginManualAdmin   = "MANUAL_ADMIN"
+	PublicationOriginSeed          = "SEED"
+	PublicationOriginImport        = "IMPORT"
+	PublicationOriginApi           = "API"
+	PublicationOriginUnknownLegacy = "UNKNOWN_LEGACY"
+)
+
+// Publication event types (Section 6)
+const (
+	EventTypeAutopilotInitialPublish = "AUTOPILOT_INITIAL_PUBLISH"
+	EventTypeManualInitialPublish    = "MANUAL_INITIAL_PUBLISH"
 )
 
 // Content types
@@ -231,12 +248,13 @@ type NewsPost struct {
 	SeoTitle        string `json:"seo_title" gorm:"type:varchar(255)"`
 	SeoDescription  string `json:"seo_description" gorm:"type:varchar(320)"`
 	SeoKeywords     string `json:"seo_keywords" gorm:"type:varchar(255)"`
-	OgImageUrl      string `json:"og_image_url" gorm:"type:varchar(512)"`
-	IsSeed          bool   `json:"is_seed" gorm:"default:false;index"`
-	PublishedAt     int64  `json:"published_at" gorm:"bigint;index"`
-	ViewCount       int    `json:"view_count" gorm:"default:0"`
-	CreatedAt       int64  `json:"created_at" gorm:"bigint"`
-	UpdatedAt       int64  `json:"updated_at" gorm:"bigint"`
+	OgImageUrl        string `json:"og_image_url" gorm:"type:varchar(512)"`
+	IsSeed            bool   `json:"is_seed" gorm:"default:false;index"`
+	PublicationOrigin string `json:"publication_origin" gorm:"type:varchar(32);default:'UNKNOWN_LEGACY';index"`
+	PublishedAt       int64  `json:"published_at" gorm:"bigint;index"`
+	ViewCount         int    `json:"view_count" gorm:"default:0"`
+	CreatedAt         int64  `json:"created_at" gorm:"bigint"`
+	UpdatedAt         int64  `json:"updated_at" gorm:"bigint"`
 }
 
 func (p *NewsPost) BeforeCreate(tx *gorm.DB) error {
@@ -245,6 +263,13 @@ func (p *NewsPost) BeforeCreate(tx *gorm.DB) error {
 	p.UpdatedAt = now
 	if p.ContentType == "" {
 		p.ContentType = ContentTypeNews
+	}
+	if p.PublicationOrigin == "" {
+		if p.IsSeed {
+			p.PublicationOrigin = PublicationOriginSeed
+		} else {
+			p.PublicationOrigin = PublicationOriginUnknownLegacy
+		}
 	}
 	if p.PublishedAt == 0 && p.Status == NewsStatusPublished {
 		p.PublishedAt = now
@@ -256,6 +281,29 @@ func (p *NewsPost) BeforeCreate(tx *gorm.DB) error {
 		p.OgImageUrl = fmt.Sprintf("%s/news/%s/og.png", common.GetCanonicalBaseURL(), p.Slug)
 	}
 	return nil
+}
+
+// NewsPublicationEvent records immutable, idempotent publication events (Section 6)
+type NewsPublicationEvent struct {
+	Id                     int64  `json:"id" gorm:"primaryKey;autoIncrement"`
+	PostId                 int    `json:"post_id" gorm:"index;not null"`
+	PublicationOrigin      string `json:"publication_origin" gorm:"type:varchar(32);not null"`
+	EventType              string `json:"event_type" gorm:"type:varchar(32);not null"`
+	PublishedAt            int64  `json:"published_at" gorm:"bigint;index;not null"`
+	BangkokPublicationDate string `json:"bangkok_publication_date" gorm:"type:varchar(10);index;not null"`
+	SourceId               int    `json:"source_id" gorm:"index;not null"`
+	StoryClusterId         int    `json:"story_cluster_id" gorm:"index;not null"`
+	AutopilotRunId         string `json:"autopilot_run_id" gorm:"type:varchar(64)"`
+	BatchId                string `json:"batch_id" gorm:"type:varchar(64)"`
+	CreatedAt              int64  `json:"created_at" gorm:"bigint;autoCreateTime"`
+}
+
+// NewsAutopilotDailyQuota maintains authoritative, atomic daily quota ledgers in PostgreSQL (Section 8)
+type NewsAutopilotDailyQuota struct {
+	BangkokDate     string `json:"bangkok_date" gorm:"primaryKey;type:varchar(10)"`
+	PublishedCount  int    `json:"published_count" gorm:"default:0;not null"`
+	LastPublishedAt int64  `json:"last_published_at" gorm:"bigint"`
+	UpdatedAt       int64  `json:"updated_at" gorm:"bigint"`
 }
 
 func (p *NewsPost) BeforeUpdate(tx *gorm.DB) error {
@@ -429,39 +477,292 @@ func GetNewsPostById(id int) (*NewsPost, error) {
 	return &post, nil
 }
 
-// GetBangkokDateRange returns UTC unix timestamps for 00:00:00 and 24:00:00 in Asia/Bangkok (UTC+7)
+// GetBangkokDateRange returns UTC unix timestamps for 00:00:00 (inclusive) and 24:00:00 (exclusive) in Asia/Bangkok (UTC+7) (Section 3)
 func GetBangkokDateRange(t time.Time) (int64, int64, string) {
 	loc := time.FixedZone("Asia/Bangkok", 7*3600)
 	local := t.In(loc)
 	startOfDay := time.Date(local.Year(), local.Month(), local.Day(), 0, 0, 0, 0, loc)
+	nextDay := startOfDay.AddDate(0, 0, 1)
 	dateStr := startOfDay.Format("2006-01-02")
-	return startOfDay.Unix(), startOfDay.Unix() + 86400, dateStr
+	return startOfDay.Unix(), nextDay.Unix(), dateStr
 }
 
-// GetPublishedCountToday counts posts published during today in Asia/Bangkok time (Section 6)
-func GetPublishedCountToday() (int, error) {
+// NewsPublicationCounters exposes authoritative, distinct publication metrics (Section 4)
+type NewsPublicationCounters struct {
+	TotalPublishedPosts      int `json:"total_published_posts"`
+	PublishedTodayTotal      int `json:"published_today_total"`
+	AutopilotPublishedToday  int `json:"autopilot_published_today"`
+	ManualPublishedToday     int `json:"manual_published_today"`
+	SeedOrHistoricalToday    int `json:"seed_or_historical_today"`
+	ImportedToday            int `json:"imported_today"`
+	LegacyUnknownToday       int `json:"legacy_unknown_today"`
+	DraftsToday              int `json:"drafts_today"`
+	ReviewsToday             int `json:"reviews_today"`
+}
+
+// GetAuthoritativePublicationCounters calculates distinct publication counters (Section 4)
+func GetAuthoritativePublicationCounters() (*NewsPublicationCounters, error) {
 	if DB == nil {
-		return 0, nil
+		return &NewsPublicationCounters{}, nil
 	}
-	start, end, _ := GetBangkokDateRange(time.Now())
-	var count int64
-	err := DB.Model(&NewsPost{}).
-		Where("status = ? AND published_at >= ? AND published_at < ?", NewsStatusPublished, start, end).
-		Count(&count).Error
-	return int(count), err
+	start, end, dateStr := GetBangkokDateRange(time.Now())
+
+	var totalPublished int64
+	_ = DB.Model(&NewsPost{}).Where("status = ?", NewsStatusPublished).Count(&totalPublished).Error
+
+	var publishedTodayTotal int64
+	_ = DB.Model(&NewsPost{}).Where("status = ? AND published_at >= ? AND published_at < ?", NewsStatusPublished, start, end).Count(&publishedTodayTotal).Error
+
+	// Autopilot quota for today (from atomic ledger or publication events)
+	var autoQuota NewsAutopilotDailyQuota
+	if err := DB.Where("bangkok_date = ?", dateStr).First(&autoQuota).Error; err != nil {
+		var eventCount int64
+		_ = DB.Model(&NewsPublicationEvent{}).
+			Where("bangkok_publication_date = ? AND event_type = ?", dateStr, EventTypeAutopilotInitialPublish).
+			Count(&eventCount).Error
+		autoQuota.PublishedCount = int(eventCount)
+	}
+
+	var manualToday int64
+	_ = DB.Model(&NewsPost{}).
+		Where("status = ? AND published_at >= ? AND published_at < ? AND publication_origin = ?", NewsStatusPublished, start, end, PublicationOriginManualAdmin).
+		Count(&manualToday).Error
+
+	var seedToday int64
+	_ = DB.Model(&NewsPost{}).
+		Where("status = ? AND published_at >= ? AND published_at < ? AND (is_seed = true OR publication_origin = ?)", NewsStatusPublished, start, end, PublicationOriginSeed).
+		Count(&seedToday).Error
+
+	var importedToday int64
+	_ = DB.Model(&NewsPost{}).
+		Where("status = ? AND published_at >= ? AND published_at < ? AND publication_origin = ?", NewsStatusPublished, start, end, PublicationOriginImport).
+		Count(&importedToday).Error
+
+	var legacyToday int64
+	_ = DB.Model(&NewsPost{}).
+		Where("status = ? AND published_at >= ? AND published_at < ? AND is_seed = false AND (publication_origin = ? OR publication_origin = '' OR publication_origin IS NULL)", NewsStatusPublished, start, end, PublicationOriginUnknownLegacy).
+		Count(&legacyToday).Error
+
+	var draftsToday int64
+	_ = DB.Model(&NewsPost{}).
+		Where("status = ? AND created_at >= ? AND created_at < ?", NewsStatusDraft, start, end).
+		Count(&draftsToday).Error
+
+	var reviewsToday int64
+	_ = DB.Model(&NewsPost{}).
+		Where("status = ? AND created_at >= ? AND created_at < ?", NewsStatusReviewRequired, start, end).
+		Count(&reviewsToday).Error
+
+	return &NewsPublicationCounters{
+		TotalPublishedPosts:     int(totalPublished),
+		PublishedTodayTotal:     int(publishedTodayTotal),
+		AutopilotPublishedToday: autoQuota.PublishedCount,
+		ManualPublishedToday:    int(manualToday),
+		SeedOrHistoricalToday:   int(seedToday),
+		ImportedToday:           int(importedToday),
+		LegacyUnknownToday:      int(legacyToday),
+		DraftsToday:             int(draftsToday),
+		ReviewsToday:            int(reviewsToday),
+	}, nil
 }
 
-// GetPublishedCountBySourceToday counts posts from a given source published today in Asia/Bangkok time (Section 6)
+// GetAutopilotPublishedToday returns the authoritative autonomous publication count for today (Section 4)
+func GetAutopilotPublishedToday() (int, error) {
+	counters, err := GetAuthoritativePublicationCounters()
+	if err != nil {
+		return 0, err
+	}
+	return counters.AutopilotPublishedToday, nil
+}
+
+// GetPublishedCountToday returns the authoritative autonomous publication count for today (Section 4)
+func GetPublishedCountToday() (int, error) {
+	return GetAutopilotPublishedToday()
+}
+
+// GetPublishedCountBySourceToday counts autonomous posts published today for a specific primary source (Section 10)
 func GetPublishedCountBySourceToday(sourceId int) (int, error) {
 	if DB == nil {
 		return 0, nil
 	}
-	start, end, _ := GetBangkokDateRange(time.Now())
+	_, _, dateStr := GetBangkokDateRange(time.Now())
 	var count int64
-	err := DB.Model(&NewsPost{}).
-		Where("source_id = ? AND status = ? AND published_at >= ? AND published_at < ?", sourceId, NewsStatusPublished, start, end).
+	err := DB.Model(&NewsPublicationEvent{}).
+		Where("source_id = ? AND bangkok_publication_date = ? AND event_type = ?", sourceId, dateStr, EventTypeAutopilotInitialPublish).
 		Count(&count).Error
 	return int(count), err
+}
+
+// AutopilotPublishParams defines atomic publication parameters (Section 7, 8, 9, 10)
+type AutopilotPublishParams struct {
+	Post            *NewsPost
+	ClusterId       int
+	PrimarySourceId int
+	AutopilotRunId  string
+	BatchId         string
+	MaxDailyCap     int
+	MaxSourceCap    int
+}
+
+// AutopilotPublishResult defines the atomic publication result
+type AutopilotPublishResult struct {
+	Post         *NewsPost
+	Success      bool
+	RejectReason string
+	Event        *NewsPublicationEvent
+}
+
+// PublishPostWithAtomicQuota publishes a post atomically under row-level database lock (Section 7 & 8)
+func PublishPostWithAtomicQuota(params *AutopilotPublishParams) (*AutopilotPublishResult, error) {
+	if DB == nil {
+		return nil, errors.New("db not initialized")
+	}
+
+	maxDaily := params.MaxDailyCap
+	if maxDaily <= 0 {
+		maxDaily = 20
+	}
+	maxSource := params.MaxSourceCap
+	if maxSource <= 0 {
+		maxSource = 3
+	}
+
+	now := time.Now()
+	nowUnix := now.Unix()
+	_, _, dateStr := GetBangkokDateRange(now)
+
+	var pubResult *AutopilotPublishResult
+
+	err := DB.Transaction(func(tx *gorm.DB) error {
+		// 1. Lock daily quota row atomically using SELECT ... FOR UPDATE (via lockForUpdate helper)
+		var quota NewsAutopilotDailyQuota
+		err := lockForUpdate(tx).Where("bangkok_date = ?", dateStr).First(&quota).Error
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			quota = NewsAutopilotDailyQuota{
+				BangkokDate:     dateStr,
+				PublishedCount:  0,
+				LastPublishedAt: 0,
+				UpdatedAt:       nowUnix,
+			}
+			if err := tx.Clauses(clause.OnConflict{DoNothing: true}).Create(&quota).Error; err != nil {
+				return err
+			}
+			if err := lockForUpdate(tx).Where("bangkok_date = ?", dateStr).First(&quota).Error; err != nil {
+				return err
+			}
+		} else if err != nil {
+			return err
+		}
+
+		// 2. Enforce atomic daily cap
+		if quota.PublishedCount >= maxDaily {
+			if params.Post != nil && params.Post.Id == 0 {
+				params.Post.Status = NewsStatusDraft
+				_ = tx.Create(params.Post).Error
+			}
+			pubResult = &AutopilotPublishResult{
+				Success:      false,
+				RejectReason: fmt.Sprintf("Daily autopilot quota reached (%d/%d for %s)", quota.PublishedCount, maxDaily, dateStr),
+			}
+			return nil
+		}
+
+		// 3. Enforce primary source daily cap (Section 10)
+		if params.PrimarySourceId > 0 {
+			var sourcePublishedCount int64
+			if err := tx.Model(&NewsPublicationEvent{}).
+				Where("bangkok_publication_date = ? AND source_id = ? AND event_type = ?", dateStr, params.PrimarySourceId, EventTypeAutopilotInitialPublish).
+				Count(&sourcePublishedCount).Error; err != nil {
+				return err
+			}
+			if int(sourcePublishedCount) >= maxSource {
+				if params.Post != nil && params.Post.Id == 0 {
+					params.Post.Status = NewsStatusDraft
+					_ = tx.Create(params.Post).Error
+				}
+				pubResult = &AutopilotPublishResult{
+					Success:      false,
+					RejectReason: fmt.Sprintf("Source daily cap reached (%d/%d for source %d on %s)", sourcePublishedCount, maxSource, params.PrimarySourceId, dateStr),
+				}
+				return nil
+			}
+		}
+
+		// 4. Ensure cluster does not already have an existing post
+		if params.ClusterId > 0 {
+			var existingPost NewsPost
+			if err := tx.Where("cluster_id = ?", params.ClusterId).First(&existingPost).Error; err == nil {
+				pubResult = &AutopilotPublishResult{
+					Success:      false,
+					RejectReason: fmt.Sprintf("Post already exists for cluster %d (post id %d)", params.ClusterId, existingPost.Id),
+				}
+				return nil
+			}
+		}
+
+		// 5. Create or save the post with AUTOPILOT origin
+		post := params.Post
+		post.PublicationOrigin = PublicationOriginAutopilot
+		post.Status = NewsStatusPublished
+		post.PublishedAt = nowUnix
+		if post.CreatedAt == 0 {
+			post.CreatedAt = nowUnix
+		}
+		post.UpdatedAt = nowUnix
+
+		if post.Id > 0 {
+			if err := tx.Save(post).Error; err != nil {
+				return err
+			}
+		} else {
+			if err := tx.Create(post).Error; err != nil {
+				return err
+			}
+		}
+
+		// 6. Record immutable publication event (Section 6)
+		event := &NewsPublicationEvent{
+			PostId:                 post.Id,
+			PublicationOrigin:      PublicationOriginAutopilot,
+			EventType:              EventTypeAutopilotInitialPublish,
+			PublishedAt:            nowUnix,
+			BangkokPublicationDate: dateStr,
+			SourceId:               params.PrimarySourceId,
+			StoryClusterId:         params.ClusterId,
+			AutopilotRunId:         params.AutopilotRunId,
+			BatchId:                params.BatchId,
+			CreatedAt:              nowUnix,
+		}
+		if err := tx.Create(event).Error; err != nil {
+			return err
+		}
+
+		// 7. Increment daily quota
+		if err := tx.Model(&NewsAutopilotDailyQuota{}).
+			Where("bangkok_date = ?", dateStr).
+			Updates(map[string]interface{}{
+				"published_count":   gorm.Expr("published_count + 1"),
+				"last_published_at": nowUnix,
+				"updated_at":        nowUnix,
+			}).Error; err != nil {
+			return err
+		}
+
+		pubResult = &AutopilotPublishResult{
+			Post:    post,
+			Success: true,
+			Event:   event,
+		}
+		return nil
+	})
+
+	if err != nil {
+		return nil, err
+	}
+	if pubResult != nil && pubResult.Success {
+		InvalidateNewsCache()
+	}
+	return pubResult, nil
 }
 
 // GetTodayPublishedPosts returns all posts published today in Asia/Bangkok time

@@ -579,9 +579,26 @@ func AdminCreateNewsPost(c *gin.Context) {
 		post.OgImageUrl = fmt.Sprintf("%s/news/%s/og.png", common.GetCanonicalBaseURL(), post.Slug)
 	}
 
+	if post.PublicationOrigin == "" {
+		post.PublicationOrigin = model.PublicationOriginManualAdmin
+	}
 	if err := model.CreateNewsPost(&post); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": err.Error()})
 		return
+	}
+
+	if post.Status == model.NewsStatusPublished {
+		_, _, dateStr := model.GetBangkokDateRange(time.Now())
+		_ = model.DB.Create(&model.NewsPublicationEvent{
+			PostId:                 post.Id,
+			PublicationOrigin:      model.PublicationOriginManualAdmin,
+			EventType:              model.EventTypeManualInitialPublish,
+			PublishedAt:            post.PublishedAt,
+			BangkokPublicationDate: dateStr,
+			SourceId:               post.SourceId,
+			StoryClusterId:         post.ClusterId,
+			CreatedAt:              common.GetTimestamp(),
+		})
 	}
 
 	// Queue distributions automatically
@@ -620,9 +637,28 @@ func AdminUpdateNewsPost(c *gin.Context) {
 		existing.ContentHTML = updateReq.ContentHTML
 	}
 	if updateReq.Status != "" {
-		existing.Status = updateReq.Status
-		if existing.Status == model.NewsStatusPublished && existing.PublishedAt == 0 {
-			existing.PublishedAt = common.GetTimestamp()
+		if existing.Status != model.NewsStatusPublished && updateReq.Status == model.NewsStatusPublished {
+			existing.Status = model.NewsStatusPublished
+			if existing.PublicationOrigin == model.PublicationOriginUnknownLegacy || existing.PublicationOrigin == "" {
+				existing.PublicationOrigin = model.PublicationOriginManualAdmin
+			}
+			if existing.PublishedAt == 0 {
+				existing.PublishedAt = common.GetTimestamp()
+			}
+			// Record manual publication event (Section 6 & 13)
+			_, _, dateStr := model.GetBangkokDateRange(time.Now())
+			_ = model.DB.Create(&model.NewsPublicationEvent{
+				PostId:                 existing.Id,
+				PublicationOrigin:      model.PublicationOriginManualAdmin,
+				EventType:              model.EventTypeManualInitialPublish,
+				PublishedAt:            existing.PublishedAt,
+				BangkokPublicationDate: dateStr,
+				SourceId:               existing.SourceId,
+				StoryClusterId:         existing.ClusterId,
+				CreatedAt:              common.GetTimestamp(),
+			})
+		} else {
+			existing.Status = updateReq.Status
 		}
 	}
 	if updateReq.PublishedAt > 0 {

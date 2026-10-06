@@ -357,20 +357,22 @@ func InitDefaultNewsPosts() error {
 				SeoTitle:        fmt.Sprintf("%s | Tora AI News", s.Title),
 				SeoDescription:  s.Summary,
 				SeoKeywords:     s.Tags,
-				OgImageUrl:      fmt.Sprintf("%s/news/%s/og.png", common.GetCanonicalBaseURL(), s.Slug),
-				IsSeed:          true,
-				PublishedAt:     publishedAt,
-				CreatedAt:       publishedAt,
-				UpdatedAt:       publishedAt,
+				OgImageUrl:        fmt.Sprintf("%s/news/%s/og.png", common.GetCanonicalBaseURL(), s.Slug),
+				IsSeed:            true,
+				PublicationOrigin: PublicationOriginSeed,
+				PublishedAt:       publishedAt,
+				CreatedAt:         publishedAt,
+				UpdatedAt:         publishedAt,
 			}
 			if err := DB.Create(post).Error; err != nil {
 				return err
 			}
 			common.SysLog(fmt.Sprintf("seeded news launchpack post: %s (type=%s, published_at=%d, is_seed=%t)", post.Slug, post.ContentType, post.PublishedAt, post.IsSeed))
-		} else if err == nil && (existing.ContentType != s.ContentType || !existing.IsSeed) {
-			// Ensure existing seeded records preserve correct ContentType and IsSeed classification
+		} else if err == nil && (existing.ContentType != s.ContentType || !existing.IsSeed || existing.PublicationOrigin != PublicationOriginSeed) {
+			// Ensure existing seeded records preserve correct ContentType, IsSeed, and PublicationOrigin
 			existing.ContentType = s.ContentType
 			existing.IsSeed = true
+			existing.PublicationOrigin = PublicationOriginSeed
 			existing.OgImageUrl = fmt.Sprintf("%s/news/%s/og.png", common.GetCanonicalBaseURL(), s.Slug)
 			_ = DB.Save(&existing)
 		}

@@ -405,10 +405,15 @@ func migrateDB() error {
 		&NewsSeoExperiment{},
 		&NewsFeedItem{},
 		&NewsAiVisibilityObservation{},
+		&NewsPublicationEvent{},
+		&NewsAutopilotDailyQuota{},
 	)
 	if err != nil {
 		return err
 	}
+	// Section 6: Idempotency guarantee - One Post ID can never create duplicate initial publish events
+	_ = DB.Exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_news_pub_events_unique_initial ON news_publication_events (post_id, event_type);")
+
 	if err := InitializeUserAuthVersions(); err != nil {
 		return err
 	}

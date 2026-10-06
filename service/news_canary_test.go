@@ -57,7 +57,14 @@ func TestNewsCanary_EndToEndGrowthLoop(t *testing.T) {
 	// 2. DISCOVER & SCOUT
 	newPosts, err := SyncSingleNewsSource(context.Background(), src)
 	require.NoError(t, err)
-	assert.Equal(t, 1, newPosts, "Canary feed should draft 1 new high-relevance post")
+	assert.Equal(t, 1, newPosts, "Canary feed should discover and cluster 1 new story")
+
+	SetAutopilotPublishingEnabled(true)
+	defer SetAutopilotPublishingEnabled(false)
+
+	batchRes, err := RunAutopilotPublishBatch(context.Background(), 1)
+	require.NoError(t, err)
+	assert.Equal(t, 1, batchRes.ArticlesPublished)
 
 	// 3. VERIFY EDITORIAL & METADATA
 	posts, total, err := model.GetPublishedNewsPosts(1, 10, "", "", "")

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/glebarez/sqlite"
@@ -26,7 +27,10 @@ func setupNewsTestDB(t *testing.T) {
 		&NewsPost{},
 		&NewsDistribution{},
 		&NewsAnalyticEvent{},
+		&NewsPublicationEvent{},
+		&NewsAutopilotDailyQuota{},
 	))
+	_ = db.Exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_news_pub_events_unique_initial ON news_publication_events (post_id, event_type);")
 	sqlDB, err := db.DB()
 	require.NoError(t, err)
 	sqlDB.SetMaxOpenConns(1)
@@ -232,3 +236,267 @@ func TestNewsPosts_LaunchpackSeeding(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, total, totalAfter)
 }
+
+func TestBangkokDateBoundaries(t *testing.T) {
+	// Verify Bangkok UTC+7 boundaries
+	// 2026-10-06 16:59:59 UTC -> 2026-10-06 23:59:59 Bangkok
+	utcJustBeforeMidnight := time.Date(2026, 10, 6, 16, 59, 59, 0, time.UTC)
+	startUnix, endUnix, dateStr := GetBangkokDateRange(utcJustBeforeMidnight)
+	assert.Equal(t, "2026-10-06", dateStr)
+
+	loc := time.FixedZone("Asia/Bangkok", 7*3600)
+	expectedStart := time.Date(2026, 10, 6, 0, 0, 0, 0, loc).Unix()
+	expectedEnd := time.Date(2026, 10, 7, 0, 0, 0, 0, loc).Unix()
+	assert.Equal(t, expectedStart, startUnix)
+	assert.Equal(t, expectedEnd, endUnix)
+
+	// 2026-10-06 17:00:00 UTC -> 2026-10-07 00:00:00 Bangkok
+	utcExactlyMidnight := time.Date(2026, 10, 6, 17, 0, 0, 0, time.UTC)
+	_, _, dateStrMidnight := GetBangkokDateRange(utcExactlyMidnight)
+	assert.Equal(t, "2026-10-07", dateStrMidnight)
+}
+
+func TestPublishPostWithAtomicQuota(t *testing.T) {
+	setupNewsTestDB(t)
+
+	// 1. Create a source
+	src := &NewsSource{
+		Name:    "Test Source",
+		Slug:    "test-source",
+		FeedUrl: "https://example.com/rss",
+	}
+	require.NoError(t, DB.Create(src).Error)
+
+	// 2. Test daily cap enforcement with maxDaily = 2, maxPerSource = 3
+	post1 := &NewsPost{
+		Slug:    "post-1",
+		Title:   "Story 1",
+		Summary: "Summary 1",
+		Status:  NewsStatusDraft,
+	}
+	require.NoError(t, DB.Create(post1).Error)
+
+	params1 := &AutopilotPublishParams{
+		Post:            post1,
+		ClusterId:       1,
+		PrimarySourceId: src.Id,
+		BatchId:         "batch-1",
+		MaxDailyCap:     2,
+		MaxSourceCap:    3,
+	}
+	res1, err := PublishPostWithAtomicQuota(params1)
+	require.NoError(t, err)
+	assert.True(t, res1.Success)
+
+	todayCount, err := GetAutopilotPublishedToday()
+	require.NoError(t, err)
+	assert.Equal(t, 1, todayCount)
+
+	srcCount, err := GetPublishedCountBySourceToday(src.Id)
+	require.NoError(t, err)
+	assert.Equal(t, 1, srcCount)
+
+	// Second post should succeed
+	post2 := &NewsPost{
+		Slug:    "post-2",
+		Title:   "Story 2",
+		Summary: "Summary 2",
+		Status:  NewsStatusDraft,
+	}
+	require.NoError(t, DB.Create(post2).Error)
+
+	params2 := &AutopilotPublishParams{
+		Post:            post2,
+		ClusterId:       2,
+		PrimarySourceId: src.Id,
+		BatchId:         "batch-1",
+		MaxDailyCap:     2,
+		MaxSourceCap:    3,
+	}
+	res2, err := PublishPostWithAtomicQuota(params2)
+	require.NoError(t, err)
+	assert.True(t, res2.Success)
+
+	todayCount2, err := GetAutopilotPublishedToday()
+	require.NoError(t, err)
+	assert.Equal(t, 2, todayCount2)
+
+	// Third post should be rejected due to daily cap (2)
+	post3 := &NewsPost{
+		Slug:    "post-3",
+		Title:   "Story 3",
+		Summary: "Summary 3",
+		Status:  NewsStatusDraft,
+	}
+	require.NoError(t, DB.Create(post3).Error)
+
+	params3 := &AutopilotPublishParams{
+		Post:            post3,
+		ClusterId:       3,
+		PrimarySourceId: src.Id,
+		BatchId:         "batch-1",
+		MaxDailyCap:     2,
+		MaxSourceCap:    3,
+	}
+	res3, err := PublishPostWithAtomicQuota(params3)
+	require.NoError(t, err)
+	assert.False(t, res3.Success)
+	assert.Contains(t, res3.RejectReason, "Daily autopilot quota reached")
+
+	// Post 3 should remain a draft
+	refetchedPost3, err := GetNewsPostById(post3.Id)
+	require.NoError(t, err)
+	assert.Equal(t, NewsStatusDraft, refetchedPost3.Status)
+
+	// 3. Test per-source limit enforcement
+	src2 := &NewsSource{
+		Name:    "Source 2",
+		Slug:    "source-2",
+		FeedUrl: "https://example2.com/rss",
+	}
+	require.NoError(t, DB.Create(src2).Error)
+
+	// Post 4 from source 2 with maxDaily = 10, maxPerSource = 1
+	post4 := &NewsPost{
+		Slug:    "post-4",
+		Title:   "Story 4",
+		Summary: "Summary 4",
+		Status:  NewsStatusDraft,
+	}
+	require.NoError(t, DB.Create(post4).Error)
+
+	params4 := &AutopilotPublishParams{
+		Post:            post4,
+		ClusterId:       4,
+		PrimarySourceId: src2.Id,
+		BatchId:         "batch-2",
+		MaxDailyCap:     10,
+		MaxSourceCap:    1,
+	}
+	res4, err := PublishPostWithAtomicQuota(params4)
+	require.NoError(t, err)
+	assert.True(t, res4.Success)
+
+	// Post 5 from same source 2 should be rejected by source cap
+	post5 := &NewsPost{
+		Slug:    "post-5",
+		Title:   "Story 5",
+		Summary: "Summary 5",
+		Status:  NewsStatusDraft,
+	}
+	require.NoError(t, DB.Create(post5).Error)
+
+	params5 := &AutopilotPublishParams{
+		Post:            post5,
+		ClusterId:       5,
+		PrimarySourceId: src2.Id,
+		BatchId:         "batch-2",
+		MaxDailyCap:     10,
+		MaxSourceCap:    1,
+	}
+	res5, err := PublishPostWithAtomicQuota(params5)
+	require.NoError(t, err)
+	assert.False(t, res5.Success)
+	assert.Contains(t, res5.RejectReason, "Source daily cap reached")
+}
+
+func TestPublicationCounters_Isolation(t *testing.T) {
+	setupNewsTestDB(t)
+
+	now := time.Now().Unix()
+
+	// 1 Autopilot post
+	p1 := &NewsPost{
+		Slug:              "p-autopilot",
+		Title:             "Autopilot post",
+		Status:            NewsStatusPublished,
+		PublicationOrigin: PublicationOriginAutopilot,
+		PublishedAt:       now,
+	}
+	require.NoError(t, DB.Create(p1).Error)
+
+	// Record corresponding publication event so Autopilot counter picks it up
+	_, _, dateStr := GetBangkokDateRange(time.Now())
+	require.NoError(t, DB.Create(&NewsPublicationEvent{
+		PostId:                 p1.Id,
+		EventType:              EventTypeAutopilotInitialPublish,
+		PublicationOrigin:      PublicationOriginAutopilot,
+		BangkokPublicationDate: dateStr,
+		PublishedAt:            now,
+	}).Error)
+
+	// 1 Seed post
+	p2 := &NewsPost{
+		Slug:              "p-seed",
+		Title:             "Seed post",
+		Status:            NewsStatusPublished,
+		IsSeed:            true,
+		PublicationOrigin: PublicationOriginSeed,
+		PublishedAt:       now,
+	}
+	require.NoError(t, DB.Create(p2).Error)
+
+	// 1 Manual post
+	p3 := &NewsPost{
+		Slug:              "p-manual",
+		Title:             "Manual post",
+		Status:            NewsStatusPublished,
+		PublicationOrigin: PublicationOriginManualAdmin,
+		PublishedAt:       now,
+	}
+	require.NoError(t, DB.Create(p3).Error)
+
+	// 1 Legacy post
+	p4 := &NewsPost{
+		Slug:              "p-legacy",
+		Title:             "Legacy post",
+		Status:            NewsStatusPublished,
+		PublicationOrigin: PublicationOriginUnknownLegacy,
+		PublishedAt:       now,
+	}
+	require.NoError(t, DB.Create(p4).Error)
+
+	// 1 Draft
+	p5 := &NewsPost{
+		Slug:   "p-draft",
+		Title:  "Draft post",
+		Status: NewsStatusDraft,
+	}
+	require.NoError(t, DB.Create(p5).Error)
+
+	counters, err := GetAuthoritativePublicationCounters()
+	require.NoError(t, err)
+
+	assert.Equal(t, 1, counters.AutopilotPublishedToday, "Autopilot counter must be strictly 1")
+	assert.Equal(t, 1, counters.SeedOrHistoricalToday, "Seed counter must be 1")
+	assert.Equal(t, 1, counters.ManualPublishedToday, "Manual counter must be 1")
+	assert.Equal(t, 1, counters.LegacyUnknownToday, "Legacy counter must be 1")
+	assert.Equal(t, 1, counters.DraftsToday, "Drafts counter must be 1")
+	assert.Equal(t, 4, counters.PublishedTodayTotal, "Total published must be 4")
+}
+
+func TestNewsPublicationEvent_Idempotency(t *testing.T) {
+	setupNewsTestDB(t)
+
+	// Create event
+	evt1 := &NewsPublicationEvent{
+		PostId:                 42,
+		EventType:              EventTypeAutopilotInitialPublish,
+		PublicationOrigin:      PublicationOriginAutopilot,
+		BangkokPublicationDate: "2026-10-06",
+		PublishedAt:            time.Now().Unix(),
+	}
+	require.NoError(t, DB.Create(evt1).Error)
+
+	// Attempt duplicate event with identical PostId and EventType
+	evt2 := &NewsPublicationEvent{
+		PostId:                 42,
+		EventType:              EventTypeAutopilotInitialPublish,
+		PublicationOrigin:      PublicationOriginAutopilot,
+		BangkokPublicationDate: "2026-10-06",
+		PublishedAt:            time.Now().Unix(),
+	}
+	err := DB.Create(evt2).Error
+	require.Error(t, err, "Duplicate publication event should violate unique constraint")
+}
+

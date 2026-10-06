@@ -156,7 +156,7 @@ func GenerateNewsSitemapXMLWithTime(posts []*model.NewsPost, refTime time.Time) 
 		// 4. Must be within 48-hour freshness window (p.PublishedAt >= cutoff48h)
 		// 5. Must NOT be seed content (p.IsSeed must be false) - bootstrap content excluded from Google News
 		isNews := p.ContentType == model.ContentTypeNews || p.ContentType == ""
-		if p.Status != model.NewsStatusPublished || !isNews || p.PublishedAt > refUnix || p.PublishedAt < cutoff48h || p.IsSeed {
+		if p.Status != model.NewsStatusPublished || !isNews || p.PublishedAt > refUnix || p.PublishedAt < cutoff48h || p.IsSeed || p.PublicationOrigin == model.PublicationOriginSeed || p.PublicationOrigin == model.PublicationOriginUnknownLegacy {
 			continue
 		}
 

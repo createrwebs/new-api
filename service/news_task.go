@@ -37,7 +37,6 @@ func SyncSingleNewsSource(ctx context.Context, src *model.NewsSource) (int, erro
 	}
 
 	newPostCount := 0
-	indexNow := NewIndexNowClient()
 
 	for _, item := range items {
 		// Section 3: Deduplication check
@@ -53,36 +52,15 @@ func SyncSingleNewsSource(ctx context.Context, src *model.NewsSource) (int, erro
 			Status:      "discovered",
 		})
 
-		cluster, isNew, err := ClusterStory(item)
+		_, isNew, err := ClusterStory(item)
 		if err != nil {
 			logger.LogWarn(ctx, fmt.Sprintf("failed to cluster story %q: %v", item.Title, err))
 			continue
 		}
 
-		// Only generate editorial content for new clusters with sufficient developer relevance
-		if isNew && (cluster.DeveloperScore >= 1.5 || cluster.RelevanceScore >= 2.0) {
-			// Section 6: Check daily caps
-			todayTotal, _ := model.GetPublishedCountToday()
-			if todayTotal >= MaxPublishedPerDay {
-				logger.LogInfo(ctx, fmt.Sprintf("[NewsScout] Global daily cap reached (%d/%d).", todayTotal, MaxPublishedPerDay))
-				break
-			}
-			sourceToday, _ := model.GetPublishedCountBySourceToday(src.Id)
-			if sourceToday >= MaxPerSourcePerDay {
-				logger.LogInfo(ctx, fmt.Sprintf("[NewsScout] Source daily cap reached (%d/%d) for source %s.", sourceToday, MaxPerSourcePerDay, src.Name))
-				break
-			}
-
-			post := GenerateEditorialPost(cluster, src)
-			if err := model.CreateNewsPost(post); err != nil {
-				logger.LogWarn(ctx, fmt.Sprintf("failed to save news post for cluster %d: %v", cluster.Id, err))
-				continue
-			}
-
-			if post.Status == model.NewsStatusPublished {
-				_ = indexNow.SubmitURLs(ctx, []string{post.CanonicalUrl})
-				_ = QueuePostDistributions(post)
-			}
+		// Clustering completed. Editorial publishing is delegated exclusively
+		// to the transactional Autopilot batch runner in news_autopilot.go.
+		if isNew {
 			newPostCount++
 		}
 	}

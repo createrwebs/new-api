@@ -41,7 +41,10 @@ func setupServiceNewsTestDB(t *testing.T) {
 		&model.NewsSeoExperiment{},
 		&model.NewsFeedItem{},
 		&model.NewsAiVisibilityObservation{},
+		&model.NewsPublicationEvent{},
+		&model.NewsAutopilotDailyQuota{},
 	))
+	_ = db.Exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_news_pub_events_unique_initial ON news_publication_events (post_id, event_type);")
 	sqlDB, err := db.DB()
 	require.NoError(t, err)
 	sqlDB.SetMaxOpenConns(1)
@@ -323,6 +326,13 @@ func TestNewsTask_SyncSingleNewsSource(t *testing.T) {
 	count, err := SyncSingleNewsSource(context.Background(), src)
 	require.NoError(t, err)
 	assert.Equal(t, 1, count)
+
+	SetAutopilotPublishingEnabled(true)
+	defer SetAutopilotPublishingEnabled(false)
+
+	batchRes, err := RunAutopilotPublishBatch(context.Background(), 1)
+	require.NoError(t, err)
+	assert.Equal(t, 1, batchRes.ArticlesPublished)
 
 	// Verify post created in database
 	posts, total, err := model.GetPublishedNewsPosts(1, 10, "", "", "")

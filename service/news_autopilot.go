@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"os"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -26,7 +28,51 @@ var (
 	lastExecutedSlot    string
 	lastAutopilotRunAt  int64
 	lastAutopilotReport *model.NewsDailyGrowthReview
+
+	// NewsAutopilotPublishingEnabled controls whether automatic batch publishing is active.
+	// Default: false (Safety hold during incident reconciliation until explicitly proven and re-enabled)
+	NewsAutopilotPublishingEnabled = false
 )
+
+func IsAutopilotPublishingEnabled() bool {
+	if val := os.Getenv("NEWS_AUTOPILOT_PUBLISH_ENABLED"); val != "" {
+		return val == "true" || val == "1"
+	}
+	return NewsAutopilotPublishingEnabled
+}
+
+func SetAutopilotPublishingEnabled(enabled bool) {
+	autopilotMu.Lock()
+	defer autopilotMu.Unlock()
+	NewsAutopilotPublishingEnabled = enabled
+}
+
+func GetMaxPublishedPerDay() int {
+	if v := os.Getenv("NEWS_MAX_PUBLISHED_PER_DAY"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n >= 0 {
+			return n
+		}
+	}
+	return MaxPublishedPerDay
+}
+
+func GetMaxPerBatch() int {
+	if v := os.Getenv("NEWS_MAX_PER_BATCH"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			return n
+		}
+	}
+	return MaxPerBatch
+}
+
+func GetMaxPerSourcePerDay() int {
+	if v := os.Getenv("NEWS_MAX_PER_SOURCE_PER_DAY"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			return n
+		}
+	}
+	return MaxPerSourcePerDay
+}
 
 // AutopilotScoutResult records metrics for an autonomous discovery cycle
 type AutopilotScoutResult struct {
@@ -40,10 +86,13 @@ type AutopilotScoutResult struct {
 
 // AutopilotBatchResult records metrics for a publishing batch cycle
 type AutopilotBatchResult struct {
+	BatchId           string   `json:"batch_id"`
 	ArticlesAttempted int      `json:"articles_attempted"`
 	ArticlesPublished int      `json:"articles_published"`
 	DraftsCreated     int      `json:"drafts_created"`
 	RejectedStories   int      `json:"rejected_stories"`
+	AlreadyPublished  int      `json:"already_published"`
+	QuotaBlocked      int      `json:"quota_blocked"`
 	RejectionReasons  []string `json:"rejection_reasons,omitempty"`
 	DailyTotalSoFar   int      `json:"daily_total_so_far"`
 	IndexNowSubmitted int      `json:"indexnow_submitted"`
@@ -51,15 +100,22 @@ type AutopilotBatchResult struct {
 
 // AutopilotStatus represents current live autopilot health and statistics
 type AutopilotStatus struct {
-	CurrentBangkokTime  string                       `json:"current_bangkok_time"`
-	TodayPublishedCount int                          `json:"today_published_count"`
-	MaxDailyCap         int                          `json:"max_daily_cap"`
-	ActiveSourcesCount  int                          `json:"active_sources_count"`
-	FailingSourcesCount int                          `json:"failing_sources_count"`
-	LastExecutedSlot    string                       `json:"last_executed_slot"`
-	LastRunAt           int64                        `json:"last_run_at"`
-	ScheduleCycles      []string                     `json:"schedule_cycles"`
-	LatestReport        *model.NewsDailyGrowthReview `json:"latest_report,omitempty"`
+	CurrentBangkokTime      string                       `json:"current_bangkok_time"`
+	TodayPublishedCount     int                          `json:"today_published_count"` // Authoritative: autopilot_published_today
+	AutopilotPublishedToday int                          `json:"autopilot_published_today"`
+	PublishedTodayTotal     int                          `json:"published_today_total"`
+	LegacyUnknownToday      int                          `json:"legacy_unknown_today"`
+	ManualPublishedToday    int                          `json:"manual_published_today"`
+	SeedOrHistoricalToday   int                          `json:"seed_or_historical_today"`
+	DraftsToday             int                          `json:"drafts_today"`
+	MaxDailyCap             int                          `json:"max_daily_cap"`
+	PublishingEnabled       bool                         `json:"publishing_enabled"`
+	ActiveSourcesCount      int                          `json:"active_sources_count"`
+	FailingSourcesCount     int                          `json:"failing_sources_count"`
+	LastExecutedSlot        string                       `json:"last_executed_slot"`
+	LastRunAt               int64                        `json:"last_run_at"`
+	ScheduleCycles          []string                     `json:"schedule_cycles"`
+	LatestReport            *model.NewsDailyGrowthReview `json:"latest_report,omitempty"`
 }
 
 // RunAutopilotScoutCycle executes a full feed discovery and clustering pass (Section 3 & 4)
@@ -122,28 +178,43 @@ func RunAutopilotScoutCycle(ctx context.Context) (*AutopilotScoutResult, error) 
 	return res, nil
 }
 
-// RunAutopilotPublishBatch evaluates candidate clusters and publishes up to batchSize articles (Section 5, 6, 9-18)
+// RunAutopilotPublishBatch evaluates candidate clusters and publishes up to batchSize articles (Section 5, 6, 7, 8, 9, 10)
 func RunAutopilotPublishBatch(ctx context.Context, batchLimit int) (*AutopilotBatchResult, error) {
 	autopilotMu.Lock()
 	defer autopilotMu.Unlock()
 
-	if batchLimit <= 0 || batchLimit > MaxPerBatch {
-		batchLimit = MaxPerBatch
+	maxBatch := GetMaxPerBatch()
+	if batchLimit <= 0 || batchLimit > maxBatch {
+		batchLimit = maxBatch
 	}
+	maxDaily := GetMaxPublishedPerDay()
+	maxSource := GetMaxPerSourcePerDay()
 
-	todayPublished, _ := model.GetPublishedCountToday()
+	batchId := fmt.Sprintf("batch-%d", common.GetTimestamp())
+	runId := fmt.Sprintf("run-%d", common.GetTimestamp())
+
+	todayAutopilotPublished, _ := model.GetAutopilotPublishedToday()
 	res := &AutopilotBatchResult{
-		DailyTotalSoFar: todayPublished,
+		BatchId:         batchId,
+		DailyTotalSoFar: todayAutopilotPublished,
 	}
 
-	// Section 6: Enforce global daily cap
-	if todayPublished >= MaxPublishedPerDay {
-		res.RejectionReasons = append(res.RejectionReasons, fmt.Sprintf("Global daily cap reached (%d/%d)", todayPublished, MaxPublishedPerDay))
-		logger.LogInfo(ctx, fmt.Sprintf("[Autopilot] Global daily cap reached (%d/%d). Skipping batch.", todayPublished, MaxPublishedPerDay))
+	// Section 1: Immediate Safety Check (Publishing disabled by default)
+	if !IsAutopilotPublishingEnabled() {
+		res.RejectionReasons = append(res.RejectionReasons, "Automatic publishing is currently disabled (Safety Hold)")
+		logger.LogInfo(ctx, "[Autopilot] Automatic publishing is currently disabled. Skipping publish batch.")
 		return res, nil
 	}
 
-	availableCap := MaxPublishedPerDay - todayPublished
+	// Section 6 & 7: Check daily cap
+	if todayAutopilotPublished >= maxDaily {
+		res.QuotaBlocked++
+		res.RejectionReasons = append(res.RejectionReasons, fmt.Sprintf("Global daily cap reached (%d/%d)", todayAutopilotPublished, maxDaily))
+		logger.LogInfo(ctx, fmt.Sprintf("[Autopilot] Global daily cap reached (%d/%d). Skipping batch.", todayAutopilotPublished, maxDaily))
+		return res, nil
+	}
+
+	availableCap := maxDaily - todayAutopilotPublished
 	effectiveLimit := batchLimit
 	if effectiveLimit > availableCap {
 		effectiveLimit = availableCap
@@ -166,7 +237,8 @@ func RunAutopilotPublishBatch(ctx context.Context, batchLimit int) (*AutopilotBa
 		// Check if post already created for cluster
 		var existingPost model.NewsPost
 		if err := model.DB.Where("cluster_id = ?", cluster.Id).First(&existingPost).Error; err == nil {
-			continue // Already drafted or published
+			res.AlreadyPublished++
+			continue
 		}
 
 		res.ArticlesAttempted++
@@ -178,12 +250,13 @@ func RunAutopilotPublishBatch(ctx context.Context, batchLimit int) (*AutopilotBa
 			continue
 		}
 
-		// Section 6: Source Daily Cap
+		// Check source cap in memory before entering transaction
 		if cluster.PrimarySourceId > 0 {
 			sourceCount, _ := model.GetPublishedCountBySourceToday(cluster.PrimarySourceId)
-			if sourceCount >= MaxPerSourcePerDay {
+			if sourceCount >= maxSource {
+				res.QuotaBlocked++
 				res.RejectedStories++
-				res.RejectionReasons = append(res.RejectionReasons, fmt.Sprintf("Source daily cap (%d/%d) reached for cluster %d", sourceCount, MaxPerSourcePerDay, cluster.Id))
+				res.RejectionReasons = append(res.RejectionReasons, fmt.Sprintf("Source daily cap (%d/%d) reached for cluster %d", sourceCount, maxSource, cluster.Id))
 				continue
 			}
 		}
@@ -210,15 +283,30 @@ func RunAutopilotPublishBatch(ctx context.Context, batchLimit int) (*AutopilotBa
 			continue
 		}
 
-		// Section 17: Publish only through Tora
-		post.Status = model.NewsStatusPublished
-		if err := model.CreateNewsPost(post); err != nil {
-			logger.LogWarn(ctx, fmt.Sprintf("[Autopilot] Failed to save post for cluster %d: %v", cluster.Id, err))
+		// Section 7 & 8: Atomic Transactional Publication
+		pubResult, err := model.PublishPostWithAtomicQuota(&model.AutopilotPublishParams{
+			Post:            post,
+			ClusterId:       cluster.Id,
+			PrimarySourceId: cluster.PrimarySourceId,
+			AutopilotRunId:  runId,
+			BatchId:         batchId,
+			MaxDailyCap:     maxDaily,
+			MaxSourceCap:    maxSource,
+		})
+		if err != nil {
+			logger.LogWarn(ctx, fmt.Sprintf("[Autopilot] Transactional publication error for cluster %d: %v", cluster.Id, err))
+			continue
+		}
+		if !pubResult.Success {
+			res.QuotaBlocked++
+			res.RejectedStories++
+			res.RejectionReasons = append(res.RejectionReasons, pubResult.RejectReason)
 			continue
 		}
 
 		res.ArticlesPublished++
-		res.DailyTotalSoFar++
+		todayAutopilotPublished++
+		res.DailyTotalSoFar = todayAutopilotPublished
 		publishedURLs = append(publishedURLs, post.CanonicalUrl)
 
 		// Section 19: Distribution to DEV.to if high value
@@ -234,13 +322,13 @@ func RunAutopilotPublishBatch(ctx context.Context, batchLimit int) (*AutopilotBa
 	}
 
 	lastAutopilotRunAt = common.GetTimestamp()
-	logger.LogInfo(ctx, fmt.Sprintf("[Autopilot] Batch complete: published=%d, drafts=%d, rejected=%d, dailyTotal=%d",
-		res.ArticlesPublished, res.DraftsCreated, res.RejectedStories, res.DailyTotalSoFar))
+	logger.LogInfo(ctx, fmt.Sprintf("[Autopilot] Batch %s complete: published=%d, drafts=%d, rejected=%d, quotaBlocked=%d, dailyTotal=%d",
+		batchId, res.ArticlesPublished, res.DraftsCreated, res.RejectedStories, res.QuotaBlocked, res.DailyTotalSoFar))
 
 	return res, nil
 }
 
-// RunDailyNewsroomReport compiles Section 23 persisted report
+// RunDailyNewsroomReport compiles Section 23 persisted report (Section 17, 18)
 func RunDailyNewsroomReport(ctx context.Context, targetDate string) (*model.NewsDailyGrowthReview, error) {
 	loc := time.FixedZone("Asia/Bangkok", 7*3600)
 	now := time.Now().In(loc)
@@ -277,10 +365,13 @@ func RunDailyNewsroomReport(ctx context.Context, targetDate string) (*model.News
 	review.ClustersCreated = int(clusterCount)
 	review.DuplicatesRemoved = int(dupCount)
 
-	// 5. Drafts vs published
-	var draftsCount int64
-	model.DB.Model(&model.NewsPost{}).Where("status IN ? AND created_at >= ? AND created_at < ?", []string{model.NewsStatusDraft, model.NewsStatusReviewRequired}, startOfDay, endOfDay).Count(&draftsCount)
-	review.DraftsRequiringReview = int(draftsCount)
+	// 5. Authoritative publication counters (Section 4 & 18)
+	counters, _ := model.GetAuthoritativePublicationCounters()
+	if counters == nil {
+		counters = &model.NewsPublicationCounters{}
+	}
+	review.PostsPublishedToday = counters.AutopilotPublishedToday
+	review.DraftsRequiringReview = counters.ReviewsToday
 
 	// 6. Sitemaps and IndexNow status
 	baseURL := common.GetCanonicalBaseURL()
@@ -308,19 +399,28 @@ func RunDailyNewsroomReport(ctx context.Context, targetDate string) (*model.News
 	}
 	review.AiVisibilitySummary = obsSummary.String()
 
-	// 9. Top 5 opportunities for tomorrow
+	// 9. Top 5 opportunities for tomorrow (Truthful SEO wording - Section 17)
 	opps, _ := model.GetAllNewsSeoOpportunities("detected", 5)
 	var oppsSummary strings.Builder
 	for i, op := range opps {
 		oppsSummary.WriteString(fmt.Sprintf("%d. [%s] %s: %s\n", i+1, op.OpportunityType, op.Query, op.ProposedAction))
 	}
 	if len(opps) == 0 {
-		oppsSummary.WriteString("All current SEO and evergreen opportunities remediated.")
+		gscOverview := GetNormalizedGSCStatus(ctx, false)
+		gscStatus := gscOverview.Status
+		if gscStatus == "CONNECTED" || gscStatus == "CONFIGURED" || gscStatus == "NOT_CONFIGURED" || gscStatus == "" {
+			oppsSummary.WriteString("NO_DATA_YET — Search Console baseline observations pending initial Google sync.")
+		} else {
+			oppsSummary.WriteString("NO_ACTIONABLE_OPPORTUNITIES — No search queries currently meeting CTR gap or impression threshold.")
+		}
 	}
 	review.TopOpportunitiesTomorrow = oppsSummary.String()
 
-	// 10. Newsroom Run Status (Section 26)
-	if failingSources > 0 {
+	// 10. Newsroom Run Status with Invariant Check (Section 18 & 26)
+	maxDaily := GetMaxPublishedPerDay()
+	if counters.AutopilotPublishedToday > maxDaily {
+		review.NewsroomRunStatus = fmt.Sprintf("INVARIANT VIOLATION: AUTOPILOT PUBLISHED TODAY (%d) EXCEEDED DAILY CAP (%d)", counters.AutopilotPublishedToday, maxDaily)
+	} else if failingSources > 0 {
 		review.NewsroomRunStatus = "NEWSROOM RUN PARTIAL — SOURCE/QUALITY ISSUES"
 	} else {
 		review.NewsroomRunStatus = "NEWSROOM RUN COMPLETE"
@@ -329,8 +429,8 @@ func RunDailyNewsroomReport(ctx context.Context, targetDate string) (*model.News
 	_ = model.CreateOrUpdateDailyGrowthReview(review)
 	lastAutopilotReport = review
 
-	logger.LogInfo(ctx, fmt.Sprintf("[Autopilot] Section 23 daily newsroom report persisted for %s: status=%s, publishedToday=%d",
-		targetDate, review.NewsroomRunStatus, review.PostsPublishedToday))
+	logger.LogInfo(ctx, fmt.Sprintf("[Autopilot] Section 23 daily newsroom report persisted for %s: status=%s, autopilotPublished=%d, totalPublishedToday=%d",
+		targetDate, review.NewsroomRunStatus, counters.AutopilotPublishedToday, counters.PublishedTodayTotal))
 
 	return review, nil
 }
@@ -339,7 +439,10 @@ func RunDailyNewsroomReport(ctx context.Context, targetDate string) (*model.News
 func GetAutopilotStatus() *AutopilotStatus {
 	loc := time.FixedZone("Asia/Bangkok", 7*3600)
 	bkkTime := time.Now().In(loc).Format("2006-01-02 15:04:05 MST")
-	todayCount, _ := model.GetPublishedCountToday()
+	counters, _ := model.GetAuthoritativePublicationCounters()
+	if counters == nil {
+		counters = &model.NewsPublicationCounters{}
+	}
 
 	sources, _ := model.GetAllNewsSources(false)
 	failing := 0
@@ -349,14 +452,23 @@ func GetAutopilotStatus() *AutopilotStatus {
 		}
 	}
 
+	maxDaily := GetMaxPublishedPerDay()
+
 	return &AutopilotStatus{
-		CurrentBangkokTime:  bkkTime,
-		TodayPublishedCount: todayCount,
-		MaxDailyCap:         MaxPublishedPerDay,
-		ActiveSourcesCount:  len(sources),
-		FailingSourcesCount: failing,
-		LastExecutedSlot:    lastExecutedSlot,
-		LastRunAt:           lastAutopilotRunAt,
+		CurrentBangkokTime:      bkkTime,
+		TodayPublishedCount:     counters.AutopilotPublishedToday, // Authoritative: only autonomous publications
+		AutopilotPublishedToday: counters.AutopilotPublishedToday,
+		PublishedTodayTotal:     counters.PublishedTodayTotal,
+		LegacyUnknownToday:      counters.LegacyUnknownToday,
+		ManualPublishedToday:    counters.ManualPublishedToday,
+		SeedOrHistoricalToday:   counters.SeedOrHistoricalToday,
+		DraftsToday:             counters.DraftsToday,
+		MaxDailyCap:             maxDaily,
+		PublishingEnabled:       IsAutopilotPublishingEnabled(),
+		ActiveSourcesCount:      len(sources),
+		FailingSourcesCount:     failing,
+		LastExecutedSlot:        lastExecutedSlot,
+		LastRunAt:               lastAutopilotRunAt,
 		ScheduleCycles: []string{
 			"05:30 scout",
 			"07:00 publish batch 1 (max 5)",
