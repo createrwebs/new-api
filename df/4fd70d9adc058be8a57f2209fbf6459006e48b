@@ -1,0 +1,34 @@
+controller/studio.go
+  h_f97827f62b0fea 187,190-200,208,228-234
+docs/ai/TORA_STUDIO_FAL_CANARY_REPORT.md
+  h_f97827f62b0fea 1-194
+docs/ai/TORA_STUDIO_PROVIDER_MATRIX.md
+  h_f97827f62b0fea 2,6-7,15,21-78,81-85,100,102-111,113,115,117-128
+model/studio.go
+  h_f97827f62b0fea 375
+service/studio_canary_test.go
+  h_f97827f62b0fea 1-281
+service/studio_fal.go
+  h_f97827f62b0fea 46-54,150-154,159-161,166,182-191,214,216,220-223,256,258,283,285-295,299-307,326-335
+service/studio_fal_test.go
+  h_f97827f62b0fea 60,65,70,93
+service/studio_pricing.go
+  h_f97827f62b0fea 252-256
+service/studio_security.go
+  h_f97827f62b0fea 31,36,47,52
+service/studio_seed.go
+  h_f97827f62b0fea 62,84
+service/studio_service.go
+  h_f97827f62b0fea 415,433
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.3",
+  "base_commit_sha": "df4fd70d9adc058be8a57f2209fbf6459006e48b",
+  "prompts": {},
+  "humans": {
+    "h_f97827f62b0fea": {
+      "author": "NOPPANAN THEERACHARTE <noppanan.the@axonstech.com>"
+    }
+  }
+}
