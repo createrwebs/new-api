@@ -5,10 +5,15 @@ import {
   Coins,
   Copy,
   Download,
+  Eye,
   ImageIcon,
+  Layers,
   Loader2,
+  RefreshCw,
   RotateCcw,
+  ShoppingBag,
   Sparkles,
+  SplitSquareVertical,
   Upload,
   Video,
   Wand2,
@@ -36,8 +41,11 @@ import {
   recordStudioAttribution,
 } from '../api'
 import {
+  trackStudioGenerateClick,
   trackStudioGenerationAfterPurchase,
   trackStudioPurchaseReturn,
+  trackStudioRepeatGeneration,
+  trackStudioToolVisit,
 } from '@/lib/analytics'
 import type {
   InsufficientCreditData,
@@ -95,6 +103,15 @@ export function StudioPlayground({
   const [providerOverride, setProviderOverride] = useState<'fal' | 'mock' | 'auto'>('auto')
   const [confirmedRights, setConfirmedRights] = useState(false)
 
+  // Product Studio E-Commerce states (Queue 4)
+  const [marketplace, setMarketplace] = useState<'shopee' | 'lazada' | 'instagram' | 'story' | 'tiktok'>('shopee')
+  const [packSize, setPackSize] = useState<1 | 4>(1)
+  const [autoRemoveBg, setAutoRemoveBg] = useState(true)
+  const [referenceImageUrl, setReferenceImageUrl] = useState('')
+  const [activeVariantIndex, setActiveVariantIndex] = useState(0)
+  const [showBeforeAfter, setShowBeforeAfter] = useState(false)
+  const [generationCount, setGenerationCount] = useState(0)
+
   // Job execution state
   const [activeJob, setActiveJob] = useState<StudioJob | null>(null)
   const [isSubmitting, setIsSubmitting] = useState(false)
@@ -111,10 +128,27 @@ export function StudioPlayground({
   const [isPostPurchaseReturn, setIsPostPurchaseReturn] = useState(false)
   const [freshQuoteCredits, setFreshQuoteCredits] = useState<number | null>(null)
 
-  // Calculate user credits
+  // Calculate user credits & dynamic pack quote (Queue 4)
+  const isProductPhoto = currentTool?.slug === 'product-photo' || currentTool?.id === 'product-photo'
+  const effectiveBaseCost = useMemo(() => {
+    if (!currentTool) return 10
+    if (isProductPhoto && packSize === 4) {
+      return currentTool.credit_cost * 4
+    }
+    return currentTool.credit_cost
+  }, [currentTool, isProductPhoto, packSize])
+
   const userCredits = Math.floor((auth.user?.quota || 0) / 1000)
-  const requiredCredits = currentTool ? currentTool.credit_cost : 10
+  const requiredCredits = freshQuoteCredits || effectiveBaseCost
   const hasEnoughCredits = userCredits >= requiredCredits
+
+  // Track tool visit (Queue 4)
+  useEffect(() => {
+    if (currentTool?.id) {
+      trackStudioToolVisit(currentTool.id)
+      recordStudioAttribution('tool_visit', currentTool.id)
+    }
+  }, [currentTool?.id])
 
   const applyTemplate = useCallback((tpl: StudioTemplate) => {
     setActiveTemplateId(tpl.id)
@@ -220,12 +254,34 @@ export function StudioPlayground({
     if (aspectRatio) params.aspect_ratio = aspectRatio
     if (scaleFactor) params.scale_factor = scaleFactor
     if (durationSec) params.duration_sec = durationSec
-    return params
-  }, [prompt, negativePrompt, imageUrl, aspectRatio, scaleFactor, durationSec])
 
-  // Requote when post-purchase return is active (Queue 3 Funnel)
+    // Product Studio parameters (Queue 4)
+    if (isProductPhoto) {
+      params.marketplace = marketplace
+      params.pack_size = packSize
+      params.num_outputs = packSize
+      params.auto_remove_bg = autoRemoveBg
+      if (referenceImageUrl.trim()) params.reference_image_url = referenceImageUrl.trim()
+    }
+
+    return params
+  }, [
+    prompt,
+    negativePrompt,
+    imageUrl,
+    aspectRatio,
+    scaleFactor,
+    durationSec,
+    isProductPhoto,
+    marketplace,
+    packSize,
+    autoRemoveBg,
+    referenceImageUrl,
+  ])
+
+  // Requote on parameter change (for pack_size, etc.) or post-purchase return
   useEffect(() => {
-    if (isPostPurchaseReturn && currentTool) {
+    if (currentTool) {
       const params = buildInputParams()
       quoteStudioJob({
         tool_id: currentTool.id,
@@ -238,10 +294,17 @@ export function StudioPlayground({
           }
         })
         .catch(() => {
-          setFreshQuoteCredits(currentTool.credit_cost)
+          setFreshQuoteCredits(effectiveBaseCost)
         })
     }
-  }, [isPostPurchaseReturn, currentTool, activeTemplateId, buildInputParams])
+  }, [
+    isPostPurchaseReturn,
+    currentTool,
+    activeTemplateId,
+    packSize,
+    buildInputParams,
+    effectiveBaseCost,
+  ])
 
   // Save pending state for top-up redirect (stripping base64 media to prevent storage leak)
   const handlePreserveState = () => {
@@ -363,6 +426,16 @@ export function StudioPlayground({
 
     setIsSubmitting(true)
     try {
+      const creditsToCharge = requiredCredits
+      trackStudioGenerateClick(currentTool.id, creditsToCharge, packSize)
+      recordStudioAttribution('generate_click', currentTool.id, creditsToCharge)
+
+      if (generationCount > 0) {
+        trackStudioRepeatGeneration(currentTool.id, creditsToCharge, generationCount + 1)
+        recordStudioAttribution('repeat_generation', currentTool.id, creditsToCharge)
+      }
+      setGenerationCount((prev) => prev + 1)
+
       const payload = {
         tool_id: currentTool.id,
         template_id: activeTemplateId || undefined,
@@ -372,6 +445,8 @@ export function StudioPlayground({
 
       const job = await createStudioJob(payload)
       setActiveJob(job)
+      setActiveVariantIndex(0)
+      setShowBeforeAfter(false)
       toast.success(t('ส่งคำสั่งประมวลผลสำเร็จ กำลังเริ่มสร้างผลงาน'))
       pollJob(job.id)
     } catch (error: unknown) {
@@ -390,7 +465,7 @@ export function StudioPlayground({
   // Explicit user confirmation after purchasing credits (Queue 3 - strictly non-auto)
   const handleConfirmAfterPurchase = () => {
     const toolId = currentTool?.id || 'studio'
-    const credits = freshQuoteCredits || currentTool?.credit_cost || 10
+    const credits = freshQuoteCredits || effectiveBaseCost
     trackStudioGenerationAfterPurchase(toolId, credits)
     recordStudioAttribution('generation_after_purchase', toolId, credits)
     sessionStorage.removeItem('tora_studio_purchase_origin')
@@ -411,8 +486,26 @@ export function StudioPlayground({
     }
   }
 
-  // Parse result media URL
+  // Parse result media URL and multi-variants (Queue 4)
+  const variants: string[] = useMemo(() => {
+    if (!activeJob?.output_data) return []
+    try {
+      const data = JSON.parse(activeJob.output_data)
+      if (Array.isArray(data.output_urls) && data.output_urls.length > 0) return data.output_urls
+      if (Array.isArray(data.variants) && data.variants.length > 0) return data.variants
+      if (data.output_url) return [data.output_url]
+      if (data.image_url) return [data.image_url]
+      if (data.video_url) return [data.video_url]
+      return []
+    } catch {
+      return []
+    }
+  }, [activeJob?.output_data])
+
   const resultUrl = useMemo(() => {
+    if (variants.length > 0) {
+      return variants[activeVariantIndex] || variants[0]
+    }
     if (!activeJob?.output_data) return null
     try {
       const data = JSON.parse(activeJob.output_data)
@@ -420,7 +513,7 @@ export function StudioPlayground({
     } catch {
       return null
     }
-  }, [activeJob?.output_data])
+  }, [variants, activeVariantIndex, activeJob?.output_data])
 
   const isVideoTool = currentTool?.category === 'video' || currentTool?.slug.includes('video')
 
@@ -645,34 +738,176 @@ export function StudioPlayground({
                 </div>
               )}
 
-              {/* Aspect Ratio Selector (for image generation / video) */}
-              {['image-generate', 'image-to-video', 'product-photo'].includes(
-                currentTool?.slug || ''
-              ) && (
-                <div className='space-y-1.5'>
-                  <Label className='text-xs font-medium'>
-                    {t('สัดส่วนภาพ (Aspect Ratio)')}
-                  </Label>
-                  <div className='grid grid-cols-4 gap-1.5'>
+              {/* Product Studio Marketplace Presets & Aspects (Queue 4) */}
+              {isProductPhoto ? (
+                <div className='space-y-3 rounded-xl border border-primary/20 bg-primary/5 p-3.5'>
+                  <div className='flex items-center justify-between'>
+                    <div className='flex items-center gap-1.5'>
+                      <ShoppingBag className='size-4 text-primary' />
+                      <Label className='text-xs font-semibold text-foreground'>
+                        {t('สัดส่วนตาม Marketplace (E-Commerce Presets)')}
+                      </Label>
+                    </div>
+                    <Badge variant='outline' className='text-[10px] text-primary border-primary/30'>
+                      {marketplace.toUpperCase()} ({aspectRatio})
+                    </Badge>
+                  </div>
+
+                  <div className='grid grid-cols-2 sm:grid-cols-5 gap-1.5'>
                     {[
-                      { id: '1:1', label: '1:1 (จัตุรัส)' },
-                      { id: '9:16', label: '9:16 (TikTok/Reel)' },
-                      { id: '16:9', label: '16:9 (แนวนอน)' },
-                      { id: '4:5', label: '4:5 (IG Feed)' },
-                    ].map((ratio) => (
+                      { id: 'shopee', label: 'Shopee (1:1)', ratio: '1:1' },
+                      { id: 'lazada', label: 'Lazada (1:1)', ratio: '1:1' },
+                      { id: 'instagram', label: 'Instagram (4:5)', ratio: '4:5' },
+                      { id: 'story', label: 'Story (9:16)', ratio: '9:16' },
+                      { id: 'tiktok', label: 'TikTok (9:16)', ratio: '9:16' },
+                    ].map((m) => (
                       <Button
-                        key={ratio.id}
+                        key={m.id}
                         type='button'
                         size='sm'
-                        variant={aspectRatio === ratio.id ? 'default' : 'outline'}
-                        onClick={() => setAspectRatio(ratio.id)}
-                        className='h-8 text-[11px]'
+                        variant={marketplace === m.id ? 'default' : 'outline'}
+                        onClick={() => {
+                          setMarketplace(m.id as any)
+                          setAspectRatio(m.ratio)
+                        }}
+                        className='h-8 text-[11px] px-2'
                       >
-                        {ratio.label}
+                        {m.label}
                       </Button>
                     ))}
                   </div>
+
+                  {/* 8 Visual Templates Palette for Product Studio */}
+                  <div className='space-y-1.5 pt-1'>
+                    <Label className='text-[11px] font-medium text-muted-foreground'>
+                      {t('สไตล์ฉากหลังยอดนิยม (Visual Templates):')}
+                    </Label>
+                    <div className='grid grid-cols-2 sm:grid-cols-4 gap-1.5'>
+                      {[
+                        { id: 'tpl-prod-white-studio', name: 'White Studio', prompt: 'Clean seamless white studio background, commercial advertising lighting, soft ambient reflection, high-end product showcase, 8k resolution' },
+                        { id: 'tpl-prod-luxury-black', name: 'Luxury Black', prompt: 'Dark luxury minimalist stone background, dramatic moody rim light, premium cosmetic advertising, high contrast, elegant aesthetic' },
+                        { id: 'tpl-prod-minimal-beige', name: 'Minimal Beige', prompt: 'Warm beige linen background, wooden pedestal, soft natural morning sunlight casting organic leaf shadows, aesthetic lifestyle product shot' },
+                        { id: 'tpl-prod-kitchen', name: 'Kitchen', prompt: 'Modern bright marble kitchen countertop, blurry warm kitchen background, daylight, lifestyle culinary photography' },
+                        { id: 'tpl-prod-food', name: 'Food & Dining', prompt: 'Rustic wooden dining table, warm cafe ambiance, appetizing soft daylight, gourmet culinary background bokeh, commercial food presentation' },
+                        { id: 'tpl-prod-cosmetics', name: 'Cosmetics', prompt: 'Minimalist pastel acrylic pedestal, soft gradient backdrop, subtle water droplet reflections, clean beauty commercial lighting, delicate aesthetic' },
+                        { id: 'tpl-prod-fashion', name: 'Fashion', prompt: 'Contemporary high-fashion concrete boutique backdrop, architectural soft shadows, sleek gallery aesthetic, Vogue style editorial product lighting' },
+                        { id: 'tpl-prod-outdoor', name: 'Outdoor', prompt: 'Natural outdoor setting on a smooth wet pebble stone, lush green foliage background bokeh, golden hour sunlight, organic aesthetic' },
+                      ].map((style) => (
+                        <Button
+                          key={style.id}
+                          type='button'
+                          size='sm'
+                          variant={prompt.includes(style.name) || activeTemplateId === style.id ? 'default' : 'outline'}
+                          onClick={() => {
+                            setActiveTemplateId(style.id)
+                            setPrompt(style.prompt)
+                            toast.success(t('เลือกสไตล์ {{name}} สำเร็จ', { name: style.name }))
+                          }}
+                          className='h-7 text-[10px] justify-start px-2 truncate'
+                          title={style.name}
+                        >
+                          <Sparkles className='mr-1 size-3 shrink-0' />
+                          <span className='truncate'>{style.name}</span>
+                        </Button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Result Pack Size: Single vs 4-Pack */}
+                  <div className='pt-2 space-y-1.5'>
+                    <div className='flex items-center justify-between'>
+                      <Label className='text-[11px] font-semibold text-foreground'>
+                        {t('จำนวนรูปที่ต้องการ (Result Pack):')}
+                      </Label>
+                      <span className='text-[10px] text-muted-foreground'>
+                        {packSize === 1 ? '1 รูปเดี่ยว (50 Cr)' : 'แพ็ก 4 รูป (200 Cr)'}
+                      </span>
+                    </div>
+                    <div className='grid grid-cols-2 gap-2'>
+                      <Button
+                        type='button'
+                        size='sm'
+                        variant={packSize === 1 ? 'default' : 'outline'}
+                        onClick={() => setPackSize(1)}
+                        className='h-8 text-xs font-normal'
+                      >
+                        {t('1 รูปเดี่ยว (Single 50 Cr)')}
+                      </Button>
+                      <Button
+                        type='button'
+                        size='sm'
+                        variant={packSize === 4 ? 'default' : 'outline'}
+                        onClick={() => setPackSize(4)}
+                        className='h-8 text-xs font-medium border-primary/40'
+                      >
+                        <Layers className='mr-1.5 size-3.5 text-primary' />
+                        {t('แพ็ก 4 ภาพ (4-Pack 200 Cr)')}
+                      </Button>
+                    </div>
+                  </div>
+
+                  {/* Multi-reference & Auto BG Removal */}
+                  <div className='pt-2 space-y-2 border-t border-border/50'>
+                    <div className='flex items-center gap-2'>
+                      <input
+                        type='checkbox'
+                        id='auto-remove-bg-check'
+                        checked={autoRemoveBg}
+                        onChange={(e) => setAutoRemoveBg(e.target.checked)}
+                        className='size-4 rounded border-border text-primary focus:ring-primary'
+                      />
+                      <Label htmlFor='auto-remove-bg-check' className='cursor-pointer text-[11px] font-normal'>
+                        {t('ลบพื้นหลังเดิมอัตโนมัติก่อนจัดฉาก (Auto-remove background)')}
+                      </Label>
+                    </div>
+
+                    <div className='space-y-1'>
+                      <Label className='text-[11px] font-normal text-muted-foreground'>
+                        {t('ภาพอ้างอิงฉากหลังหรือสไตล์ (Optional Reference Background URL):')}
+                      </Label>
+                      <Input
+                        placeholder='https://example.com/reference-bg.jpg'
+                        value={referenceImageUrl}
+                        onChange={(e) => setReferenceImageUrl(e.target.value)}
+                        className='h-7 text-[11px]'
+                      />
+                    </div>
+
+                    <p className='text-[10px] text-muted-foreground leading-relaxed bg-muted/40 p-2 rounded-lg'>
+                      {t('💡 คำแนะนำสำหรับผู้ขาย: สำหรับโลโก้แบรนด์ แนะนำให้แปะทับ (Overlay) บนภาพที่ได้ เพื่อรักษาความคมชัดของฟอนต์และเครื่องหมายการค้า')}
+                    </p>
+                  </div>
                 </div>
+              ) : (
+                /* Aspect Ratio Selector (for image generation / video) */
+                ['image-generate', 'image-to-video'].includes(
+                  currentTool?.slug || ''
+                ) && (
+                  <div className='space-y-1.5'>
+                    <Label className='text-xs font-medium'>
+                      {t('สัดส่วนภาพ (Aspect Ratio)')}
+                    </Label>
+                    <div className='grid grid-cols-4 gap-1.5'>
+                      {[
+                        { id: '1:1', label: '1:1 (จัตุรัส)' },
+                        { id: '9:16', label: '9:16 (TikTok/Reel)' },
+                        { id: '16:9', label: '16:9 (แนวนอน)' },
+                        { id: '4:5', label: '4:5 (IG Feed)' },
+                      ].map((ratio) => (
+                        <Button
+                          key={ratio.id}
+                          type='button'
+                          size='sm'
+                          variant={aspectRatio === ratio.id ? 'default' : 'outline'}
+                          onClick={() => setAspectRatio(ratio.id)}
+                          className='h-8 text-[11px]'
+                        >
+                          {ratio.label}
+                        </Button>
+                      ))}
+                    </div>
+                  </div>
+                )
               )}
 
               {/* Upscaler Scale Factor */}
@@ -882,26 +1117,127 @@ export function StudioPlayground({
                   </div>
                 )}
 
-              {/* State 2: Success Media Output */}
+              {/* State 2: Success Media Output (Queue 4: Product Studio Before/After & Variants) */}
               {activeJob?.status === 'SUCCEEDED' && resultUrl && (
                 <div className='space-y-3 w-full'>
-                  <div className='relative overflow-hidden rounded-xl border bg-black/5'>
-                    {isVideoTool ? (
-                      <video
-                        src={resultUrl}
-                        controls
-                        autoPlay
-                        loop
-                        className='w-full max-h-[380px] object-contain rounded-xl'
-                      />
-                    ) : (
-                      <img
-                        src={resultUrl}
-                        alt='Generated Output'
-                        className='w-full max-h-[380px] object-contain rounded-xl'
-                      />
-                    )}
-                  </div>
+                  {/* Before / After View Mode Toggle (when source image exists) */}
+                  {imageUrl && (
+                    <div className='flex items-center justify-between pb-1'>
+                      <span className='text-[11px] font-medium text-muted-foreground'>
+                        {t('โหมดแสดงผล')}:
+                      </span>
+                      <div className='flex gap-1'>
+                        <Button
+                          type='button'
+                          size='sm'
+                          variant={!showBeforeAfter ? 'default' : 'outline'}
+                          onClick={() => setShowBeforeAfter(false)}
+                          className='h-6 px-2 text-[10px]'
+                        >
+                          <Eye className='mr-1 size-3' />
+                          {t('ผลงาน AI')}
+                        </Button>
+                        <Button
+                          type='button'
+                          size='sm'
+                          variant={showBeforeAfter ? 'default' : 'outline'}
+                          onClick={() => setShowBeforeAfter(true)}
+                          className='h-6 px-2 text-[10px]'
+                        >
+                          <SplitSquareVertical className='mr-1 size-3' />
+                          {t('ก่อน/หลัง (Before/After)')}
+                        </Button>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Main Display Area */}
+                  {showBeforeAfter && imageUrl ? (
+                    <div className='grid grid-cols-2 gap-2 rounded-xl border bg-black/5 p-2'>
+                      <div className='space-y-1 text-center'>
+                        <span className='text-[10px] font-semibold text-muted-foreground uppercase'>
+                          {t('ภาพต้นฉบับ (Before)')}
+                        </span>
+                        <div className='overflow-hidden rounded-lg border bg-background/50 h-[220px] flex items-center justify-center'>
+                          <img
+                            src={imageUrl}
+                            alt='Before source'
+                            className='max-h-full max-w-full object-contain'
+                          />
+                        </div>
+                      </div>
+                      <div className='space-y-1 text-center'>
+                        <span className='text-[10px] font-semibold text-primary uppercase'>
+                          {t('ภาพสตูดิโอ (After)')}
+                        </span>
+                        <div className='overflow-hidden rounded-lg border bg-background/50 h-[220px] flex items-center justify-center'>
+                          <img
+                            src={resultUrl}
+                            alt='After generated'
+                            className='max-h-full max-w-full object-contain'
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className='relative overflow-hidden rounded-xl border bg-black/5'>
+                      {isVideoTool ? (
+                        <video
+                          src={resultUrl}
+                          controls
+                          autoPlay
+                          loop
+                          className='w-full max-h-[380px] object-contain rounded-xl'
+                        />
+                      ) : (
+                        <img
+                          src={resultUrl}
+                          alt='Generated Output'
+                          className='w-full max-h-[380px] object-contain rounded-xl'
+                        />
+                      )}
+                    </div>
+                  )}
+
+                  {/* Multi-Variant Browsing Thumbnails (Queue 4: 4-Pack) */}
+                  {variants.length > 1 && (
+                    <div className='space-y-1.5 pt-1'>
+                      <div className='flex items-center justify-between'>
+                        <span className='text-[11px] font-semibold text-foreground'>
+                          {t('เลือกดูผลงาน (4-Pack Variants):')}
+                        </span>
+                        <span className='text-[10px] text-muted-foreground'>
+                          {activeVariantIndex + 1} / {variants.length}
+                        </span>
+                      </div>
+                      <div className='flex gap-2 overflow-x-auto pb-1'>
+                        {variants.map((vUrl, idx) => (
+                          <button
+                            key={idx}
+                            type='button'
+                            onClick={() => {
+                              setActiveVariantIndex(idx)
+                              setShowBeforeAfter(false)
+                            }}
+                            className={`relative size-14 shrink-0 rounded-lg overflow-hidden border-2 transition ${
+                              activeVariantIndex === idx
+                                ? 'border-primary ring-2 ring-primary/20 scale-105'
+                                : 'border-border/60 opacity-70 hover:opacity-100'
+                            }`}
+                          >
+                            <img
+                              src={vUrl}
+                              alt={`Variant ${idx + 1}`}
+                              className='size-full object-cover'
+                            />
+                            <span className='absolute bottom-0 inset-x-0 bg-black/70 text-[9px] font-bold text-white text-center py-0.5'>
+                              #{idx + 1}
+                            </span>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
 
                   <div className='flex items-center justify-between text-[11px] text-muted-foreground px-1'>
                     <span>
@@ -909,19 +1245,39 @@ export function StudioPlayground({
                     </span>
                     <span>
                       {t('หักเครดิต')}: {activeJob.credit_charged} Cr
+                      {variants.length > 1 ? ` (${variants.length} ภาพ)` : ''}
                     </span>
                   </div>
 
                   {/* Actions Bar */}
-                  <div className='flex items-center gap-2 pt-1'>
+                  <div className='flex flex-wrap items-center gap-2 pt-1'>
                     <Button
                       size='sm'
                       className='flex-1 h-8 text-xs font-medium'
                       onClick={() => window.open(resultUrl, '_blank')}
                     >
                       <Download className='mr-1.5 size-3.5' />
-                      {t('ดาวน์โหลด')}
+                      {variants.length > 1
+                        ? t('ดาวน์โหลดภาพนี้ (#{{num}})', { num: activeVariantIndex + 1 })
+                        : t('ดาวน์โหลด')}
                     </Button>
+
+                    {variants.length > 1 && (
+                      <Button
+                        size='sm'
+                        variant='outline'
+                        className='h-8 text-xs font-medium'
+                        title={t('ดาวน์โหลดผลงานทั้งหมด')}
+                        onClick={() => {
+                          variants.forEach((url) => window.open(url, '_blank'))
+                          toast.success(t('เปิดหน้าต่างดาวน์โหลดทั้ง 4 ภาพเรียบร้อย'))
+                        }}
+                      >
+                        <Layers className='mr-1.5 size-3.5 text-primary' />
+                        {t('ดาวน์โหลดทั้งหมด')}
+                      </Button>
+                    )}
+
                     <Button
                       size='sm'
                       variant='outline'
@@ -930,9 +1286,28 @@ export function StudioPlayground({
                         navigator.clipboard.writeText(resultUrl)
                         toast.success(t('คัดลอกลิงก์ผลงานแล้ว'))
                       }}
+                      title={t('คัดลอกลิงก์')}
                     >
                       <Copy className='size-3.5' />
                     </Button>
+
+                    {isProductPhoto && (
+                      <Button
+                        size='sm'
+                        variant='outline'
+                        className='h-8 text-xs font-medium border-primary/30 text-primary hover:bg-primary/5'
+                        title={t('เก็บรูปสินค้าไว้ แล้วเลือกฉากหลังใหม่')}
+                        onClick={() => {
+                          setPrompt('')
+                          setActiveTemplateId(null)
+                          toast.info(t('เลือกฉากหลังใหม่ทางด้านซ้ายเพื่อสร้างภาพสไตล์อื่น'))
+                        }}
+                      >
+                        <RefreshCw className='mr-1.5 size-3.5' />
+                        {t('ลองฉากหลังอื่น')}
+                      </Button>
+                    )}
+
                     <Button
                       size='sm'
                       variant='outline'

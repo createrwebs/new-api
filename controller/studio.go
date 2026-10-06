@@ -555,6 +555,23 @@ func GetStudioAdminTelemetry(c *gin.Context) {
 	model.DB.Model(&model.StudioConversionEvent{}).Where("event_type = ?", "purchase_return").Count(&purchaseReturns)
 	model.DB.Model(&model.StudioConversionEvent{}).Where("event_type = ?", "generation_after_purchase").Count(&generationAfterPurchases)
 
+	// Product Studio specific funnel metrics (Queue 4)
+	var prodVisitors int64
+	var prodGenerateClicks int64
+	var prodInsufficientCredit int64
+	var prodBuyCreditClicks int64
+	var prodSuccessfulTopups int64
+	var prodGenerationAfterTopup int64
+	var prodRepeatGenerations int64
+
+	model.DB.Model(&model.StudioConversionEvent{}).Where("tool_id = ? AND (event_type = ? OR event_type = ?)", "product-photo", "tool_visit", "tool_view").Count(&prodVisitors)
+	model.DB.Model(&model.StudioConversionEvent{}).Where("tool_id = ? AND event_type = ?", "product-photo", "generate_click").Count(&prodGenerateClicks)
+	model.DB.Model(&model.StudioConversionEvent{}).Where("tool_id = ? AND event_type = ?", "product-photo", "insufficient_credit").Count(&prodInsufficientCredit)
+	model.DB.Model(&model.StudioConversionEvent{}).Where("tool_id = ? AND event_type = ?", "product-photo", "buy_credit_click").Count(&prodBuyCreditClicks)
+	model.DB.Model(&model.StudioConversionEvent{}).Where("tool_id = ? AND (event_type = ? OR event_type = ?)", "product-photo", "purchase_return", "successful_topup").Count(&prodSuccessfulTopups)
+	model.DB.Model(&model.StudioConversionEvent{}).Where("tool_id = ? AND (event_type = ? OR event_type = ?)", "product-photo", "generation_after_purchase", "generation_after_topup").Count(&prodGenerationAfterTopup)
+	model.DB.Model(&model.StudioConversionEvent{}).Where("tool_id = ? AND event_type = ?", "product-photo", "repeat_generation").Count(&prodRepeatGenerations)
+
 	falConfigured := osGetEnv("FAL_KEY") != "" || osGetEnv("FAL_API_KEY") != ""
 	providerStatus := gin.H{
 		"fal": gin.H{
@@ -585,6 +602,15 @@ func GetStudioAdminTelemetry(c *gin.Context) {
 			"buy_credit_clicks":            buyCreditClicks,
 			"studio_originated_topups":     purchaseReturns,
 			"generation_after_purchases":   generationAfterPurchases,
+			"product_studio": gin.H{
+				"tool_visitors":              prodVisitors,
+				"generate_clicks":            prodGenerateClicks,
+				"insufficient_credit":        prodInsufficientCredit,
+				"buy_credit_clicks":          prodBuyCreditClicks,
+				"successful_topups":          prodSuccessfulTopups,
+				"generation_after_topup":     prodGenerationAfterTopup,
+				"repeat_generations":         prodRepeatGenerations,
+			},
 			"provider_cost":                totalCostUSD,
 			"sell_value":                   revenueUSD,
 			"gross_profit":                 grossProfitUSD,
@@ -656,9 +682,10 @@ var toolSEORegistry = map[string]ToolSEOMetadata{
 	},
 	"product-photo": {
 		UseCases: []ToolUseCase{
-			{"ภาพถ่ายสตูดิโอสินค้าแบบมืออาชีพ", "จัดวางสินค้าลงบนฉากจัดแสงเงาระดับมืออาชีพ เพิ่มมูลค่าให้แบรนด์ของคุณทันที"},
-			{"ฉากหลังหลากหลายสไตล์ในคลิกเดียว", "เลือกฉากมินิมอล เคาน์เตอร์ไม้ ธรรมชาติ หรือหรูหรา โดยไม่ต้องจัดฉากถ่ายจริง"},
-			{"ประหยัดงบประมาณและเวลาถ่ายทำ", "สร้างภาพสินค้าหลายสิบคอนเซปต์ได้ภายในไม่กี่นาทีด้วยโมเดล Product Photography"},
+			{"Shopee & Lazada ร้านค้าออนไลน์ (1:1 Square)", "จัดฉากขาว สตูดิโอพรีเมียม หรือมินิมอล ถูกต้องตามเกณฑ์ภาพหน้าปก Shopee/Lazada ดึงดูด CTR บนหน้า Search Feed"},
+			{"TikTok Shop & วิดีโอปักตะกร้า (9:16 Vertical)", "สร้างภาพปกสินค้าแนวตั้ง 9:16 ดึงดูดสายตา หยุดนิ้วโป้งลูกค้าภายใน 1 วินาทีแรก เพิ่มอัตราการคลิกสั่งซื้อ"},
+			{"Instagram Merchants & แคตตาล็อก (4:5 Feed & Story)", "จัดฉากถ่ายภาพสินค้าพร้อม Mood & Tone สไตล์แมกกาซีน เพิ่มความน่าเชื่อถือให้แบรนด์และกระตุ้นยอดขายบนโซเชียล"},
+			{"SME & พ่อค้าแม่ค้าออนไลน์ ประหยัดต้นทุน 90%", "ถ่ายรูปสินค้าจากมือถือ อัปโหลด จัดฉากแสงระดับโปรได้ใน 10 วินาที โดยไม่ต้องจ้างสตูดิโอถ่ายภาพหลักหมื่นบาท"},
 		},
 		RelatedSlugs: []string{"background-remove", "image-upscale", "object-eraser"},
 	},
@@ -824,8 +851,73 @@ func RenderStudioToolLandingPage(c *gin.Context) {
           <p class="text-xs text-slate-400 leading-relaxed">AI ประมวลผลและส่งมอบผลงานคุณภาพสตูดิโอ สามารถนำไปใช้งานต่อได้ทันที</p>
         </div>
       </div>
+    </div>`)
+
+	if tool.Id == "product-photo" || tool.Slug == "product-photo" {
+		sb.WriteString(`
+    <!-- Marketplace Presets Section -->
+    <div class="mb-16">
+      <h2 class="text-2xl font-bold text-white mb-3 text-center">สัดส่วนและพรีเซ็ตพร้อมใช้สำหรับทุก Marketplace</h2>
+      <p class="text-sm text-slate-400 text-center mb-8 max-w-2xl mx-auto">ปรับขนาดและคอมโพสิชันอัตโนมัติให้ตรงตามมาตรฐานของแต่ละแพลตฟอร์ม ไม่ต้องครอปรูปเอง</p>
+      <div class="grid grid-cols-2 md:grid-cols-5 gap-4">
+        <div class="bg-slate-900/60 border border-slate-800 rounded-xl p-4 text-center">
+          <div class="text-xs font-bold text-orange-400 bg-orange-500/10 py-1 px-2 rounded-md mb-2 inline-block">1:1 Square</div>
+          <h4 class="font-semibold text-white text-sm">Shopee 1:1</h4>
+          <p class="text-[11px] text-slate-400 mt-1">รูปหน้าปกสินค้าหลัก พร้อมวางกรอบโปร</p>
+        </div>
+        <div class="bg-slate-900/60 border border-slate-800 rounded-xl p-4 text-center">
+          <div class="text-xs font-bold text-blue-400 bg-blue-500/10 py-1 px-2 rounded-md mb-2 inline-block">1:1 Square</div>
+          <h4 class="font-semibold text-white text-sm">Lazada 1:1</h4>
+          <p class="text-[11px] text-slate-400 mt-1">คมชัด โดดเด่นบนผลการค้นหา</p>
+        </div>
+        <div class="bg-slate-900/60 border border-slate-800 rounded-xl p-4 text-center">
+          <div class="text-xs font-bold text-pink-400 bg-pink-500/10 py-1 px-2 rounded-md mb-2 inline-block">4:5 Vertical</div>
+          <h4 class="font-semibold text-white text-sm">Instagram 4:5</h4>
+          <p class="text-[11px] text-slate-400 mt-1">เต็มฟีดมือถือ เพิ่มยอดคลิกและบันทึก</p>
+        </div>
+        <div class="bg-slate-900/60 border border-slate-800 rounded-xl p-4 text-center">
+          <div class="text-xs font-bold text-purple-400 bg-purple-500/10 py-1 px-2 rounded-md mb-2 inline-block">9:16 Fullscreen</div>
+          <h4 class="font-semibold text-white text-sm">Story 9:16</h4>
+          <p class="text-[11px] text-slate-400 mt-1">เว้นพื้นที่บน-ล่าง ใส่สติกเกอร์และราคา</p>
+        </div>
+        <div class="bg-slate-900/60 border border-slate-800 rounded-xl p-4 text-center">
+          <div class="text-xs font-bold text-emerald-400 bg-emerald-500/10 py-1 px-2 rounded-md mb-2 inline-block">9:16 Vertical</div>
+          <h4 class="font-semibold text-white text-sm">TikTok Shop 9:16</h4>
+          <p class="text-[11px] text-slate-400 mt-1">ปกคลิปปักตะกร้า หยุดนิ้วใน 1 วินาที</p>
+        </div>
+      </div>
     </div>
 
+    <!-- Connected Evergreen E-Commerce Guides -->
+    <div class="mb-16 bg-gradient-to-r from-slate-900 via-slate-900/90 to-slate-900 border border-slate-800 rounded-3xl p-8">
+      <div class="flex items-center justify-between mb-6">
+        <div>
+          <h3 class="text-xl font-bold text-white">คู่มือและเทคนิคการถ่ายภาพสินค้า E-Commerce</h3>
+          <p class="text-xs text-slate-400 mt-1">บทความแนะนำจากห้องข่าว Tora AI เพื่อช่วยผู้ประกอบการไทยเพิ่มยอดขาย</p>
+        </div>
+        <a href="/news" class="text-xs text-blue-400 hover:text-blue-300 font-medium">ดูบทความทั้งหมด &rarr;</a>
+      </div>
+      <div class="grid md:grid-cols-3 gap-4">
+        <a href="/news" class="block bg-slate-950/70 border border-slate-800/80 rounded-xl p-4 hover:border-slate-700 transition">
+          <span class="text-[10px] text-orange-400 font-semibold uppercase tracking-wider">Shopee & Lazada</span>
+          <h5 class="text-sm font-semibold text-white mt-1 mb-1">เทคนิคทำภาพปกสินค้าให้ CTR พุ่ง 3 เท่าบน Shopee</h5>
+          <p class="text-xs text-slate-400">กฎพื้นหลังขาวและคอมโพสิชันที่ระบบแนะนำชื่นชอบ</p>
+        </a>
+        <a href="/news" class="block bg-slate-950/70 border border-slate-800/80 rounded-xl p-4 hover:border-slate-700 transition">
+          <span class="text-[10px] text-emerald-400 font-semibold uppercase tracking-wider">TikTok Shop</span>
+          <h5 class="text-sm font-semibold text-white mt-1 mb-1">สัดส่วน 9:16 ปักตะกร้าอย่างไรให้ยอดสั่งซื้อไหลมาเทมา</h5>
+          <p class="text-xs text-slate-400">การจัดแสงและ Mood ให้เข้ากับกลุ่มลูกค้า Gen Z</p>
+        </a>
+        <a href="/news" class="block bg-slate-950/70 border border-slate-800/80 rounded-xl p-4 hover:border-slate-700 transition">
+          <span class="text-[10px] text-purple-400 font-semibold uppercase tracking-wider">SME Guide 2026</span>
+          <h5 class="text-sm font-semibold text-white mt-1 mb-1">ลดต้นทุนถ่ายภาพสินค้า 90% ด้วย Tora AI Studio</h5>
+          <p class="text-xs text-slate-400">สร้างภาพ 100 แบบในราคาไม่ถึง 200 บาทสำหรับธุรกิจเริ่มต้น</p>
+        </a>
+      </div>
+    </div>`)
+	}
+
+	sb.WriteString(`
     <!-- Related Tools Section -->
     <div class="mb-16">
       <h2 class="text-2xl font-bold text-white mb-6 text-center">เครื่องมือที่เกี่ยวข้อง (Related Tools)</h2>

@@ -249,6 +249,9 @@ func TestStudioService_DelayedSuccess_PollSettles(t *testing.T) {
 	}
 	require.NoError(t, db.Create(&user).Error)
 
+	// Enable image-to-video in test fixture
+	require.NoError(t, db.Model(&model.StudioToolDefinition{}).Where("id = ?", "image-to-video").Updates(map[string]interface{}{"is_enabled": true, "is_public": true}).Error)
+
 	mockProvider := NewDeterministicMockProvider(MockModeDelayedSuccess)
 	studioSvc := NewStudioService(mockProvider)
 

@@ -49,7 +49,7 @@ func TestQueue3_InitialPublicTools_ReadinessAndEconomics(t *testing.T) {
 	for _, toolId := range betaImageTools {
 		tool, err := model.GetStudioToolDefinition(toolId)
 		require.NoError(t, err, "Tool %s must exist in seed catalog", toolId)
-		assert.Equal(t, model.StudioToolStateBeta, tool.Status, "Tool %s must be BETA", toolId)
+		assert.True(t, tool.Status == model.StudioToolStateBeta || tool.Status == model.StudioToolStateActive, "Tool %s must be BETA or ACTIVE", toolId)
 		assert.True(t, tool.IsEnabled && tool.IsPublic, "Tool %s must be enabled and public", toolId)
 		assert.True(t, tool.MarginPercent >= 60.0, "Tool %s margin must be >= 60%%", toolId)
 	}

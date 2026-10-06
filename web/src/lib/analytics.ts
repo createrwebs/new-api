@@ -323,3 +323,34 @@ export function trackStudioGenerationAfterPurchase(
   })
 }
 
+// Product Studio Specific Funnel Events (Queue 4)
+export function trackStudioToolVisit(toolId: string): void {
+  trackEvent('studio_tool_visit', {
+    tool_id: toolId,
+  })
+}
+
+export function trackStudioGenerateClick(
+  toolId: string,
+  credits: number,
+  packSize: number = 1
+): void {
+  trackEvent('studio_generate_click', {
+    tool_id: toolId,
+    credits,
+    pack_size: packSize,
+  })
+}
+
+export function trackStudioRepeatGeneration(
+  toolId: string,
+  credits: number,
+  generationCount: number
+): void {
+  trackEvent('studio_repeat_generation', {
+    tool_id: toolId,
+    credits,
+    generation_count: generationCount,
+  })
+}
+

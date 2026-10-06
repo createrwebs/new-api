@@ -118,9 +118,21 @@ func (e *PricingEngine) CalculatePriceWithInputs(
 	var costBasis string
 	var chargedCredits int
 
-	// 1. Output count dimension
+	// 1. Output count dimension (single or 4-pack)
 	numOutputs := 1
-	if n, ok := params["number_of_outputs"].(float64); ok && n > 0 {
+	if n, ok := params["pack_size"].(float64); ok && n > 0 {
+		numOutputs = int(n)
+	} else if n, ok := params["pack_size"].(int); ok && n > 0 {
+		numOutputs = n
+	} else if n, ok := params["variants"].(float64); ok && n > 0 {
+		numOutputs = int(n)
+	} else if n, ok := params["variants"].(int); ok && n > 0 {
+		numOutputs = n
+	} else if n, ok := params["num_variants"].(float64); ok && n > 0 {
+		numOutputs = int(n)
+	} else if n, ok := params["num_variants"].(int); ok && n > 0 {
+		numOutputs = n
+	} else if n, ok := params["number_of_outputs"].(float64); ok && n > 0 {
 		numOutputs = int(n)
 	} else if n, ok := params["number_of_outputs"].(int); ok && n > 0 {
 		numOutputs = n
@@ -130,9 +142,14 @@ func (e *PricingEngine) CalculatePriceWithInputs(
 		numOutputs = n
 	} else if n, ok := params["num_images"].(float64); ok && n > 0 {
 		numOutputs = int(n)
+	} else if n, ok := params["num_images"].(int); ok && n > 0 {
+		numOutputs = n
 	}
 	if numOutputs < 1 {
 		numOutputs = 1
+	}
+	if numOutputs > 4 {
+		numOutputs = 4
 	}
 
 	// 2. Duration, FPS & Audio dimensions for Video

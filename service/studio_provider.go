@@ -15,18 +15,20 @@ var (
 
 // ProviderSubmitResult contains the response after initiating a generation job.
 type ProviderSubmitResult struct {
-	ProviderJobId string `json:"provider_job_id"`
-	Status        string `json:"status"` // "queued", "processing", "completed", "failed"
-	OutputURL     string `json:"output_url,omitempty"`
-	RawResponse   string `json:"raw_response,omitempty"`
+	ProviderJobId string   `json:"provider_job_id"`
+	Status        string   `json:"status"` // "queued", "processing", "completed", "failed"
+	OutputURL     string   `json:"output_url,omitempty"`
+	OutputURLs    []string `json:"output_urls,omitempty"` // For multi-variant / 4-pack results
+	RawResponse   string   `json:"raw_response,omitempty"`
 }
 
 // ProviderPollResult contains the status of a queried asynchronous job.
 type ProviderPollResult struct {
-	Status       string `json:"status"` // "queued", "processing", "completed", "failed"
-	OutputURL    string `json:"output_url,omitempty"`
-	Progress     int    `json:"progress,omitempty"` // 0 - 100
-	ErrorMessage string `json:"error_message,omitempty"`
+	Status       string   `json:"status"` // "queued", "processing", "completed", "failed"
+	OutputURL    string   `json:"output_url,omitempty"`
+	OutputURLs   []string `json:"output_urls,omitempty"` // For multi-variant / 4-pack results
+	Progress     int      `json:"progress,omitempty"`    // 0 - 100
+	ErrorMessage string   `json:"error_message,omitempty"`
 }
 
 // StudioProvider defines the contract implemented by media generation backends.

@@ -220,11 +220,12 @@ func (f *FalProvider) Poll(ctx context.Context, providerJobId string) (*Provider
 	normalizedStatus := strings.ToUpper(statusResp.Status)
 	switch normalizedStatus {
 	case "COMPLETED", "OK":
-		outputURL := f.fetchOutputURL(ctx, statusResp.ResponseURL, modelId, reqId)
+		outputURL, allURLs := f.fetchOutputURLs(ctx, statusResp.ResponseURL, modelId, reqId)
 		return &ProviderPollResult{
-			Status:    "completed",
-			Progress:  100,
-			OutputURL: outputURL,
+			Status:     "completed",
+			Progress:   100,
+			OutputURL:  outputURL,
+			OutputURLs: allURLs,
 		}, nil
 
 	case "IN_PROGRESS":
@@ -253,21 +254,21 @@ func (f *FalProvider) Poll(ctx context.Context, providerJobId string) (*Provider
 	}
 }
 
-func (f *FalProvider) fetchOutputURL(ctx context.Context, responseURL string, modelId string, reqId string) string {
+func (f *FalProvider) fetchOutputURLs(ctx context.Context, responseURL string, modelId string, reqId string) (string, []string) {
 	if responseURL == "" {
 		responseURL = fmt.Sprintf("%s/%s/requests/%s", f.baseURL, modelId, reqId)
 	}
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, responseURL, nil)
 	if err != nil {
-		return ""
+		return "", nil
 	}
 	req.Header.Set("Authorization", fmt.Sprintf("Key %s", f.apiKey))
 	req.Header.Set("Accept", "application/json")
 
 	resp, err := f.client.Do(req)
 	if err != nil {
-		return ""
+		return "", nil
 	}
 	defer resp.Body.Close()
 
@@ -296,26 +297,37 @@ func (f *FalProvider) fetchOutputURL(ctx context.Context, responseURL string, mo
 	}
 	_ = json.Unmarshal(body, &out)
 
-	if len(out.Payload.Images) > 0 && out.Payload.Images[0].URL != "" {
-		return out.Payload.Images[0].URL
+	var allURLs []string
+	for _, img := range out.Payload.Images {
+		if img.URL != "" {
+			allURLs = append(allURLs, img.URL)
+		}
 	}
-	if out.Payload.Image.URL != "" {
-		return out.Payload.Image.URL
+	if len(allURLs) == 0 {
+		for _, img := range out.Images {
+			if img.URL != "" {
+				allURLs = append(allURLs, img.URL)
+			}
+		}
 	}
-	if out.Payload.Video.URL != "" {
-		return out.Payload.Video.URL
+	if len(allURLs) == 0 && out.Payload.Image.URL != "" {
+		allURLs = append(allURLs, out.Payload.Image.URL)
 	}
-	if len(out.Images) > 0 && out.Images[0].URL != "" {
-		return out.Images[0].URL
+	if len(allURLs) == 0 && out.Image.URL != "" {
+		allURLs = append(allURLs, out.Image.URL)
 	}
-	if out.Image.URL != "" {
-		return out.Image.URL
+	if len(allURLs) == 0 && out.Payload.Video.URL != "" {
+		allURLs = append(allURLs, out.Payload.Video.URL)
 	}
-	if out.Video.URL != "" {
-		return out.Video.URL
+	if len(allURLs) == 0 && out.Video.URL != "" {
+		allURLs = append(allURLs, out.Video.URL)
 	}
 
-	return ""
+	primary := ""
+	if len(allURLs) > 0 {
+		primary = allURLs[0]
+	}
+	return primary, allURLs
 }
 
 func (f *FalProvider) Cancel(ctx context.Context, providerJobId string) error {

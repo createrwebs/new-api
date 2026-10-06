@@ -103,6 +103,26 @@ func (s *StudioService) SubmitJob(
 		return nil, fmt.Errorf("invalid tool requested: %w", err)
 	}
 
+	// Multi-reference validation (Queue 4: Product Studio)
+	if toolId == "product-photo" && inputParams != nil {
+		if _, hasLogo := inputParams["logo"]; hasLogo {
+			return nil, errors.New("unreliable combination: direct in-model logo diffusion degrades brand typography; use post-composite vector overlay instead")
+		}
+		if _, hasLogoURL := inputParams["logo_url"]; hasLogoURL {
+			return nil, errors.New("unreliable combination: direct in-model logo diffusion degrades brand typography; use post-composite vector overlay instead")
+		}
+		if refURL, ok := inputParams["reference_image_url"].(string); ok && refURL != "" {
+			if err := ValidateExternalURL(refURL); err != nil {
+				return nil, fmt.Errorf("invalid reference background URL: %w", err)
+			}
+		}
+		if bgURL, ok := inputParams["background_url"].(string); ok && bgURL != "" {
+			if err := ValidateExternalURL(bgURL); err != nil {
+				return nil, fmt.Errorf("invalid reference background URL: %w", err)
+			}
+		}
+	}
+
 	// 3. Select Provider & guard mock usage in production
 	userIsAdmin := false
 	if len(isAdmin) > 0 {
@@ -239,7 +259,12 @@ func (s *StudioService) SubmitJob(
 		}
 		job.Status = model.StudioJobStatusSucceeded
 		job.SettledQuota = quotaToReserve
-		job.OutputResult = fmt.Sprintf(`{"output_url": "%s"}`, submitResult.OutputURL)
+		if len(submitResult.OutputURLs) > 1 {
+			urlsJSON, _ := json.Marshal(submitResult.OutputURLs)
+			job.OutputResult = fmt.Sprintf(`{"output_url": "%s", "output_urls": %s, "variants": %s}`, submitResult.OutputURL, string(urlsJSON), string(urlsJSON))
+		} else {
+			job.OutputResult = fmt.Sprintf(`{"output_url": "%s"}`, submitResult.OutputURL)
+		}
 		job.CompletedAt = common.GetTimestamp()
 
 		if model.DB != nil {
@@ -332,7 +357,12 @@ func (s *StudioService) PollJob(ctx context.Context, jobId string, userId int, i
 			job.SettledQuota = job.ReservedQuota
 		}
 		job.Status = model.StudioJobStatusSucceeded
-		job.OutputResult = fmt.Sprintf(`{"output_url": "%s"}`, pollResult.OutputURL)
+		if len(pollResult.OutputURLs) > 1 {
+			urlsJSON, _ := json.Marshal(pollResult.OutputURLs)
+			job.OutputResult = fmt.Sprintf(`{"output_url": "%s", "output_urls": %s, "variants": %s}`, pollResult.OutputURL, string(urlsJSON), string(urlsJSON))
+		} else {
+			job.OutputResult = fmt.Sprintf(`{"output_url": "%s"}`, pollResult.OutputURL)
+		}
 		job.CompletedAt = common.GetTimestamp()
 
 		if model.DB != nil {
