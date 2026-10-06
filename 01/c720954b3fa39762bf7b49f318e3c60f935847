@@ -1,0 +1,36 @@
+controller/studio.go
+  h_f97827f62b0fea 468-494,510-514,520-525,547-557,574-596,612-689,702-709,725-727,754,759-760,768-769,779-803,805-825,827-849,852-860
+docs/ai/TORA_STUDIO_IMAGE_MVP_REPORT.md
+  h_f97827f62b0fea 1-179
+model/studio.go
+  h_f97827f62b0fea 58-59,231-245,272,276-291,297-300,302
+router/api-router.go
+  h_f97827f62b0fea 386
+service/news_seo.go
+  h_f97827f62b0fea 98,108-113
+service/studio_image_mvp_test.go
+  h_f97827f62b0fea 1-571
+service/studio_seed.go
+  h_f97827f62b0fea 62,84,106,128,150,153,158,165-166,174,258-263
+web/src/features/studio/api.ts
+  h_f97827f62b0fea 140-179
+web/src/features/studio/components/InsufficientCreditModal.tsx
+  h_f97827f62b0fea 1,15-18,20,39-46,50-52,54-55
+web/src/features/studio/components/StudioPlayground.tsx
+  h_f97827f62b0fea 35-36,38-41,110-113,163-170,226-245,390-401,488-519
+web/src/features/wallet/index.tsx
+  h_f97827f62b0fea 20,22,66,70-85,230,242,270
+web/src/lib/analytics.ts
+  h_f97827f62b0fea 282-325
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.3",
+  "base_commit_sha": "01c720954b3fa39762bf7b49f318e3c60f935847",
+  "prompts": {},
+  "humans": {
+    "h_f97827f62b0fea": {
+      "author": "NOPPANAN THEERACHARTE <noppanan.the@axonstech.com>"
+    }
+  }
+}
