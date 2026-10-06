@@ -1,0 +1,34 @@
+docs/ai/CURRENT_STATE.md
+  h_f97827f62b0fea 201,203-204,206-209,216,228-233,237-243
+docs/ai/ROADMAP.md
+  h_f97827f62b0fea 488-517
+model/news.go
+  h_f97827f62b0fea 606-607,615-618,629-637
+service/news_dist_connectors.go
+  h_f97827f62b0fea 13,111-118,165-199,205-208,213-223,282-325,331-334,339-349
+service/news_ga4.go
+  h_f97827f62b0fea 1-407
+service/news_growth_worker.go
+  h_f97827f62b0fea 44,47,49,60
+service/news_gsc.go
+  h_f97827f62b0fea 59-60,78-79,185-189,201,206-208,217,264-278,280-288,290,296-306,467-487,491-499,501-505,511-512
+service/news_policy.go
+  h_f97827f62b0fea 1-149
+service/news_review.go
+  h_f97827f62b0fea 261-269,277,283-285,287,302-306,348,364-392,399-401,408,414-418
+web/src/features/news/index.tsx
+  h_f97827f62b0fea 266,268,288,292,294-295,301,305,308-309,311,315-317,319-320,326,330,333-358,362-364,366-367
+web/src/features/news/types.ts
+  h_f97827f62b0fea 142-158,160-167,172-174,176-177,179-181
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.3",
+  "base_commit_sha": "fe634d08fc5678caa30a568e4d40554ff146934e",
+  "prompts": {},
+  "humans": {
+    "h_f97827f62b0fea": {
+      "author": "NOPPANAN THEERACHARTE <noppanan.the@axonstech.com>"
+    }
+  }
+}
