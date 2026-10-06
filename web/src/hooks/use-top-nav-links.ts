@@ -86,6 +86,9 @@ export function useTopNavLinks(): TopNavLink[] {
     links.push({ title: t('Rankings'), href: '/rankings', requiresAuth })
   }
 
+  // News (SSR crawlable newsroom)
+  links.push({ title: t('News') || 'News', href: '/news', external: true })
+
   // Docs (supports external links)
   if (modules?.docs !== false) {
     if (docsLink) {

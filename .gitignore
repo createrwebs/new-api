@@ -53,3 +53,13 @@ shot2.txt
 pgdone.txt
 curl2.txt
 render2/
+
+# Store billing & release credentials
+*.p8
+*service-account*.json
+*service_account*.json
+*.keystore
+*.jks
+key.properties
+bin/
+

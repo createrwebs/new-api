@@ -40,6 +40,10 @@ func jsonScanBytes(value any) []byte {
 	}
 }
 
+func InitCol() {
+	initCol()
+}
+
 func initCol() {
 	// init common column names
 	if common.UsingMainDatabase(common.DatabaseTypePostgreSQL) {
@@ -195,6 +199,9 @@ func InitDB() (err error) {
 			db = db.Debug()
 		}
 		DB = db
+		if _, err := CheckDatabaseSafety(DB, common.MainDatabaseType()); err != nil {
+			return err
+		}
 		// MySQL charset/collation startup check: ensure Chinese-capable charset
 		if common.UsingMainDatabase(common.DatabaseTypeMySQL) {
 			if err := checkMySQLChineseSupport(DB); err != nil {
@@ -368,6 +375,9 @@ func migrateDB() error {
 		&UserSubscription{},
 		&SubscriptionPreConsumeRecord{},
 		&WalletPreConsumeRecord{},
+		&StoreProductMapping{},
+		&StoreSubscriptionBinding{},
+		&StoreTransaction{},
 		&CustomOAuthProvider{},
 		&UserOAuthBinding{},
 		&PerfMetric{},
@@ -381,6 +391,16 @@ func migrateDB() error {
 		&AuthzRole{},
 		&UserAccessToken{},
 		&UserProvider{},
+		&Route{},
+		&NewsSource{},
+		&StoryCluster{},
+		&NewsPost{},
+		&NewsDistribution{},
+		&NewsAnalyticEvent{},
+		&NewsSeoMetric{},
+		&NewsSeoOpportunity{},
+		&NewsConversionEvent{},
+		&NewsDailyGrowthReview{},
 	)
 	if err != nil {
 		return err
@@ -402,6 +422,18 @@ func migrateDB() error {
 		if err := DB.AutoMigrate(&SubscriptionPlan{}); err != nil {
 			return err
 		}
+	}
+	if err := InitDefaultSubscriptionPlan(); err != nil {
+		return err
+	}
+	if err := InitDefaultStoreProductMappings(); err != nil {
+		return err
+	}
+	if err := InitDefaultNewsSources(); err != nil {
+		return err
+	}
+	if err := InitDefaultNewsPosts(); err != nil {
+		return err
 	}
 	return nil
 }

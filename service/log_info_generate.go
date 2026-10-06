@@ -95,6 +95,14 @@ func AppendRelayLogAdminInfo(ctx *gin.Context, relayInfo *relaycommon.RelayInfo,
 	if events := RequestPolicy(ctx).Events(); len(events) > 0 {
 		other.SetAdmin("request_policy", events)
 	}
+	if winningRouteId := ctx.GetInt("winning_route_id"); winningRouteId > 0 {
+		other.SetPublic("route_id", winningRouteId)
+		other.SetPublic("route_name", ctx.GetString("winning_route_name"))
+		other.SetPublic("route_multiplier", ctx.GetFloat64("winning_route_multiplier"))
+	}
+	if rawTrace, exists := ctx.Get("route_chain_trace"); exists {
+		other.SetAdmin("route_chain_trace", rawTrace)
+	}
 }
 
 func GenerateTextOtherInfo(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, modelRatio, groupRatio, completionRatio float64,

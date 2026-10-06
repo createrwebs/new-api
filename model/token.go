@@ -31,7 +31,73 @@ type Token struct {
 	Group              string         `json:"group" gorm:"default:''"`
 	CrossGroupRetry    bool           `json:"cross_group_retry"` // 跨分组重试，仅auto分组有效
 	AutoGroups         string         `json:"-" gorm:"type:text"`
+	PrimaryRouteId     int            `json:"primary_route_id" gorm:"default:0;index"`
+	FallbackRouteIds   string         `json:"-" gorm:"type:text"`
 	DeletedAt          gorm.DeletedAt `gorm:"index"`
+}
+
+func (token *Token) GetFallbackRouteIds() ([]int, error) {
+	if strings.TrimSpace(token.FallbackRouteIds) == "" {
+		return nil, nil
+	}
+	var ids []int
+	if err := common.UnmarshalJsonStr(token.FallbackRouteIds, &ids); err != nil {
+		return nil, err
+	}
+	return ids, nil
+}
+
+func (token *Token) SetFallbackRouteIds(ids []int) error {
+	if len(ids) == 0 {
+		token.FallbackRouteIds = ""
+		return nil
+	}
+	// Deduplicate and filter out primary route ID or invalid non-positive IDs
+	seen := make(map[int]struct{}, len(ids))
+	if token.PrimaryRouteId > 0 {
+		seen[token.PrimaryRouteId] = struct{}{}
+	}
+	cleanIds := make([]int, 0, len(ids))
+	for _, id := range ids {
+		if id <= 0 {
+			continue
+		}
+		if _, ok := seen[id]; !ok {
+			seen[id] = struct{}{}
+			cleanIds = append(cleanIds, id)
+		}
+	}
+	if len(cleanIds) == 0 {
+		token.FallbackRouteIds = ""
+		return nil
+	}
+	data, err := common.Marshal(cleanIds)
+	if err != nil {
+		return err
+	}
+	token.FallbackRouteIds = string(data)
+	return nil
+}
+
+// GetRouteChain returns the deterministic ordered list of Route IDs: [PrimaryRouteId, Fallback1, Fallback2, ...]
+func (token *Token) GetRouteChain() []int {
+	chain := make([]int, 0)
+	if token.PrimaryRouteId > 0 {
+		chain = append(chain, token.PrimaryRouteId)
+	}
+	fallbacks, err := token.GetFallbackRouteIds()
+	if err == nil && len(fallbacks) > 0 {
+		for _, id := range fallbacks {
+			if id > 0 && id != token.PrimaryRouteId {
+				chain = append(chain, id)
+			}
+		}
+	}
+	return chain
+}
+
+func (token *Token) IsRouteEnabled() bool {
+	return token.PrimaryRouteId > 0
 }
 
 func (token *Token) GetAutoGroups() ([]string, error) {
@@ -380,7 +446,8 @@ func (token *Token) Update() (err error) {
 		common.SysLog("failed to invalidate token cache before update: " + cacheErr.Error())
 	}
 	return DB.Model(token).Select("name", "status", "expired_time", "remain_quota", "unlimited_quota",
-		"model_limits_enabled", "model_limits", "allow_ips", "group", "cross_group_retry", "auto_groups").Updates(token).Error
+		"model_limits_enabled", "model_limits", "allow_ips", "group", "cross_group_retry", "auto_groups",
+		"primary_route_id", "fallback_route_ids").Updates(token).Error
 }
 
 func (token *Token) SelectUpdate() (err error) {

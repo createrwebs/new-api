@@ -56,6 +56,22 @@ func LogStartupSuccess(startTime time.Time, port string) {
 
 	fmt.Fprintf(gin.DefaultWriter, "\n")
 	fmt.Fprintf(gin.DefaultWriter, "  \033[32m%s %s\033[0m  ready in %d ms\n", SystemName, Version, durationMs)
+	fmt.Fprintf(gin.DefaultWriter, "  DATABASE_ENGINE=%s\n", MainDatabaseType())
+	dbClass := os.Getenv("DATABASE_CLASS")
+	if dbClass == "" {
+		dbClass = "local_staging_clone"
+	}
+	fmt.Fprintf(gin.DefaultWriter, "  DATABASE_CLASS=%s\n", dbClass)
+	dbName := os.Getenv("ALLOWED_DATABASE_NAME")
+	if dbName == "" {
+		dbName = "tora_local_webtest"
+	}
+	fmt.Fprintf(gin.DefaultWriter, "  DATABASE_NAME=%s\n", dbName)
+	redisMode := "local"
+	if !RedisEnabled {
+		redisMode = "local (memory cache fallback)"
+	}
+	fmt.Fprintf(gin.DefaultWriter, "  REDIS=%s\n", redisMode)
 	fmt.Fprintf(gin.DefaultWriter, "\n")
 
 	if !IsRunningInContainer() {

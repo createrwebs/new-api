@@ -3,6 +3,7 @@ package relay
 import (
 	"errors"
 	"fmt"
+	"math"
 	"net/http"
 	"strings"
 
@@ -80,7 +81,47 @@ func PrepareRequestBilling(c *gin.Context, info *relaycommon.RelayInfo) *types.N
 		logger.LogInfo(c, fmt.Sprintf("模型 %s 免费，跳过预扣费", info.OriginModelName))
 		return nil
 	}
-	return service.PreConsumeBilling(c, priceData.QuotaToPreConsume, info)
+	quotaToReserve := priceData.QuotaToPreConsume
+	if c != nil {
+		if rawChain, exists := c.Get("token_route_chain"); exists {
+			if chain, ok := rawChain.([]int); ok && len(chain) > 0 {
+				userGroup := common.GetContextKeyString(c, constant.ContextKeyUserGroup)
+				isBYOK := c.GetBool("is_byok") || common.GetContextKeyBool(c, constant.ContextKeyIsBYOK)
+				maxMultiplier := 1.0
+				var snapshots []*service.RouteSnapshot
+				for _, rId := range chain {
+					r, err := service.CacheGetRoute(rId)
+					if err != nil || r == nil || !r.Enabled {
+						continue
+					}
+					// Invariant: Entitlement validation
+					if err := service.ValidateRouteEntitlement(r, userGroup); err != nil {
+						continue
+					}
+					// Invariant: BYOK isolation
+					if isBYOK && r.Kind != "byok" {
+						continue
+					}
+					// Invariant: Model coverage check (Section 9 Reservation Eligibility)
+					if !service.RouteSupportsModel(r, info.OriginModelName, userGroup) {
+						continue
+					}
+					snapshots = append(snapshots, service.SnapshotRoute(r))
+					if r.CostMultiplier > maxMultiplier {
+						maxMultiplier = r.CostMultiplier
+					}
+				}
+				if len(snapshots) > 0 {
+					c.Set("token_route_snapshots", snapshots)
+				}
+				if maxMultiplier > 1.0 {
+					quotaToReserve = int(math.Ceil(float64(quotaToReserve) * maxMultiplier))
+				}
+				c.Set("route_chain_max_multiplier", maxMultiplier)
+			}
+		}
+	}
+	return service.PreConsumeBilling(c, quotaToReserve, info)
 }
 
 // RefundFailedRequestBilling applies the common final-failure policy after all

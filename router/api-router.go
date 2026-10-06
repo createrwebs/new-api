@@ -196,6 +196,9 @@ func SetApiRouter(router *gin.Engine) {
 			subscriptionRoute.POST("/stripe/pay", middleware.CriticalRateLimit(), controller.SubscriptionRequestStripePay)
 			subscriptionRoute.POST("/creem/pay", middleware.CriticalRateLimit(), controller.SubscriptionRequestCreemPay)
 			subscriptionRoute.POST("/waffo-pancake/pay", middleware.CriticalRateLimit(), controller.SubscriptionRequestWaffoPancakePay)
+			subscriptionRoute.POST("/apple/verify", middleware.CriticalRateLimit(), controller.VerifyAppleSubscription)
+			subscriptionRoute.POST("/google/verify", middleware.CriticalRateLimit(), controller.VerifyGoogleSubscription)
+			subscriptionRoute.GET("/store/products", controller.GetStoreProductCatalog)
 		}
 		subscriptionAdminRoute := apiRouter.Group("/subscription/admin")
 		subscriptionAdminRoute.Use(middleware.AdminAuth())
@@ -229,6 +232,8 @@ func SetApiRouter(router *gin.Engine) {
 		apiRouter.GET("/subscription/epay/notify", controller.SubscriptionEpayNotify)
 		apiRouter.GET("/subscription/epay/return", controller.SubscriptionEpayReturn)
 		apiRouter.POST("/subscription/epay/return", anonymousRequestBodyLimit, controller.SubscriptionEpayReturn)
+		apiRouter.POST("/subscription/apple/webhook", anonymousRequestBodyLimit, controller.AppleSubscriptionWebhook)
+		apiRouter.POST("/subscription/google/webhook", anonymousRequestBodyLimit, controller.GoogleSubscriptionWebhook)
 		optionRoute := apiRouter.Group("/option")
 		optionRoute.Use(middleware.RootAuth())
 		{
@@ -314,6 +319,44 @@ func SetApiRouter(router *gin.Engine) {
 			tokenRoute.DELETE("/:id", controller.DeleteToken)
 			tokenRoute.POST("/batch", controller.DeleteTokenBatch)
 			tokenRoute.POST("/batch/keys", middleware.CriticalRateLimit(), middleware.DisableCache(), controller.GetTokenKeysBatch)
+		}
+
+		// First-Class Routes API
+		routesRoute := apiRouter.Group("/routes")
+		routesRoute.Use(middleware.UserAuth())
+		{
+			routesRoute.GET("/", controller.GetAllRoutes)
+			routesRoute.GET("/available", controller.GetAvailableRoutes)
+			routesRoute.GET("/:id", controller.GetRoute)
+			routesAdminRoute := routesRoute.Group("")
+			routesAdminRoute.Use(middleware.AdminAuth())
+			{
+				routesAdminRoute.POST("/", controller.CreateRoute)
+				routesAdminRoute.PUT("/:id", controller.UpdateRoute)
+				routesAdminRoute.DELETE("/:id", controller.DeleteRoute)
+			}
+		}
+
+		newsPublicRoute := apiRouter.Group("/news")
+		{
+			newsPublicRoute.GET("", controller.GetNewsPostsAPI)
+			newsPublicRoute.GET("/:slug", controller.GetNewsPostDetailAPI)
+			newsPublicRoute.POST("/conversion", controller.RecordNewsConversionAPI)
+		}
+
+		newsAdminRoute := apiRouter.Group("/admin/news")
+		newsAdminRoute.Use(middleware.AdminAuth())
+		{
+			newsAdminRoute.GET("/posts", controller.AdminGetNewsPosts)
+			newsAdminRoute.POST("/posts", controller.AdminCreateNewsPost)
+			newsAdminRoute.PUT("/posts/:id", controller.AdminUpdateNewsPost)
+			newsAdminRoute.DELETE("/posts/:id", controller.AdminDeleteNewsPost)
+			newsAdminRoute.GET("/sources", controller.AdminGetNewsSources)
+			newsAdminRoute.POST("/sources/:id/sync", controller.AdminSyncNewsSource)
+			newsAdminRoute.GET("/seo/opportunities", controller.AdminGetSeoOpportunities)
+			newsAdminRoute.POST("/seo/remediate/:id", controller.AdminRemediateSeoOpportunity)
+			newsAdminRoute.GET("/reviews/daily", controller.AdminGetDailyGrowthReviews)
+			newsAdminRoute.POST("/scout/trigger", controller.AdminTriggerNewsScout)
 		}
 
 		usageRoute := apiRouter.Group("/usage")

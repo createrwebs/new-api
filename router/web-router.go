@@ -20,6 +20,23 @@ type WebAssets struct {
 }
 
 func SetWebRouter(router *gin.Engine, assets WebAssets, pluginDispatcher gin.HandlerFunc) {
+	// Public crawlable SEO & News routes (GET and HEAD for bot preflight/uptime checks)
+	newsGroup := router.Group("")
+	newsGroup.Use(gzip.Gzip(gzip.DefaultCompression))
+	{
+		registerRoute := func(path string, handler gin.HandlerFunc) {
+			newsGroup.GET(path, handler)
+			newsGroup.HEAD(path, handler)
+		}
+		registerRoute("/news", controller.RenderNewsIndexPage)
+		registerRoute("/news/:slug", controller.RenderNewsPostPage)
+		registerRoute("/news/:slug/og.svg", controller.RenderNewsOGCard)
+		registerRoute("/news/:slug/og.png", controller.RenderNewsOGPNGCard)
+		registerRoute("/sitemap.xml", controller.RenderSitemap)
+		registerRoute("/news-sitemap.xml", controller.RenderNewsSitemap)
+		registerRoute("/robots.txt", controller.RenderRobots)
+	}
+
 	frontendFS := common.EmbedFolder(assets.BuildFS, "web/dist")
 
 	router.NoRoute(
@@ -31,7 +48,7 @@ func SetWebRouter(router *gin.Engine, assets WebAssets, pluginDispatcher gin.Han
 		middleware.Cache(),
 		static.Serve("/", frontendFS),
 		func(c *gin.Context) {
-			if strings.HasPrefix(c.Request.RequestURI, "/v1") || strings.HasPrefix(c.Request.RequestURI, "/api") || strings.HasPrefix(c.Request.RequestURI, "/assets") {
+			if strings.HasPrefix(c.Request.RequestURI, "/v1") || strings.HasPrefix(c.Request.RequestURI, "/api") || strings.HasPrefix(c.Request.RequestURI, "/assets") || c.Request.RequestURI == "/news" || strings.HasPrefix(c.Request.RequestURI, "/news/") {
 				controller.RelayNotFound(c)
 				return
 			}

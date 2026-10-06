@@ -1,0 +1,112 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ROOT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
+
+PORT="${E2E_PORT:-3005}"
+DATA_DIR="${DATA_DIR:-${ROOT_DIR}/data/e2e}"
+PID_FILE="${DATA_DIR}/tora-e2e.pid"
+LOG_FILE="${DATA_DIR}/tora-e2e.log"
+DB_FILE="${DATA_DIR}/tora-e2e.db"
+CLEAN_DB="${CLEAN_DB:-1}"
+
+mkdir -p "${DATA_DIR}"
+mkdir -p "${ROOT_DIR}/bin"
+
+# Check if already running
+if [ -f "${PID_FILE}" ]; then
+  OLD_PID="$(cat "${PID_FILE}" 2>/dev/null || true)"
+  if [ -n "${OLD_PID}" ] && kill -0 "${OLD_PID}" 2>/dev/null; then
+    echo "[tora-e2e-up] Server is already running on PID ${OLD_PID} (http://localhost:${PORT})"
+    exit 0
+  else
+    rm -f "${PID_FILE}"
+  fi
+fi
+
+# Clean previous database if requested
+if [ "${CLEAN_DB}" = "1" ]; then
+  rm -f "${DB_FILE}" "${DB_FILE}-wal" "${DB_FILE}-shm"
+fi
+
+# Build binary
+echo "[tora-e2e-up] Building New-API binary (bin/new-api-e2e)..."
+(cd "${ROOT_DIR}" && go build -o bin/new-api-e2e main.go)
+
+echo "[tora-e2e-up] Starting Tora New-API on port ${PORT}..."
+
+# Export isolated test environment variables
+export PORT="${PORT}"
+export SQLITE_PATH="${DB_FILE}?_pragma=busy_timeout(30000)&_pragma=journal_mode(WAL)&_txlock=immediate"
+export SQL_DSN=""
+export LOG_SQL_DSN=""
+export REDIS_CONN_STRING=""
+export MEMORY_CACHE_ENABLED="false"
+export SYNC_FREQUENCY="1"
+export SESSION_SECRET="tora-e2e-session-secret-deterministic-32b-length"
+export CRYPTO_SECRET="tora-e2e-crypto-secret-deterministic-32b-length"
+export BYOK_ENCRYPTION_KEY="0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+export GLOBAL_API_RATE_LIMIT="10000"
+export GLOBAL_WEB_RATE_LIMIT="10000"
+export CRITICAL_RATE_LIMIT_ENABLE="false"
+export STORE_VERIFICATION_SIMULATION="true"
+export APPLE_BUNDLE_ID="com.saascover.tora"
+export GOOGLE_PACKAGE_NAME="com.saascover.tora"
+export PRO_MONTHLY_QUOTA_DELTA="2000000"
+export PRO_MONTHLY_GROUP="pro"
+export GIN_MODE="release"
+export DEBUG="false"
+
+# Launch in background
+cd "${ROOT_DIR}"
+./bin/new-api-e2e > "${LOG_FILE}" 2>&1 &
+SERVER_PID=$!
+echo "${SERVER_PID}" > "${PID_FILE}"
+
+echo "[tora-e2e-up] Process launched with PID ${SERVER_PID}. Waiting for health check..."
+
+# Wait for server readiness via /api/status
+READY=0
+for i in {1..40}; do
+  if ! kill -0 "${SERVER_PID}" 2>/dev/null; then
+    echo "[tora-e2e-up] ERROR: Process ${SERVER_PID} terminated unexpectedly. Logs:"
+    cat "${LOG_FILE}"
+    rm -f "${PID_FILE}"
+    exit 1
+  fi
+
+  HTTP_CODE="$(curl -s -o /dev/null -w "%{http_code}" "http://localhost:${PORT}/api/status" 2>/dev/null || true)"
+  if [ "${HTTP_CODE}" = "200" ]; then
+    READY=1
+    break
+  fi
+  sleep 0.5
+done
+
+if [ "${READY}" -ne 1 ]; then
+  echo "[tora-e2e-up] ERROR: Server did not become ready within 20s. Logs:"
+  cat "${LOG_FILE}"
+  kill "${SERVER_PID}" 2>/dev/null || true
+  rm -f "${PID_FILE}"
+  exit 1
+fi
+
+# Auto-initialize root account if system is not yet initialized
+STATUS_RESP="$(curl -s "http://localhost:${PORT}/api/status" 2>/dev/null || true)"
+if echo "${STATUS_RESP}" | grep -q '"setup":false'; then
+  echo "[tora-e2e-up] Initializing pristine system setup (root/Password123!)..."
+  curl -s -X POST "http://localhost:${PORT}/api/setup" \
+    -H "Content-Type: application/json" \
+    -d '{"username":"root","password":"Password123!","confirmPassword":"Password123!","SelfUseModeEnabled":false,"DemoSiteEnabled":false}' >/dev/null || true
+
+  ROOT_TOKEN="$(curl -s -X POST "http://localhost:${PORT}/api/user/login" \
+    -H "Content-Type: application/json" \
+    -d '{"username":"root","password":"Password123!"}' | jq -r '.data.access_token')"
+  curl -s -X PUT "http://localhost:${PORT}/api/option/" \
+    -H "Content-Type: application/json" \
+    -H "Authorization: Bearer ${ROOT_TOKEN}" \
+    -d '{"key":"performance_setting.monitor_enabled","value":"false"}' >/dev/null || true
+fi
+
+echo "[tora-e2e-up] SUCCESS: Tora New-API running at http://localhost:${PORT} (PID ${SERVER_PID})"

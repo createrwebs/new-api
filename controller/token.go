@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -34,12 +35,17 @@ func (input *tokenAutoGroupsInput) UnmarshalJSON(data []byte) error {
 
 type tokenRequest struct {
 	model.Token
-	AutoGroups tokenAutoGroupsInput `json:"auto_groups"`
+	AutoGroups       tokenAutoGroupsInput `json:"auto_groups"`
+	PrimaryRouteId   int                  `json:"primary_route_id"`
+	FallbackRouteIds []int                `json:"fallback_route_ids"`
 }
 
 type tokenResponse struct {
 	*model.Token
-	AutoGroups []string `json:"auto_groups"`
+	AutoGroups       []string `json:"auto_groups"`
+	PrimaryRouteId   int      `json:"primary_route_id"`
+	FallbackRouteIds []int    `json:"fallback_route_ids"`
+	RouteChain       []int    `json:"route_chain"`
 }
 
 func maxTokenQuota() int {
@@ -50,6 +56,41 @@ func maxTokenQuota() int {
 		return common.MaxWalletQuota
 	}
 	return quota
+}
+
+func validateTokenRoutes(c *gin.Context, primaryRouteId int, fallbackRouteIds []int) error {
+	if primaryRouteId <= 0 && len(fallbackRouteIds) == 0 {
+		return nil // legacy token
+	}
+	if primaryRouteId <= 0 && len(fallbackRouteIds) > 0 {
+		return errors.New("primary route is required when fallback routes are configured")
+	}
+	userGroup, _ := getTokenRequestUserGroup(c)
+	primaryRoute, err := service.CacheGetRoute(primaryRouteId)
+	if err != nil || primaryRoute == nil || !primaryRoute.Enabled {
+		return fmt.Errorf("primary route (%d) not found or disabled", primaryRouteId)
+	}
+	if err := service.ValidateRouteEntitlement(primaryRoute, userGroup); err != nil {
+		return fmt.Errorf("primary route not permitted: %w", err)
+	}
+	seen := map[int]struct{}{primaryRouteId: {}}
+	for _, fId := range fallbackRouteIds {
+		if fId <= 0 {
+			continue
+		}
+		if _, ok := seen[fId]; ok {
+			return fmt.Errorf("duplicate route id (%d) in route chain", fId)
+		}
+		seen[fId] = struct{}{}
+		fRoute, err := service.CacheGetRoute(fId)
+		if err != nil || fRoute == nil || !fRoute.Enabled {
+			return fmt.Errorf("fallback route (%d) not found or disabled", fId)
+		}
+		if err := service.ValidateRouteEntitlement(fRoute, userGroup); err != nil {
+			return fmt.Errorf("fallback route (%d) not permitted: %w", fId, err)
+		}
+	}
+	return nil
 }
 
 func buildMaskedTokenResponse(token *model.Token) *tokenResponse {
@@ -66,7 +107,15 @@ func buildMaskedTokenResponse(token *model.Token) *tokenResponse {
 	if len(autoGroups) == 0 {
 		autoGroups = nil
 	}
-	return &tokenResponse{Token: &maskedToken, AutoGroups: autoGroups}
+	fallbackRouteIds, _ := token.GetFallbackRouteIds()
+	routeChain := token.GetRouteChain()
+	return &tokenResponse{
+		Token:            &maskedToken,
+		AutoGroups:       autoGroups,
+		PrimaryRouteId:   token.PrimaryRouteId,
+		FallbackRouteIds: fallbackRouteIds,
+		RouteChain:       routeChain,
+	}
 }
 
 func buildMaskedTokenResponses(tokens []*model.Token) []*tokenResponse {
@@ -332,6 +381,10 @@ func AddToken(c *gin.Context) {
 		token.CrossGroupRetry = false
 		_ = token.SetAutoGroups(nil)
 	}
+	if err := validateTokenRoutes(c, request.PrimaryRouteId, request.FallbackRouteIds); err != nil {
+		common.ApiError(c, err)
+		return
+	}
 	key, err := common.GenerateKey()
 	if err != nil {
 		common.ApiErrorI18n(c, i18n.MsgTokenGenerateFailed)
@@ -353,7 +406,9 @@ func AddToken(c *gin.Context) {
 		Group:              token.Group,
 		CrossGroupRetry:    token.CrossGroupRetry,
 		AutoGroups:         token.AutoGroups,
+		PrimaryRouteId:     request.PrimaryRouteId,
 	}
+	_ = cleanToken.SetFallbackRouteIds(request.FallbackRouteIds)
 	err = cleanToken.Insert()
 	if err != nil {
 		common.ApiError(c, err)
@@ -456,6 +511,17 @@ func UpdateToken(c *gin.Context) {
 				return
 			}
 		}
+		if request.PrimaryRouteId > 0 || len(request.FallbackRouteIds) > 0 {
+			if err := validateTokenRoutes(c, request.PrimaryRouteId, request.FallbackRouteIds); err != nil {
+				common.ApiError(c, err)
+				return
+			}
+			cleanToken.PrimaryRouteId = request.PrimaryRouteId
+			_ = cleanToken.SetFallbackRouteIds(request.FallbackRouteIds)
+		} else if request.PrimaryRouteId == 0 && request.FallbackRouteIds != nil {
+			cleanToken.PrimaryRouteId = 0
+			cleanToken.FallbackRouteIds = ""
+		}
 	}
 	err = cleanToken.Update()
 	if err != nil {
@@ -482,6 +548,8 @@ func UpdateToken(c *gin.Context) {
 			{"group", previous.Group != cleanToken.Group},
 			{"cross_group_retry", previous.CrossGroupRetry != cleanToken.CrossGroupRetry},
 			{"auto_groups", previous.AutoGroups != cleanToken.AutoGroups},
+			{"primary_route_id", previous.PrimaryRouteId != cleanToken.PrimaryRouteId},
+			{"fallback_route_ids", previous.FallbackRouteIds != cleanToken.FallbackRouteIds},
 		} {
 			if field.changed {
 				changedFields = append(changedFields, field.name)

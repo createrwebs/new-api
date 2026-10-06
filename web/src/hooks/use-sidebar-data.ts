@@ -38,6 +38,7 @@ import {
   Ticket,
   User,
   UserPlus,
+  Newspaper,
   Users,
   Wallet,
   Wand2,
@@ -195,6 +196,12 @@ export function useSidebarData(): SidebarData {
             title: t('Subscriptions'),
             url: '/subscriptions',
             icon: CreditCard,
+          },
+          {
+            title: t('News & Growth'),
+            url: '/news-admin',
+            icon: Newspaper,
+            requiredRole: ROLE.ADMIN,
           },
           {
             title: t('Budgets'),

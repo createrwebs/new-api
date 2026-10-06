@@ -210,6 +210,79 @@ func (p *SubscriptionPlan) NormalizeDefaults() {
 	}
 }
 
+// InitDefaultSubscriptionPlan seeds the approved "Pro Monthly" commercial subscription plan
+// if no subscription plans currently exist in the database.
+func InitDefaultSubscriptionPlan() error {
+	var count int64
+	if err := DB.Model(&SubscriptionPlan{}).Count(&count).Error; err != nil {
+		return err
+	}
+	if count > 0 {
+		return nil
+	}
+
+	allowBalancePay := false
+	allowWalletOverflow := true
+	defaultPlan := SubscriptionPlan{
+		Title:               "Pro Monthly",
+		Subtitle:            "Pro model access with 2,000,000 units per month",
+		PriceAmount:         9.99,
+		Currency:            "USD",
+		DurationUnit:        SubscriptionDurationMonth,
+		DurationValue:       1,
+		Enabled:             true,
+		SortOrder:           1,
+		AllowBalancePay:     &allowBalancePay,
+		AllowWalletOverflow: &allowWalletOverflow,
+		UpgradeGroup:        "pro",
+		DowngradeGroup:      "default",
+		TotalAmount:         2000000,
+		QuotaResetPeriod:    SubscriptionResetMonthly,
+	}
+
+	if err := DB.Create(&defaultPlan).Error; err != nil {
+		return err
+	}
+	common.SysLog("seeded approved commercial plan: Pro Monthly ($9.99 / 2,000,000 units)")
+	return nil
+}
+
+// EnsureProMonthlySubscriptionPlan returns the approved "Pro Monthly" subscription plan,
+// creating it if it does not already exist.
+func EnsureProMonthlySubscriptionPlan() (*SubscriptionPlan, error) {
+	var plan SubscriptionPlan
+	err := DB.Where("title = ? OR upgrade_group = ?", "Pro Monthly", "pro").First(&plan).Error
+	if err == nil {
+		return &plan, nil
+	}
+	if !errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, err
+	}
+
+	allowBalancePay := false
+	allowWalletOverflow := true
+	plan = SubscriptionPlan{
+		Title:               "Pro Monthly",
+		Subtitle:            "Pro model access with 2,000,000 units per month",
+		PriceAmount:         9.99,
+		Currency:            "USD",
+		DurationUnit:        SubscriptionDurationMonth,
+		DurationValue:       1,
+		Enabled:             true,
+		SortOrder:           1,
+		AllowBalancePay:     &allowBalancePay,
+		AllowWalletOverflow: &allowWalletOverflow,
+		UpgradeGroup:        "pro",
+		DowngradeGroup:      "default",
+		TotalAmount:         2000000,
+		QuotaResetPeriod:    SubscriptionResetMonthly,
+	}
+	if err := DB.Create(&plan).Error; err != nil {
+		return nil, err
+	}
+	return &plan, nil
+}
+
 // Subscription order (payment -> webhook -> create UserSubscription)
 type SubscriptionOrder struct {
 	Id     int     `json:"id"`
@@ -430,8 +503,16 @@ func getUserGroupByIdTx(tx *gorm.DB, userId int) (string, error) {
 	if tx == nil {
 		tx = DB
 	}
+	groupCol := commonGroupCol
+	if groupCol == "" {
+		if common.UsingMainDatabase(common.DatabaseTypePostgreSQL) {
+			groupCol = `"group"`
+		} else {
+			groupCol = "`group`"
+		}
+	}
 	var group string
-	if err := lockForUpdate(tx).Model(&User{}).Where("id = ?", userId).Select(commonGroupCol).Find(&group).Error; err != nil {
+	if err := lockForUpdate(tx).Model(&User{}).Where("id = ?", userId).Select(groupCol).Find(&group).Error; err != nil {
 		return "", err
 	}
 	return group, nil
