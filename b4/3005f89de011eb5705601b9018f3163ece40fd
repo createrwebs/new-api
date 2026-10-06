@@ -1,0 +1,246 @@
+.agents/MASTER_ORCHESTRATOR_PROMPT.md
+  h_f97827f62b0fea 1-1646
+.env.example
+  h_f97827f62b0fea 140-155
+.gitignore
+  h_f97827f62b0fea 56-65
+AGENTS.md
+  h_f97827f62b0fea 1,3,5,7-13,15,17,19,21-27,29,31,33,35-42,44,46,48,50-60,62,64-71,73,75,77,79-88,90,92-94,96,98,100,102,104-116
+Dockerfile
+  h_f97827f62b0fea 33
+common/canonical.go
+  h_f97827f62b0fea 1-45
+common/sys_log.go
+  h_f97827f62b0fea 59-74
+controller/news.go
+  h_f97827f62b0fea 1-794
+controller/news_test.go
+  h_f97827f62b0fea 1-415
+controller/relay.go
+  h_f97827f62b0fea 171-212,218-230,266-277,286-306,314-329,333-340,387-437
+controller/route.go
+  h_f97827f62b0fea 1-273
+controller/route_relay_test.go
+  h_f97827f62b0fea 1-133
+controller/route_staging_test.go
+  h_f97827f62b0fea 1-590
+controller/subscription_store.go
+  h_f97827f62b0fea 1-362
+controller/subscription_store_test.go
+  h_f97827f62b0fea 1-981
+controller/token.go
+  h_f97827f62b0fea 4,38-40,45-48,61-95,110-118,384-387,409,411,514-524,551-552
+docs/ai/AUTONOMOUS_WORKFLOW.md
+  h_f97827f62b0fea 1-226
+docs/ai/CURRENT_STATE.md
+  h_f97827f62b0fea 1-218
+docs/ai/NEW_API_CAPABILITY_AUDIT.md
+  h_f97827f62b0fea 1-213
+docs/ai/OBSERVABILITY_AUDIT.md
+  h_f97827f62b0fea 1-31
+docs/ai/PRODUCT_DECISIONS.md
+  h_f97827f62b0fea 1-57
+docs/ai/PROJECT_CONTEXT.md
+  h_f97827f62b0fea 1-138
+docs/ai/ROADMAP.md
+  h_f97827f62b0fea 1-375
+docs/ai/RUNTIME_CONFIGURATION_PREFLIGHT.md
+  h_f97827f62b0fea 1-51
+docs/ai/SECURITY_INVARIANTS.md
+  h_f97827f62b0fea 1-88
+docs/ai/STRIPE_PROMPTPAY_REUSE_AUDIT.md
+  h_f97827f62b0fea 1-171
+docs/ai/TORA_EDITORIAL_STYLE.md
+  h_f97827f62b0fea 1-88
+docs/ai/phase_11_news_seo_growth_engine_report.md
+  h_f97827f62b0fea 1-168
+docs/ai/phase_11a_news_growth_architecture_audit.md
+  h_f97827f62b0fea 1-96
+docs/ai/phase_7i_route_fallback_architecture_audit.md
+  h_f97827f62b0fea 1-705
+docs/ai/phase_7i_route_fallback_implementation_report.md
+  h_f97827f62b0fea 1-106
+docs/ai/phase_7i_route_fallback_migration_report.md
+  h_f97827f62b0fea 1-77
+docs/ai/phase_7i_route_fallback_security_review.md
+  h_f97827f62b0fea 1-67
+docs/ai/phase_7i_route_fallback_test_matrix.md
+  h_f97827f62b0fea 1-68
+docs/ai/phase_7i_s_financial_safety_review.md
+  h_f97827f62b0fea 1-80
+docs/ai/phase_7i_s_security_review.md
+  h_f97827f62b0fea 1-110
+docs/ai/phase_7i_s_staging_route_validation.md
+  h_f97827f62b0fea 1-96
+docs/ai/phase_7i_s_streaming_validation.md
+  h_f97827f62b0fea 1-77
+e2e/tora_fullstack_test.go
+  h_f97827f62b0fea 1-817
+main.go
+  h_f97827f62b0fea 161-162
+middleware/auth.go
+  h_f97827f62b0fea 673-675
+model/database_safety.go
+  h_f97827f62b0fea 1-58
+model/database_safety_test.go
+  h_f97827f62b0fea 1-38
+model/main.go
+  h_f97827f62b0fea 43-46,202-204,378-380,394-403,426-437
+model/news.go
+  h_f97827f62b0fea 1-877
+model/news_seed.go
+  h_f97827f62b0fea 1-466
+model/news_test.go
+  h_f97827f62b0fea 1-234
+model/route.go
+  h_f97827f62b0fea 1-327
+model/route_test.go
+  h_f97827f62b0fea 1-79
+model/store_account_token.go
+  h_f97827f62b0fea 1-47
+model/store_billing.go
+  h_f97827f62b0fea 1-655
+model/store_billing_test.go
+  h_f97827f62b0fea 1-749
+model/subscription.go
+  h_f97827f62b0fea 213-285,506-513,515
+model/subscription_plan_init_test.go
+  h_f97827f62b0fea 1-113
+model/token.go
+  h_f97827f62b0fea 34-35,39-102,449-450
+phase_6h_final_security_closure_release_gate.md
+  h_f97827f62b0fea 1-616
+phase_7a_lumen_architecture_integration_audit.md
+  h_f97827f62b0fea 1-789
+phase_7b_mobile_backend_contract.md
+  h_f97827f62b0fea 1-788
+phase_7c_mobile_auth_implementation_report.md
+  h_f97827f62b0fea 1-360
+phase_7c_r_multidevice_environment_verification.md
+  h_f97827f62b0fea 1-322
+phase_7d_tora_managed_chat_integration_report.md
+  h_f97827f62b0fea 1-408
+phase_7e_server_byok_mobile_integration_report.md
+  h_f97827f62b0fea 1-465
+phase_7f_subscription_entitlement_ux_report.md
+  h_f97827f62b0fea 1-431
+phase_7g_a_native_store_billing_backend_contract.md
+  h_f97827f62b0fea 1-613
+phase_7g_a_r_store_billing_contract_closure.md
+  h_f97827f62b0fea 1-247
+phase_7g_b_flutter_store_billing_implementation_report.md
+  h_f97827f62b0fea 1-100
+phase_7g_b_r_account_binding_hardening.md
+  h_f97827f62b0fea 1-206
+phase_7g_b_security_review.md
+  h_f97827f62b0fea 1-123
+phase_7g_b_test_matrix.md
+  h_f97827f62b0fea 1-68
+phase_7g_c_store_e2e_report.md
+  h_f97827f62b0fea 1-109
+phase_7g_config_store_readiness_report.md
+  h_f97827f62b0fea 1-441
+phase_7g_p_product_identity_policy_freeze.md
+  h_f97827f62b0fea 1-283
+relay/request_billing.go
+  h_f97827f62b0fea 6,84-124
+relay/stream_commit.go
+  h_f97827f62b0fea 1-188
+relay/stream_commit_test.go
+  h_f97827f62b0fea 1-169
+router/api-router.go
+  h_f97827f62b0fea 199-201,235-236,324-361
+router/web-router.go
+  h_f97827f62b0fea 23-39,51
+scripts/tora-e2e-down
+  h_f97827f62b0fea 1-48
+scripts/tora-e2e-test
+  h_f97827f62b0fea 1-48
+scripts/tora-e2e-up
+  h_f97827f62b0fea 1-112
+scripts/verify-release-gates
+  h_f97827f62b0fea 1-97
+service/external_api_config.go
+  h_f97827f62b0fea 1-81
+service/log_info_generate.go
+  h_f97827f62b0fea 98-105
+service/news_attribution.go
+  h_f97827f62b0fea 1-97
+service/news_canary_test.go
+  h_f97827f62b0fea 1-472
+service/news_cluster.go
+  h_f97827f62b0fea 1-140
+service/news_creative.go
+  h_f97827f62b0fea 1-441
+service/news_dist_connectors.go
+  h_f97827f62b0fea 1-370
+service/news_distribution.go
+  h_f97827f62b0fea 1-114
+service/news_editorial.go
+  h_f97827f62b0fea 1-269
+service/news_gsc.go
+  h_f97827f62b0fea 1-353
+service/news_review.go
+  h_f97827f62b0fea 1-102
+service/news_scout.go
+  h_f97827f62b0fea 1-367
+service/news_seo.go
+  h_f97827f62b0fea 1-197
+service/news_task.go
+  h_f97827f62b0fea 1-129
+service/news_test.go
+  h_f97827f62b0fea 1-568
+service/route.go
+  h_f97827f62b0fea 1-432
+service/route_billing_test.go
+  h_f97827f62b0fea 1-71
+service/route_classifier.go
+  h_f97827f62b0fea 1-285
+service/route_classifier_test.go
+  h_f97827f62b0fea 1-105
+service/route_engine_test.go
+  h_f97827f62b0fea 1-73
+service/store_account_token.go
+  h_f97827f62b0fea 1-12
+service/store_account_token_test.go
+  h_f97827f62b0fea 1-44
+service/store_verifier.go
+  h_f97827f62b0fea 1-447
+service/store_verifier_test.go
+  h_f97827f62b0fea 1-387
+setting/payment_store.go
+  h_f97827f62b0fea 1-96
+tora_ai_store_console_setup_checklist.md
+  h_f97827f62b0fea 1-161
+web/src/features/keys/lib/__tests__/auto-group-form.test.ts
+  h_f97827f62b0fea 54-56
+web/src/features/keys/types.ts
+  h_f97827f62b0fea 49-51,100-115
+web/src/features/news/api.ts
+  h_f97827f62b0fea 1-54
+web/src/features/news/index.tsx
+  h_f97827f62b0fea 1-313
+web/src/features/news/types.ts
+  h_f97827f62b0fea 1-71
+web/src/hooks/use-sidebar-config.ts
+  h_f97827f62b0fea 129
+web/src/hooks/use-sidebar-data.ts
+  h_f97827f62b0fea 41,200-205
+web/src/hooks/use-top-nav-links.ts
+  h_f97827f62b0fea 89-91
+web/src/routeTree.gen.ts
+  h_f97827f62b0fea 50,282-287,518,588,662,735,805,878,1200-1206,1539,1571
+web/src/routes/_authenticated/news-admin/index.tsx
+  h_f97827f62b0fea 1-27
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.3",
+  "base_commit_sha": "b43005f89de011eb5705601b9018f3163ece40fd",
+  "prompts": {},
+  "humans": {
+    "h_f97827f62b0fea": {
+      "author": "NOPPANAN THEERACHARTE <noppanan.the@axonstech.com>"
+    }
+  }
+}
