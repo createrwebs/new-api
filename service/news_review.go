@@ -24,7 +24,6 @@ func GenerateDailyGrowthReview(targetDate string) (*model.NewsDailyGrowthReview,
 	model.DB.Model(&model.NewsPost{}).Where("status = ? AND content_type = ?", model.NewsStatusPublished, model.ContentTypeAnalysis).Count(&analysisCount)
 	model.DB.Model(&model.NewsPost{}).Where("status = ? AND content_type = ?", model.NewsStatusPublished, model.ContentTypeChangelog).Count(&changelogCount)
 
-	totalPublishedToday := int(newsCount + guideCount + analysisCount + changelogCount)
 
 	// 2. SEO Performance Totals
 	type SeoSum struct {
@@ -76,9 +75,16 @@ func GenerateDailyGrowthReview(targetDate string) (*model.NewsDailyGrowthReview,
 		signupsCount, conversionsCount,
 	)
 
+	// Authoritative daily autopilot count (Section 4)
+	counters, _ := model.GetAuthoritativePublicationCounters()
+	autopilotToday := 0
+	if counters != nil {
+		autopilotToday = counters.AutopilotPublishedToday
+	}
+
 	review := &model.NewsDailyGrowthReview{
 		ReviewDate:             targetDate,
-		PostsPublishedToday:    totalPublishedToday,
+		PostsPublishedToday:    autopilotToday,
 		NewsCount:              int(newsCount),
 		GuideCount:             int(guideCount),
 		AnalysisCount:          int(analysisCount),
@@ -95,6 +101,26 @@ func GenerateDailyGrowthReview(targetDate string) (*model.NewsDailyGrowthReview,
 		PipelineHealthStatus:   healthStatus,
 		ReviewNotes:            notes,
 		CreatedAt:              common.GetTimestamp(),
+	}
+
+	// Preserve existing Section 23 fields if present
+	if model.DB != nil {
+		var existing model.NewsDailyGrowthReview
+		if err := model.DB.Where("review_date = ?", targetDate).First(&existing).Error; err == nil {
+			review.SourcesChecked = existing.SourcesChecked
+			review.SourceFailures = existing.SourceFailures
+			review.CandidateStories = existing.CandidateStories
+			review.ClustersCreated = existing.ClustersCreated
+			review.DuplicatesRemoved = existing.DuplicatesRemoved
+			review.DraftsRequiringReview = existing.DraftsRequiringReview
+			review.MainSitemapStatus = existing.MainSitemapStatus
+			review.NewsSitemapStatus = existing.NewsSitemapStatus
+			review.IndexNowStatus = existing.IndexNowStatus
+			review.DevToStatus = existing.DevToStatus
+			review.AiVisibilitySummary = existing.AiVisibilitySummary
+			review.TopOpportunitiesTomorrow = existing.TopOpportunitiesTomorrow
+			review.NewsroomRunStatus = existing.NewsroomRunStatus
+		}
 	}
 
 	if err := model.CreateOrUpdateDailyGrowthReview(review); err != nil {
