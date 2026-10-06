@@ -1,0 +1,22 @@
+controller/news.go
+  h_f97827f62b0fea 795-851
+router/api-router.go
+  h_f97827f62b0fea 360-363
+service/news_canary_test.go
+  h_f97827f62b0fea 6,473-593
+service/news_dist_connectors.go
+  h_f97827f62b0fea 14,23-133,164-167,231-234,332-335,383,385-399,403-416,444-451,455,496,503-506,508-512,514
+service/news_review.go
+  h_f97827f62b0fea 5,104-265
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.3",
+  "base_commit_sha": "82648f911db4501aa3ea6d5591009a0e0e0bd7c7",
+  "prompts": {},
+  "humans": {
+    "h_f97827f62b0fea": {
+      "author": "NOPPANAN THEERACHARTE <noppanan.the@axonstech.com>"
+    }
+  }
+}
