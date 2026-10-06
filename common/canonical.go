@@ -55,11 +55,14 @@ func GetGSCCredentialsJSON() string {
 }
 
 // GetGA4MeasurementID returns the GA4 Measurement ID (e.g. G-XXXXXXXXXX)
-// Configured via GA4_MEASUREMENT_ID or GOOGLE_ANALYTICS_ID.
+// Configured via GA4_MEASUREMENT_ID or GOOGLE_ANALYTICS_ID, defaulting to G-HL2E9QVEBR.
 func GetGA4MeasurementID() string {
 	val := strings.TrimSpace(os.Getenv("GA4_MEASUREMENT_ID"))
 	if val == "" {
 		val = strings.TrimSpace(os.Getenv("GOOGLE_ANALYTICS_ID"))
+	}
+	if val == "" {
+		val = "G-HL2E9QVEBR"
 	}
 	return val
 }

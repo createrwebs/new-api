@@ -53,11 +53,12 @@ function RootComponent() {
   const queryClient = useQueryClient()
   const { status } = useStatus()
 
-  // Initialize GA4 tracking (Section 2 & 16)
+  // Initialize GA4 tracking (Measurement ID: G-HL2E9QVEBR)
   useEffect(() => {
-    const gaId = (status as Record<string, unknown>)?.ga4_measurement_id as
-      | string
-      | undefined
+    const gaId =
+      ((status as Record<string, unknown>)?.ga4_measurement_id as
+        | string
+        | undefined) || 'G-HL2E9QVEBR'
     if (gaId) {
       initGA4(gaId)
     }

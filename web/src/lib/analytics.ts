@@ -115,6 +115,8 @@ export function sanitizeEventParams(
  * Initializes GA4 with the provided Measurement ID if not already initialized.
  * Injects gtag.js with { send_page_view: false } to prevent automatic double counting (Section 18).
  */
+export const DEFAULT_GA4_MEASUREMENT_ID = 'G-HL2E9QVEBR'
+
 export function initGA4(measurementId?: string): void {
   if (typeof window === 'undefined') return
   if (!isTrackingAllowed()) return
@@ -122,7 +124,8 @@ export function initGA4(measurementId?: string): void {
   const targetId =
     measurementId?.trim() ||
     (typeof window !== 'undefined' &&
-      (window as unknown as { __GA4_ID__?: string }).__GA4_ID__)
+      (window as unknown as { __GA4_ID__?: string }).__GA4_ID__) ||
+    DEFAULT_GA4_MEASUREMENT_ID
 
   if (!targetId || targetId === currentMeasurementId) return
   currentMeasurementId = targetId
