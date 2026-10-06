@@ -59,7 +59,7 @@ func SeedStudioCatalog(db *gorm.DB) error {
 			PrimaryProvider:  "fal",
 			PrimaryModel:     "fal-ai/clarity-upscaler",
 			MarginPercent:    70.0,
-			Status:           model.StudioToolStateBeta,
+			Status:           model.StudioToolStateActive,
 		},
 		{
 			Id:               "background-remove",
@@ -81,7 +81,7 @@ func SeedStudioCatalog(db *gorm.DB) error {
 			PrimaryProvider:  "fal",
 			PrimaryModel:     "fal-ai/birefnet",
 			MarginPercent:    75.0,
-			Status:           model.StudioToolStateBeta,
+			Status:           model.StudioToolStateActive,
 		},
 		{
 			Id:               "product-photo",
@@ -103,7 +103,7 @@ func SeedStudioCatalog(db *gorm.DB) error {
 			PrimaryProvider:  "fal",
 			PrimaryModel:     "fal-ai/product-photography",
 			MarginPercent:    65.0,
-			Status:           model.StudioToolStateActive,
+			Status:           model.StudioToolStateBeta,
 		},
 		{
 			Id:               "image-extend",
@@ -125,7 +125,7 @@ func SeedStudioCatalog(db *gorm.DB) error {
 			PrimaryProvider:  "fal",
 			PrimaryModel:     "fal-ai/flux-fill",
 			MarginPercent:    65.0,
-			Status:           model.StudioToolStateActive,
+			Status:           model.StudioToolStateBeta,
 		},
 		{
 			Id:               "object-erase",
@@ -147,23 +147,23 @@ func SeedStudioCatalog(db *gorm.DB) error {
 			PrimaryProvider:  "fal",
 			PrimaryModel:     "fal-ai/flux/dev/inpainting",
 			MarginPercent:    66.7,
-			Status:           model.StudioToolStateActive,
+			Status:           model.StudioToolStateBeta,
 		},
 
-		// Active Video MVP Tool
+		// Video Tools (Coming Soon / Frozen during Image MVP)
 		{
 			Id:               "image-to-video",
 			Slug:             "image-to-video",
 			Name:             "Image to Video",
-			DisplayName:      "แปลงภาพนิ่งเป็นวิดีโอ (Wan 2.2 / Kling)",
+			DisplayName:      "แปลงภาพนิ่งเป็นวิดีโอ (เร็วๆ นี้)",
 			Description:      "ขยับภาพถ่ายสินค้า ภาพวิว หรือตัวละครให้มีชีวิตชีวาด้วยการเคลื่อนไหวที่เป็นธรรมชาติ สร้างวิดีโอ 5 วินาทีความละเอียดสูง",
 			Category:         "video",
 			InputSchema:      `{"type":"object","required":["image_url"],"properties":{"image_url":{"type":"string"},"motion_prompt":{"type":"string"},"duration":{"type":"integer","enum":[5],"default":5}}}`,
 			OutputType:       "video/mp4",
 			AllowedMIMETypes: "image/jpeg,image/png,image/webp",
 			MaxUploadSize:    31457280,
-			IsEnabled:        true,
-			IsPublic:         true,
+			IsEnabled:        false,
+			IsPublic:         false,
 			CreditCost:       125,
 			QuotaCost:        125000,
 			RiskClass:        "low",
@@ -171,7 +171,7 @@ func SeedStudioCatalog(db *gorm.DB) error {
 			PrimaryProvider:  "fal",
 			PrimaryModel:     "wan-video/wan-2.2",
 			MarginPercent:    68.0,
-			Status:           model.StudioToolStateActive,
+			Status:           model.StudioToolStateComingSoon,
 		},
 
 		// Disabled / Coming Soon Tools (Section 5)
@@ -255,7 +255,12 @@ func SeedStudioCatalog(db *gorm.DB) error {
 	for _, t := range tools {
 		t.CreatedAt = now
 		t.UpdatedAt = now
-		_ = db.Where("id = ?", t.Id).Assign(t).FirstOrCreate(&t)
+		var existing model.StudioToolDefinition
+		if err := db.Where("id = ?", t.Id).First(&existing).Error; err != nil {
+			_ = db.Select("*").Create(&t)
+		} else {
+			_ = db.Model(&existing).Select("*").Updates(&t)
+		}
 	}
 
 	// 2. Useful Presets & Templates (Section 8)

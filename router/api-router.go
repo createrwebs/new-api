@@ -383,6 +383,7 @@ func SetApiRouter(router *gin.Engine) {
 			studioUserRoute.GET("/jobs/:id", controller.GetStudioJobDetail)
 			studioUserRoute.GET("/jobs", controller.ListStudioUserJobs)
 			studioUserRoute.POST("/jobs/:id/cancel", controller.CancelStudioJob)
+			studioUserRoute.POST("/attribution", controller.RecordStudioAttribution)
 		}
 
 		studioAdminRoute := apiRouter.Group("/admin/studio")

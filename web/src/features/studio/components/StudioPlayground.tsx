@@ -32,7 +32,13 @@ import {
   createStudioJob,
   getStudioJob,
   InsufficientCreditException,
+  quoteStudioJob,
+  recordStudioAttribution,
 } from '../api'
+import {
+  trackStudioGenerationAfterPurchase,
+  trackStudioPurchaseReturn,
+} from '@/lib/analytics'
 import type {
   InsufficientCreditData,
   SavedPendingJob,
@@ -101,6 +107,10 @@ export function StudioPlayground({
   const [insufficientData, setInsufficientData] =
     useState<InsufficientCreditData | null>(null)
 
+  // Credit Conversion Funnel: Post-purchase return state (Queue 3)
+  const [isPostPurchaseReturn, setIsPostPurchaseReturn] = useState(false)
+  const [freshQuoteCredits, setFreshQuoteCredits] = useState<number | null>(null)
+
   // Calculate user credits
   const userCredits = Math.floor((auth.user?.quota || 0) / 1000)
   const requiredCredits = currentTool ? currentTool.credit_cost : 10
@@ -149,6 +159,14 @@ export function StudioPlayground({
           }
         }
         toast.info(t('กู้คืนข้อมูลคำสั่งที่บันทึกไว้เรียบร้อยแล้ว'))
+      }
+
+      // Detect post-purchase return from wallet top-up (Queue 3 Funnel)
+      const purchaseOrigin = sessionStorage.getItem('tora_studio_purchase_origin')
+      if (purchaseOrigin) {
+        setIsPostPurchaseReturn(true)
+        trackStudioPurchaseReturn(purchaseOrigin)
+        recordStudioAttribution('purchase_return', purchaseOrigin)
       }
     } catch {
       // Ignore
@@ -204,6 +222,26 @@ export function StudioPlayground({
     if (durationSec) params.duration_sec = durationSec
     return params
   }, [prompt, negativePrompt, imageUrl, aspectRatio, scaleFactor, durationSec])
+
+  // Requote when post-purchase return is active (Queue 3 Funnel)
+  useEffect(() => {
+    if (isPostPurchaseReturn && currentTool) {
+      const params = buildInputParams()
+      quoteStudioJob({
+        tool_id: currentTool.id,
+        template_id: activeTemplateId || undefined,
+        input_params: params,
+      })
+        .then((q) => {
+          if (q?.calculated_credits) {
+            setFreshQuoteCredits(q.calculated_credits)
+          }
+        })
+        .catch(() => {
+          setFreshQuoteCredits(currentTool.credit_cost)
+        })
+    }
+  }, [isPostPurchaseReturn, currentTool, activeTemplateId, buildInputParams])
 
   // Save pending state for top-up redirect (stripping base64 media to prevent storage leak)
   const handlePreserveState = () => {
@@ -349,6 +387,18 @@ export function StudioPlayground({
     }
   }
 
+  // Explicit user confirmation after purchasing credits (Queue 3 - strictly non-auto)
+  const handleConfirmAfterPurchase = () => {
+    const toolId = currentTool?.id || 'studio'
+    const credits = freshQuoteCredits || currentTool?.credit_cost || 10
+    trackStudioGenerationAfterPurchase(toolId, credits)
+    recordStudioAttribution('generation_after_purchase', toolId, credits)
+    sessionStorage.removeItem('tora_studio_purchase_origin')
+    sessionStorage.removeItem('tora_studio_purchase_needed')
+    setIsPostPurchaseReturn(false)
+    handleGenerate()
+  }
+
   // Cancel job
   const handleCancel = async () => {
     if (!activeJob) return
@@ -434,6 +484,38 @@ export function StudioPlayground({
           </NativeSelect>
         </div>
       </div>
+
+      {/* Post-Purchase Return Funnel Banner (Queue 3) */}
+      {isPostPurchaseReturn && (
+        <div className='flex flex-col gap-3 rounded-2xl border border-emerald-500/30 bg-emerald-500/10 p-4 text-emerald-950 dark:text-emerald-100 sm:flex-row sm:items-center sm:justify-between'>
+          <div className='flex items-center gap-3'>
+            <div className='flex size-9 shrink-0 items-center justify-center rounded-xl bg-emerald-500/20 text-emerald-600 dark:text-emerald-400'>
+              <Sparkles className='size-5' />
+            </div>
+            <div className='text-xs'>
+              <p className='font-semibold text-emerald-700 dark:text-emerald-300'>
+                {t('เติมเครดิตเรียบร้อยแล้ว! ข้อมูลและพารามิเตอร์ของคุณได้รับการกู้คืน')}
+              </p>
+              <p className='text-muted-foreground'>
+                {t('อัตราบริการคำนวณใหม่:')}{' '}
+                <span className='font-bold text-foreground'>
+                  {freshQuoteCredits || currentTool?.credit_cost} {t('Credits')}
+                </span>{' '}
+                — {t('กรุณาตรวจสอบและกดยืนยันเพื่อเริ่มประมวลผล')}
+              </p>
+            </div>
+          </div>
+          <Button
+            onClick={handleConfirmAfterPurchase}
+            disabled={isSubmitting}
+            size='sm'
+            className='bg-emerald-600 hover:bg-emerald-500 text-white font-medium shrink-0 shadow-sm'
+          >
+            <CheckCircle2 className='mr-1.5 size-4' />
+            {t('ยืนยันสร้างผลงาน')}
+          </Button>
+        </div>
+      )}
 
       {/* Templates Pills */}
       {toolTemplates.length > 0 && (

@@ -1,3 +1,4 @@
+import { useEffect } from 'react'
 import { useNavigate } from '@tanstack/react-router'
 import { AlertCircle, Coins, Sparkles } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
@@ -11,7 +12,12 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
+import {
+  trackStudioBuyCreditClick,
+  trackStudioInsufficientCredit,
+} from '@/lib/analytics'
 
+import { recordStudioAttribution } from '../api'
 import type { InsufficientCreditData } from '../types'
 
 interface InsufficientCreditModalProps {
@@ -30,11 +36,23 @@ export function InsufficientCreditModal({
   const { t } = useTranslation()
   const navigate = useNavigate()
 
+  useEffect(() => {
+    if (open && data) {
+      const toolId = data.tool_id || 'studio'
+      trackStudioInsufficientCredit(toolId, data.required_credits, data.current_credits)
+      recordStudioAttribution('insufficient_credit', toolId, data.required_credits)
+    }
+  }, [open, data])
+
   if (!data) return null
 
   const handleTopUp = () => {
+    const toolId = data.tool_id || 'studio'
+    trackStudioBuyCreditClick(toolId, data.required_credits)
+    recordStudioAttribution('buy_credit_click', toolId, data.required_credits)
     onPreserveStateAndTopUp()
-    sessionStorage.setItem('tora_studio_purchase_origin', data.tool_id || 'studio')
+    sessionStorage.setItem('tora_studio_purchase_origin', toolId)
+    sessionStorage.setItem('tora_studio_purchase_needed', String(data.required_credits))
     onOpenChange(false)
     navigate({ to: '/wallet' })
   }

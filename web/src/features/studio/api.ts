@@ -137,3 +137,43 @@ export async function getStudioTelemetry(): Promise<StudioTelemetrySummary> {
   const payload = requireServerSuccess(res.data)
   return payload?.data
 }
+
+/**
+ * Request dynamic quote for a studio job.
+ */
+export async function quoteStudioJob(payload: {
+  tool_id: string
+  template_id?: string
+  input_params: Record<string, unknown>
+}): Promise<{
+  quote_id: string
+  calculated_credits: number
+  expires_at: number
+  estimated_cost_usd: number
+}> {
+  const res = await api.post('/api/studio/quote', payload)
+  const payloadData = requireServerSuccess(res.data)
+  return payloadData?.data
+}
+
+/**
+ * Record studio conversion milestone.
+ */
+export async function recordStudioAttribution(
+  eventType: 'insufficient_credit' | 'buy_credit_click' | 'purchase_return' | 'generation_after_purchase',
+  toolId: string,
+  credits = 0,
+  sessionId?: string
+): Promise<void> {
+  try {
+    await api.post('/api/studio/attribution', {
+      event_type: eventType,
+      tool_id: toolId,
+      credits,
+      session_id: sessionId,
+    })
+  } catch {
+    // Non-blocking telemetry
+  }
+}
+

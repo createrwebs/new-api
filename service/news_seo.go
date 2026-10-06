@@ -95,7 +95,7 @@ func GenerateSitemapXML(posts []*model.NewsPost) string {
 	sb.WriteString(`<?xml version="1.0" encoding="UTF-8"?>` + "\n")
 	sb.WriteString(`<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">` + "\n")
 
-	// Core root pages
+	// Core root pages & high-value Studio tool pages (Queue 3 SEO)
 	corePages := []struct {
 		url      string
 		priority string
@@ -105,6 +105,12 @@ func GenerateSitemapXML(posts []*model.NewsPost) string {
 		{canonicalBase + "/news", "0.9", "hourly"},
 		{canonicalBase + "/pricing", "0.8", "weekly"},
 		{canonicalBase + "/docs", "0.8", "weekly"},
+		{canonicalBase + "/tools/background-remove", "0.8", "weekly"},
+		{canonicalBase + "/tools/image-upscale", "0.8", "weekly"},
+		{canonicalBase + "/tools/image-generator", "0.8", "weekly"},
+		{canonicalBase + "/tools/product-photo", "0.8", "weekly"},
+		{canonicalBase + "/tools/object-eraser", "0.8", "weekly"},
+		{canonicalBase + "/tools/image-extend", "0.8", "weekly"},
 	}
 
 	for _, cp := range corePages {

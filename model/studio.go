@@ -55,8 +55,8 @@ type StudioToolDefinition struct {
 	OutputType       string          `json:"output_type" gorm:"type:varchar(32);not null"` // "image/png", "video/mp4"
 	AllowedMIMETypes string          `json:"allowed_mime_types" gorm:"type:varchar(255)"` // "image/jpeg,image/png,image/webp"
 	MaxUploadSize    int64           `json:"max_upload_size" gorm:"bigint;default:52428800"` // 50MB default
-	IsEnabled        bool            `json:"is_enabled" gorm:"index;default:true"`
-	IsPublic         bool            `json:"is_public" gorm:"index;default:true"`
+	IsEnabled        bool            `json:"is_enabled" gorm:"index"`
+	IsPublic         bool            `json:"is_public" gorm:"index"`
 	CreditCost       int             `json:"credit_cost" gorm:"type:int;not null;default:10"` // In Tora Credits (1 Credit = 1000 Quota)
 	QuotaCost        int             `json:"quota_cost" gorm:"type:bigint;not null;default:10000"` // In raw Tora Quota units
 	RiskClass        string          `json:"risk_class" gorm:"type:varchar(32);default:'low'"` // "low", "moderate", "high"
@@ -228,6 +228,21 @@ func (s *StudioCostSnapshot) TableName() string {
 	return "studio_cost_snapshots"
 }
 
+// StudioConversionEvent tracks conversion funnel milestones (Queue 3).
+type StudioConversionEvent struct {
+	Id        int    `json:"id" gorm:"primaryKey;autoIncrement"`
+	UserId    int    `json:"user_id" gorm:"index;not null"`
+	EventType string `json:"event_type" gorm:"type:varchar(64);index;not null"` // "insufficient_credit", "buy_credit_click", "purchase_return", "generation_after_purchase"
+	ToolId    string `json:"tool_id" gorm:"type:varchar(64);index;not null"`
+	Credits   int    `json:"credits" gorm:"type:int;default:0"`
+	SessionId string `json:"session_id" gorm:"type:varchar(64)"`
+	CreatedAt int64  `json:"created_at" gorm:"bigint;index"`
+}
+
+func (c *StudioConversionEvent) TableName() string {
+	return "studio_conversion_events"
+}
+
 func (j *StudioToolJob) BeforeCreate(tx *gorm.DB) error {
 	now := common.GetTimestamp()
 	if j.CreatedAt == 0 {
@@ -254,7 +269,24 @@ func EnsureStudioTables(db *gorm.DB) error {
 		&StudioJobEvent{},
 		&StudioAsset{},
 		&StudioCostSnapshot{},
+		&StudioConversionEvent{},
 	)
+}
+
+// RecordStudioConversionEvent logs a conversion funnel step into the persistent database.
+func RecordStudioConversionEvent(userId int, eventType string, toolId string, credits int, sessionId string) error {
+	if DB == nil {
+		return nil
+	}
+	event := &StudioConversionEvent{
+		UserId:    userId,
+		EventType: eventType,
+		ToolId:    toolId,
+		Credits:   credits,
+		SessionId: sessionId,
+		CreatedAt: common.GetTimestamp(),
+	}
+	return DB.Create(event).Error
 }
 
 // GetStudioToolDefinition retrieves a tool definition by its unique identifier or slug.
@@ -262,8 +294,12 @@ func GetStudioToolDefinition(toolIdOrSlug string) (*StudioToolDefinition, error)
 	if DB == nil {
 		return nil, errors.New("database not initialized")
 	}
+	lookup := toolIdOrSlug
+	if lookup == "object-eraser" {
+		lookup = "object-erase"
+	}
 	var def StudioToolDefinition
-	err := DB.Where("(id = ? OR slug = ?) AND is_enabled = true", toolIdOrSlug, toolIdOrSlug).First(&def).Error
+	err := DB.Where("(id = ? OR slug = ? OR id = ? OR slug = ?) AND is_enabled = true", toolIdOrSlug, toolIdOrSlug, lookup, lookup).First(&def).Error
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, ErrStudioToolNotFound

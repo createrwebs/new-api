@@ -465,6 +465,33 @@ func CancelStudioJob(c *gin.Context) {
 	})
 }
 
+// --- Attribution & Conversion Funnel Endpoints (Queue 3) ---
+
+type StudioAttributionPayload struct {
+	EventType string `json:"event_type" binding:"required"` // "insufficient_credit", "buy_credit_click", "purchase_return", "generation_after_purchase"
+	ToolId    string `json:"tool_id" binding:"required"`
+	Credits   int    `json:"credits"`
+	SessionId string `json:"session_id"`
+}
+
+// RecordStudioAttribution stores non-sensitive conversion milestones.
+func RecordStudioAttribution(c *gin.Context) {
+	userId := c.GetInt("id")
+	if userId <= 0 {
+		c.JSON(http.StatusUnauthorized, gin.H{"success": false, "message": "unauthorized"})
+		return
+	}
+
+	var req StudioAttributionPayload
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "invalid attribution payload: " + err.Error()})
+		return
+	}
+
+	_ = model.RecordStudioConversionEvent(userId, req.EventType, req.ToolId, req.Credits, req.SessionId)
+	c.JSON(http.StatusOK, gin.H{"success": true})
+}
+
 // --- Admin Studio Telemetry Endpoint (Section 34 & 35) ---
 
 // GetStudioAdminTelemetry aggregates business and operational metrics.
@@ -480,10 +507,21 @@ func GetStudioAdminTelemetry(c *gin.Context) {
 	var jobsToday int64
 	var succeededToday int64
 	var failedToday int64
+	var totalJobs int64
+	var succeededTotal int64
+	var failedTotal int64
+	var studioUsers int64
+	var refundsCount int64
 
 	model.DB.Model(&model.StudioToolJob{}).Where("created_at >= ?", startOfDay).Count(&jobsToday)
 	model.DB.Model(&model.StudioToolJob{}).Where("created_at >= ? AND status = ?", startOfDay, model.StudioJobStatusSucceeded).Count(&succeededToday)
 	model.DB.Model(&model.StudioToolJob{}).Where("created_at >= ? AND status = ?", startOfDay, model.StudioJobStatusFailed).Count(&failedToday)
+
+	model.DB.Model(&model.StudioToolJob{}).Count(&totalJobs)
+	model.DB.Model(&model.StudioToolJob{}).Where("status = ?", model.StudioJobStatusSucceeded).Count(&succeededTotal)
+	model.DB.Model(&model.StudioToolJob{}).Where("status = ?", model.StudioJobStatusFailed).Count(&failedTotal)
+	model.DB.Model(&model.StudioToolJob{}).Distinct("user_id").Count(&studioUsers)
+	model.DB.Model(&model.StudioJobEvent{}).Where("event_type LIKE ?", "%REFUND%").Count(&refundsCount)
 
 	var creditsConsumed int64
 	var totalCostUSD float64
@@ -506,6 +544,17 @@ func GetStudioAdminTelemetry(c *gin.Context) {
 		marginPercent = (grossProfitUSD / revenueUSD) * 100.0
 	}
 
+	// Conversion funnel metrics
+	var insufficientCreditEvents int64
+	var buyCreditClicks int64
+	var purchaseReturns int64
+	var generationAfterPurchases int64
+
+	model.DB.Model(&model.StudioConversionEvent{}).Where("event_type = ?", "insufficient_credit").Count(&insufficientCreditEvents)
+	model.DB.Model(&model.StudioConversionEvent{}).Where("event_type = ?", "buy_credit_click").Count(&buyCreditClicks)
+	model.DB.Model(&model.StudioConversionEvent{}).Where("event_type = ?", "purchase_return").Count(&purchaseReturns)
+	model.DB.Model(&model.StudioConversionEvent{}).Where("event_type = ?", "generation_after_purchase").Count(&generationAfterPurchases)
+
 	falConfigured := osGetEnv("FAL_KEY") != "" || osGetEnv("FAL_API_KEY") != ""
 	providerStatus := gin.H{
 		"fal": gin.H{
@@ -522,15 +571,29 @@ func GetStudioAdminTelemetry(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"data": gin.H{
-			"jobs_today":            jobsToday,
-			"succeeded_today":       succeededToday,
-			"failed_today":          failedToday,
-			"credits_consumed":      creditsConsumed,
-			"estimated_revenue_usd": revenueUSD,
-			"estimated_cost_usd":    totalCostUSD,
-			"estimated_profit_usd":  grossProfitUSD,
-			"gross_margin_percent":  marginPercent,
-			"providers":             providerStatus,
+			"studio_users":                 studioUsers,
+			"jobs":                         totalJobs,
+			"jobs_today":                   jobsToday,
+			"succeeded_today":              succeededToday,
+			"failed_today":                 failedToday,
+			"succeeded_total":              succeededTotal,
+			"failed_total":                 failedTotal,
+			"refunds":                      refundsCount,
+			"credits_spent":                creditsConsumed,
+			"credits_consumed":             creditsConsumed,
+			"insufficient_credit_events":   insufficientCreditEvents,
+			"buy_credit_clicks":            buyCreditClicks,
+			"studio_originated_topups":     purchaseReturns,
+			"generation_after_purchases":   generationAfterPurchases,
+			"provider_cost":                totalCostUSD,
+			"sell_value":                   revenueUSD,
+			"gross_profit":                 grossProfitUSD,
+			"gross_margin":                 marginPercent,
+			"estimated_revenue_usd":        revenueUSD,
+			"estimated_cost_usd":           totalCostUSD,
+			"estimated_profit_usd":         grossProfitUSD,
+			"gross_margin_percent":         marginPercent,
+			"providers":                    providerStatus,
 		},
 	})
 }
@@ -546,7 +609,84 @@ func osGetEnv(k string) string {
 	return strings.TrimSpace(os.Getenv(k))
 }
 
-// --- SSR Public Landing Pages (Section 23) ---
+// --- SSR Public Landing Pages (Queue 3 SEO & Content) ---
+
+type ToolUseCase struct {
+	Title string
+	Desc  string
+}
+
+type ToolSEOMetadata struct {
+	UseCases     []ToolUseCase
+	RelatedSlugs []string
+}
+
+var toolSEORegistry = map[string]ToolSEOMetadata{
+	"background-remove": {
+		UseCases: []ToolUseCase{
+			{"ภาพสินค้า E-commerce & Marketplace", "ตัดพื้นหลังสินค้าเป็นสีขาวหรือโปร่งใสทันที พร้อมลงขายบน Shopee, Lazada และ TikTok Shop"},
+			{"ภาพถ่ายบุคคล & ทำรูปติดบัตร", "แยกเส้นผมและขอบเสื้อผ้าอย่างแม่นยำด้วยโมเดล BiRefNet สำหรับรูปโปรไฟล์และเอกสารทางการ"},
+			{"งานกราฟิกดีไซน์ & สื่อโฆษณา", "ไดคัทวัตถุอย่างรวดเร็ว เพื่อนำไปจัดวางบนแบนเนอร์และภาพกราฟิกโปรโมชัน"},
+		},
+		RelatedSlugs: []string{"image-upscale", "product-photo", "image-generator"},
+	},
+	"image-upscale": {
+		UseCases: []ToolUseCase{
+			{"ขยายภาพความละเอียดสูงสำหรับงานพิมพ์", "อัปสเกลภาพขึ้น 4 เท่าแบบ 4K โดยไม่แตก รักษาเส้นสายคมชัดระดับสตูดิโอ"},
+			{"กู้คืนภาพถ่ายเก่าและภาพความละเอียดต่ำ", "ฟื้นฟูรายละเอียดพื้นผิวและ Texture อย่างเป็นธรรมชาติด้วย Clarity Upscaler"},
+			{"เพิ่มความคมชัดสำหรับงานเว็บไซต์และจอเรตินา", "ยกระดับภาพกราฟิกให้ดูพรีเมียมบนหน้าจอแสดงผลความละเอียดสูงทุกขนาด"},
+		},
+		RelatedSlugs: []string{"background-remove", "image-generator", "image-extend"},
+	},
+	"image-generator": {
+		UseCases: []ToolUseCase{
+			{"สร้างภาพคอนเทนต์สำหรับโซเชียลมีเดีย", "สร้างสรรค์ผลงานภาพเสมือนจริงด้วย Flux.1 Schnell จากคำบรรยายภาษาไทยและอังกฤษ"},
+			{"ออกแบบ Concept Art & Moodboard", "ระดมความคิดและทดลองสไตล์ศิลปะ ตัวละคร หรือทิวทัศน์ได้อย่างรวดเร็ว"},
+			{"สื่อการตลาดและภาพประกอบโฆษณา", "ได้ภาพที่มีเอกลักษณ์เฉพาะตัว ไม่ซ้ำใคร ช่วยเพิ่มการมีส่วนร่วมและยอดคลิก"},
+		},
+		RelatedSlugs: []string{"image-upscale", "background-remove", "image-extend"},
+	},
+	"image-generate": {
+		UseCases: []ToolUseCase{
+			{"สร้างภาพคอนเทนต์สำหรับโซเชียลมีเดีย", "สร้างสรรค์ผลงานภาพเสมือนจริงด้วย Flux.1 Schnell จากคำบรรยายภาษาไทยและอังกฤษ"},
+			{"ออกแบบ Concept Art & Moodboard", "ระดมความคิดและทดลองสไตล์ศิลปะ ตัวละคร หรือทิวทัศน์ได้อย่างรวดเร็ว"},
+			{"สื่อการตลาดและภาพประกอบโฆษณา", "ได้ภาพที่มีเอกลักษณ์เฉพาะตัว ไม่ซ้ำใคร ช่วยเพิ่มการมีส่วนร่วมและยอดคลิก"},
+		},
+		RelatedSlugs: []string{"image-upscale", "background-remove", "image-extend"},
+	},
+	"product-photo": {
+		UseCases: []ToolUseCase{
+			{"ภาพถ่ายสตูดิโอสินค้าแบบมืออาชีพ", "จัดวางสินค้าลงบนฉากจัดแสงเงาระดับมืออาชีพ เพิ่มมูลค่าให้แบรนด์ของคุณทันที"},
+			{"ฉากหลังหลากหลายสไตล์ในคลิกเดียว", "เลือกฉากมินิมอล เคาน์เตอร์ไม้ ธรรมชาติ หรือหรูหรา โดยไม่ต้องจัดฉากถ่ายจริง"},
+			{"ประหยัดงบประมาณและเวลาถ่ายทำ", "สร้างภาพสินค้าหลายสิบคอนเซปต์ได้ภายในไม่กี่นาทีด้วยโมเดล Product Photography"},
+		},
+		RelatedSlugs: []string{"background-remove", "image-upscale", "object-eraser"},
+	},
+	"object-eraser": {
+		UseCases: []ToolUseCase{
+			{"ลบลายน้ำ วันที่ และข้อความบนรูปภาพ", "ลบข้อความที่ไม่ต้องการออกอย่างเรียบเนียน เติมเต็มพื้นหลังให้กลมกลืน"},
+			{"ลบคนและสิ่งแปลกปลอมในภาพถ่าย", "แก้ไขรูปภาพท่องเที่ยวและภาพครอบครัว กำจัด Photobomb ได้อย่างสมบูรณ์แบบ"},
+			{"รีทัชรูปสินค้าและแก้ไขจุดบกพร่อง", "ลบฝุ่น ริ้วรอย หรือรอยเปื้อนบนตัวสินค้าเพื่อความสวยงามขั้นสูงสุด"},
+		},
+		RelatedSlugs: []string{"background-remove", "image-upscale", "image-extend"},
+	},
+	"object-erase": {
+		UseCases: []ToolUseCase{
+			{"ลบลายน้ำ วันที่ และข้อความบนรูปภาพ", "ลบข้อความที่ไม่ต้องการออกอย่างเรียบเนียน เติมเต็มพื้นหลังให้กลมกลืน"},
+			{"ลบคนและสิ่งแปลกปลอมในภาพถ่าย", "แก้ไขรูปภาพท่องเที่ยวและภาพครอบครัว กำจัด Photobomb ได้อย่างสมบูรณ์แบบ"},
+			{"รีทัชรูปสินค้าและแก้ไขจุดบกพร่อง", "ลบฝุ่น ริ้วรอย หรือรอยเปื้อนบนตัวสินค้าเพื่อความสวยงามขั้นสูงสุด"},
+		},
+		RelatedSlugs: []string{"background-remove", "image-upscale", "image-extend"},
+	},
+	"image-extend": {
+		UseCases: []ToolUseCase{
+			{"ขยายภาพเป็นสัดส่วน Story 9:16 หรือ Feed", "ปรับเปลี่ยนอัตราส่วนภาพแนวนอนเป็นแนวตั้งสำหรับ Instagram Reels และ TikTok"},
+			{"เติมเต็มฉากหลังสำหรับแบนเนอร์เว็บไซต์", "ขยายขอบภาพออกด้านข้างอย่างไร้รอยต่อ เติมเต็มบรรยากาศรอบข้างอย่างสมจริง"},
+			{"จัดองค์ประกอบภาพใหม่เพื่อเพิ่มพื้นที่ข้อความ", "เพิ่มพื้นที่ว่างบนภาพสำหรับใส่พาดหัวโฆษณาและโลโก้ได้อย่างสวยงาม"},
+		},
+		RelatedSlugs: []string{"image-generator", "image-upscale", "background-remove"},
+	},
+}
 
 // RenderStudioToolLandingPage serves indexable, crawlable HTML pages for high-value tools.
 func RenderStudioToolLandingPage(c *gin.Context) {
@@ -557,6 +697,14 @@ func RenderStudioToolLandingPage(c *gin.Context) {
 	if err != nil {
 		c.Redirect(http.StatusFound, "/studio")
 		return
+	}
+
+	meta, hasMeta := toolSEORegistry[slug]
+	if !hasMeta {
+		meta, hasMeta = toolSEORegistry[tool.Slug]
+	}
+	if !hasMeta {
+		meta, _ = toolSEORegistry[tool.Id]
 	}
 
 	canonicalURL := fmt.Sprintf("%s/tools/%s", canonicalBase, tool.Slug)
@@ -574,6 +722,9 @@ func RenderStudioToolLandingPage(c *gin.Context) {
   <meta property="og:title" content="` + tool.DisplayName + ` — Tora AI Studio">
   <meta property="og:description" content="` + tool.Description + `">
   <meta property="og:url" content="` + canonicalURL + `">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="` + tool.DisplayName + ` — Tora AI Studio">
+  <meta name="twitter:description" content="` + tool.Description + `">
   <script src="https://cdn.tailwindcss.com"></script>
   <script type="application/ld+json">
   {
@@ -600,12 +751,13 @@ func RenderStudioToolLandingPage(c *gin.Context) {
     <div class="flex items-center space-x-4">
       <a href="/studio" class="text-sm text-slate-300 hover:text-white transition">คลังเครื่องมือทั้งหมด</a>
       <a href="/pricing" class="text-sm text-slate-300 hover:text-white transition">เติมเครดิต</a>
-      <a href="/playground?tool=` + tool.Id + `" class="text-sm bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 rounded-lg font-medium shadow-lg shadow-blue-500/20 transition">เริ่มใช้งานทันที</a>
+      <a href="/studio?tool=` + tool.Id + `&tab=playground" class="text-sm bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 rounded-lg font-medium shadow-lg shadow-blue-500/20 transition">เริ่มใช้งานทันที</a>
     </div>
   </nav>
 
   <main class="flex-1 max-w-5xl mx-auto px-6 py-12">
-    <div class="text-center max-w-3xl mx-auto mb-12">
+    <!-- Hero Section -->
+    <div class="text-center max-w-3xl mx-auto mb-14">
       <div class="inline-flex items-center space-x-2 bg-slate-900 border border-slate-800 px-3 py-1 rounded-full text-xs text-slate-400 mb-4">
         <span class="w-2 h-2 rounded-full bg-emerald-500"></span>
         <span>หมวดหมู่: ` + strings.ToUpper(tool.Category) + `</span>
@@ -613,8 +765,8 @@ func RenderStudioToolLandingPage(c *gin.Context) {
       <h1 class="text-4xl md:text-5xl font-extrabold text-white mb-4 tracking-tight">` + tool.DisplayName + `</h1>
       <p class="text-lg text-slate-300 mb-6 leading-relaxed">` + tool.Description + `</p>
       <div class="flex flex-wrap items-center justify-center gap-4">
-        <a href="/playground?tool=` + tool.Id + `" class="bg-blue-600 hover:bg-blue-500 text-white px-8 py-3.5 rounded-xl font-semibold shadow-xl shadow-blue-600/25 transition">
-          ทดลองใช้งานใน Playground
+        <a href="/studio?tool=` + tool.Id + `&tab=playground" class="bg-blue-600 hover:bg-blue-500 text-white px-8 py-3.5 rounded-xl font-semibold shadow-xl shadow-blue-600/25 transition">
+          เริ่มใช้งานใน Tora Studio
         </a>
         <div class="bg-slate-900 border border-slate-800 px-5 py-3 rounded-xl text-sm text-slate-300 flex items-center space-x-2">
           <span>อัตราค่าบริการ:</span>
@@ -624,22 +776,87 @@ func RenderStudioToolLandingPage(c *gin.Context) {
       </div>
     </div>
 
-    <div class="grid md:grid-cols-3 gap-6 mb-16">
-      <div class="bg-slate-900/60 border border-slate-800/80 rounded-2xl p-6">
-        <div class="w-10 h-10 rounded-xl bg-blue-500/10 flex items-center justify-center text-blue-400 mb-4 font-bold">1</div>
-        <h3 class="text-lg font-bold text-white mb-2">มาตรฐานระดับสากล</h3>
-        <p class="text-sm text-slate-400">ประมวลผลด้วยโมเดล ` + tool.PrimaryModel + ` คุณภาพเทียบเท่าสตูดิโอระดับโลก</p>
+    <!-- Use Cases Section -->
+    <div class="mb-16">
+      <h2 class="text-2xl font-bold text-white mb-6 text-center">ตัวอย่างการนำไปใช้งานจริง (Use Cases)</h2>
+      <div class="grid md:grid-cols-3 gap-6">`)
+
+	if len(meta.UseCases) > 0 {
+		for i, uc := range meta.UseCases {
+			badgeNum := strconv.Itoa(i + 1)
+			sb.WriteString(`
+        <div class="bg-slate-900/60 border border-slate-800/80 rounded-2xl p-6 hover:border-slate-700 transition">
+          <div class="w-9 h-9 rounded-xl bg-blue-500/10 flex items-center justify-center text-blue-400 mb-4 font-bold text-sm">` + badgeNum + `</div>
+          <h3 class="text-base font-bold text-white mb-2">` + uc.Title + `</h3>
+          <p class="text-sm text-slate-400 leading-relaxed">` + uc.Desc + `</p>
+        </div>`)
+		}
+	} else {
+		sb.WriteString(`
+        <div class="bg-slate-900/60 border border-slate-800/80 rounded-2xl p-6">
+          <div class="w-9 h-9 rounded-xl bg-blue-500/10 flex items-center justify-center text-blue-400 mb-4 font-bold text-sm">1</div>
+          <h3 class="text-base font-bold text-white mb-2">มาตรฐานระดับสตูดิโอ</h3>
+          <p class="text-sm text-slate-400">ประมวลผลด้วยโมเดล AI ล้ำสมัย ให้ความแม่นยำสูง</p>
+        </div>`)
+	}
+
+	sb.WriteString(`
       </div>
-      <div class="bg-slate-900/60 border border-slate-800/80 rounded-2xl p-6">
-        <div class="w-10 h-10 rounded-xl bg-purple-500/10 flex items-center justify-center text-purple-400 mb-4 font-bold">2</div>
-        <h3 class="text-lg font-bold text-white mb-2">กระเป๋าเงินเดียว (One Wallet)</h3>
-        <p class="text-sm text-slate-400">ใช้เครดิต Tora ร่วมกับ Chat และ API ได้ทันที ไม่ต้องเติมเงินแยกกระเป๋า</p>
+    </div>
+
+    <!-- How It Works Section -->
+    <div class="mb-16 bg-slate-900/40 border border-slate-800 rounded-3xl p-8 md:p-10">
+      <h2 class="text-2xl font-bold text-white mb-8 text-center">ขั้นตอนการทำงาน (How It Works)</h2>
+      <div class="grid md:grid-cols-3 gap-8 text-center">
+        <div>
+          <div class="w-12 h-12 mx-auto rounded-2xl bg-blue-600/20 text-blue-400 flex items-center justify-center font-bold text-lg mb-4">1</div>
+          <h4 class="font-bold text-white mb-2">1. เลือกเครื่องมือ & ใส่ข้อมูล</h4>
+          <p class="text-xs text-slate-400 leading-relaxed">อัปโหลดรูปภาพต้นฉบับ หรือใส่คำสั่ง Prompt ตามที่คุณต้องการสร้างสรรค์</p>
+        </div>
+        <div>
+          <div class="w-12 h-12 mx-auto rounded-2xl bg-purple-600/20 text-purple-400 flex items-center justify-center font-bold text-lg mb-4">2</div>
+          <h4 class="font-bold text-white mb-2">2. เช็คราคาล่วงหน้า</h4>
+          <p class="text-xs text-slate-400 leading-relaxed">ระบบคำนวณ Tora Credits แบบโปร่งใส รับประกันไม่มีค่าใช้จ่ายแอบแฝง</p>
+        </div>
+        <div>
+          <div class="w-12 h-12 mx-auto rounded-2xl bg-emerald-600/20 text-emerald-400 flex items-center justify-center font-bold text-lg mb-4">3</div>
+          <h4 class="font-bold text-white mb-2">3. รับผลงานความละเอียดสูง</h4>
+          <p class="text-xs text-slate-400 leading-relaxed">AI ประมวลผลและส่งมอบผลงานคุณภาพสตูดิโอ สามารถนำไปใช้งานต่อได้ทันที</p>
+        </div>
       </div>
-      <div class="bg-slate-900/60 border border-slate-800/80 rounded-2xl p-6">
-        <div class="w-10 h-10 rounded-xl bg-emerald-500/10 flex items-center justify-center text-emerald-400 mb-4 font-bold">3</div>
-        <h3 class="text-lg font-bold text-white mb-2">ปลอดภัย & คืนเงินอัตโนมัติ</h3>
-        <p class="text-sm text-slate-400">หากเกิดข้อผิดพลาดในการประมวลผล ระบบจะคืนเครดิตเข้ากระเป๋าเต็มจำนวนทันที</p>
+    </div>
+
+    <!-- Related Tools Section -->
+    <div class="mb-16">
+      <h2 class="text-2xl font-bold text-white mb-6 text-center">เครื่องมือที่เกี่ยวข้อง (Related Tools)</h2>
+      <div class="grid md:grid-cols-3 gap-6">`)
+
+	for _, relSlug := range meta.RelatedSlugs {
+		relTool, err := model.GetStudioToolDefinition(relSlug)
+		if err == nil && relTool != nil {
+			sb.WriteString(`
+        <a href="/tools/` + relTool.Slug + `" class="block bg-slate-900/60 border border-slate-800/80 rounded-2xl p-6 hover:border-blue-500/50 hover:bg-slate-900 transition group">
+          <div class="flex items-center justify-between mb-3">
+            <span class="text-xs font-semibold text-blue-400 bg-blue-500/10 px-2 py-0.5 rounded-full">` + strings.ToUpper(relTool.Category) + `</span>
+            <span class="text-xs text-slate-500">` + strconv.Itoa(relTool.CreditCost) + ` Cr</span>
+          </div>
+          <h3 class="text-base font-bold text-white mb-1 group-hover:text-blue-400 transition">` + relTool.DisplayName + `</h3>
+          <p class="text-xs text-slate-400 line-clamp-2">` + relTool.Description + `</p>
+        </a>`)
+		}
+	}
+
+	sb.WriteString(`
       </div>
+    </div>
+
+    <!-- Bottom CTA -->
+    <div class="text-center bg-gradient-to-r from-blue-900/30 to-purple-900/30 border border-blue-500/20 rounded-3xl p-10">
+      <h2 class="text-2xl md:text-3xl font-extrabold text-white mb-3">พร้อมเริ่มสร้างผลงานระดับสตูดิโอแล้วหรือยัง?</h2>
+      <p class="text-sm text-slate-300 max-w-xl mx-auto mb-6">ใช้งาน Tora Credits ร่วมกันได้ทั้ง Chat, API และ Creator Studio เติมเงินเพียงกระเป๋าเดียว สะดวกและคุ้มค่าที่สุด</p>
+      <a href="/studio?tool=` + tool.Id + `&tab=playground" class="inline-block bg-blue-600 hover:bg-blue-500 text-white px-8 py-3.5 rounded-xl font-semibold shadow-xl shadow-blue-600/30 transition">
+        ทดลองใช้งาน ` + tool.DisplayName + ` ทันที
+      </a>
     </div>
   </main>
 

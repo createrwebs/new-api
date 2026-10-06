@@ -279,3 +279,47 @@ export function trackNewsInternalLinkClick(
     destination,
   })
 }
+
+// ==========================================
+// Studio Conversion Funnel Events (Queue 3)
+// ==========================================
+
+export function trackStudioInsufficientCredit(
+  toolId: string,
+  requiredCredits: number,
+  currentCredits: number
+): void {
+  trackEvent('studio_insufficient_credit', {
+    tool_id: toolId,
+    required_credits: requiredCredits,
+    current_credits: currentCredits,
+    missing_credits: Math.max(0, requiredCredits - currentCredits),
+  })
+}
+
+export function trackStudioBuyCreditClick(
+  toolId: string,
+  requiredCredits: number
+): void {
+  trackEvent('studio_buy_credit_click', {
+    tool_id: toolId,
+    required_credits: requiredCredits,
+  })
+}
+
+export function trackStudioPurchaseReturn(toolId: string): void {
+  trackEvent('studio_purchase_return', {
+    tool_id: toolId,
+  })
+}
+
+export function trackStudioGenerationAfterPurchase(
+  toolId: string,
+  credits: number
+): void {
+  trackEvent('studio_generation_after_purchase', {
+    tool_id: toolId,
+    credits,
+  })
+}
+
