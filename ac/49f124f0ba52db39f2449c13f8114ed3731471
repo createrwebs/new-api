@@ -1,0 +1,38 @@
+controller/studio.go
+  h_f97827f62b0fea 558-574,605-613,685-688,854-888,891-920
+docs/ai/TORA_PRODUCT_STUDIO_REPORT.md
+  h_f97827f62b0fea 1-181
+service/studio_fal.go
+  h_f97827f62b0fea 223,225-228,257,264,271,300-304,306-311,313-314,316-317,319-320,322-323,326-330
+service/studio_image_mvp_test.go
+  h_f97827f62b0fea 52
+service/studio_mock.go
+  h_f97827f62b0fea 5,75-100,104-105,128,130-133,142,144-147
+service/studio_pricing.go
+  h_f97827f62b0fea 121,123-135,145-146,151-153
+service/studio_product_photo_test.go
+  h_f97827f62b0fea 1-373
+service/studio_provider.go
+  h_f97827f62b0fea 18-22,27-31
+service/studio_seed.go
+  h_f97827f62b0fea 90,93,106,266,268-340,346-348,351,359-361,364,372-374,377,384-387,390,394,396-403,407,409-416,420,422-427,429,433,435-442
+service/studio_service.go
+  h_f97827f62b0fea 106-125,262-267,360-365
+service/studio_service_test.go
+  h_f97827f62b0fea 252-254
+web/src/features/studio/components/StudioPlayground.tsx
+  h_f97827f62b0fea 8,10,12,14,16,44,47-48,106-114,131-140,142,145-152,258-282,284,297,300-307,429-438,448-449,468,489-504,506-508,516,741-756,758-763,765,768-773,775,779-879,881-910,1120,1123-1240,1248,1253,1260-1262,1264-1280,1289,1293-1310
+web/src/lib/analytics.ts
+  h_f97827f62b0fea 326-356
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.3",
+  "base_commit_sha": "ac49f124f0ba52db39f2449c13f8114ed3731471",
+  "prompts": {},
+  "humans": {
+    "h_f97827f62b0fea": {
+      "author": "NOPPANAN THEERACHARTE <noppanan.the@axonstech.com>"
+    }
+  }
+}
