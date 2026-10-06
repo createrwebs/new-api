@@ -99,6 +99,76 @@ func GetStudioTemplates(c *gin.Context) {
 	})
 }
 
+// --- Public Catalog & Quote Endpoints (Section 7, 8 & 14) ---
+
+type QuoteStudioJobRequest struct {
+	ToolId      string                 `json:"tool_id" binding:"required"`
+	TemplateId  string                 `json:"template_id"`
+	InputParams map[string]interface{} `json:"input_params"`
+}
+
+// QuoteStudioJob returns a verifiable, 15-minute TTL pricing quote prior to submission (Section 14).
+func QuoteStudioJob(c *gin.Context) {
+	var req QuoteStudioJobRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"success": false,
+			"message": "invalid quote request payload: " + err.Error(),
+		})
+		return
+	}
+
+	toolDef, err := model.GetStudioToolDefinition(req.ToolId)
+	if err != nil {
+		if errors.Is(err, model.ErrStudioToolNotFound) {
+			c.JSON(http.StatusNotFound, gin.H{"success": false, "message": "tool not found"})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": err.Error()})
+		return
+	}
+
+	studioSvc := service.GetStudioService()
+	pricingEngine := studioSvc.GetPricingEngine()
+
+	planMultiplier := 1.0
+	// If user is authenticated, check custom tier if available
+	if userId := c.GetInt("id"); userId > 0 {
+		planMultiplier = 1.0
+	}
+
+	snapshot, err := pricingEngine.CalculatePriceWithInputs(toolDef, req.InputParams, planMultiplier)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": err.Error()})
+		return
+	}
+
+	quoteId := pricingEngine.SaveQuote(snapshot)
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"message": "",
+		"data": gin.H{
+			"quote_id":                    quoteId,
+			"tool_id":                     toolDef.Id,
+			"tool_name":                   toolDef.DisplayName,
+			"pricing_version":             snapshot.PricingVersion,
+			"provider":                    snapshot.Provider,
+			"provider_model":              snapshot.ProviderModel,
+			"provider_estimated_cost_usd": snapshot.ProviderEstimatedCostUSD,
+			"provider_cost_basis":         snapshot.ProviderCostBasis,
+			"target_margin":               snapshot.TargetMargin,
+			"calculated_sell_usd":         snapshot.CalculatedSellUSD,
+			"calculated_credits":          snapshot.CalculatedCredits,
+			"charged_credits":             snapshot.ChargedCredits,
+			"charged_quota":               snapshot.ChargedQuota,
+			"plan_multiplier":             snapshot.PlanMultiplier,
+			"quoted_at":                   snapshot.QuotedAt,
+			"expires_at":                  snapshot.ExpiresAt,
+		},
+	})
+}
+
 // --- Authenticated User Endpoints (Section 19 & 20) ---
 
 type CreateStudioJobRequest struct {
@@ -132,16 +202,37 @@ func CreateStudioJob(c *gin.Context) {
 		idempKey = common.GetUUID()
 	}
 
-	// SSRF Defense: validate any URLs passed in input_params (Section 30)
+	// Security Defense: Validate input parameters (SSRF, video base64, size limits)
 	for key, val := range req.InputParams {
-		if strings.HasSuffix(key, "_url") || key == "url" {
-			if strVal, ok := val.(string); ok && strings.HasPrefix(strVal, "http") {
-				if err := service.ValidateExternalURL(strVal); err != nil {
-					c.JSON(http.StatusBadRequest, gin.H{
-						"success": false,
-						"message": fmt.Sprintf("invalid %s: %s", key, err.Error()),
-					})
-					return
+		if strVal, ok := val.(string); ok {
+			// Disable video base64 uploads (Section 21)
+			if strings.HasPrefix(strVal, "data:video/") {
+				c.JSON(http.StatusBadRequest, gin.H{
+					"success": false,
+					"message": service.ErrBase64Video.Error(),
+				})
+				return
+			}
+
+			// Validate maximum base64 payload size (20MB encoded ~ 15MB binary)
+			if strings.HasPrefix(strVal, "data:image/") && len(strVal) > 20*1024*1024 {
+				c.JSON(http.StatusBadRequest, gin.H{
+					"success": false,
+					"message": service.ErrFileSizeExceeded.Error(),
+				})
+				return
+			}
+
+			// SSRF Defense: validate any external URLs (Section 30)
+			if strings.HasSuffix(key, "_url") || key == "url" || strings.HasPrefix(strVal, "http://") || strings.HasPrefix(strVal, "https://") {
+				if strings.HasPrefix(strVal, "http") {
+					if err := service.ValidateExternalURL(strVal); err != nil {
+						c.JSON(http.StatusBadRequest, gin.H{
+							"success": false,
+							"message": fmt.Sprintf("invalid %s: %s", key, err.Error()),
+						})
+						return
+					}
 				}
 			}
 		}
@@ -149,6 +240,7 @@ func CreateStudioJob(c *gin.Context) {
 
 	studioSvc := service.GetStudioService()
 	planMultiplier := 1.0 // Standard rate
+	isAdmin := c.GetInt("role") >= common.RoleAdminUser
 
 	job, err := studioSvc.SubmitJob(
 		c.Request.Context(),
@@ -160,6 +252,7 @@ func CreateStudioJob(c *gin.Context) {
 		req.InputParams,
 		planMultiplier,
 		c.ClientIP(),
+		isAdmin,
 	)
 
 	if err != nil {

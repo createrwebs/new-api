@@ -437,3 +437,196 @@ func TestStudioService_IDOR_AccessControl(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, job.Id, adminJob.Id)
 }
+
+func TestStudioPricing_QuoteGenerationAndTTL(t *testing.T) {
+	pe := NewPricingEngine()
+	toolDef := &model.StudioToolDefinition{
+		Id:              "image-to-video",
+		PrimaryProvider: "fal",
+		PrimaryModel:    "wan-video/wan-2.2",
+		CreditCost:      125,
+		QuotaCost:       125000,
+		Category:        "video",
+		MarginPercent:   68.0,
+	}
+
+	// 1. Generate Quote for 10-second video (duration scaled)
+	params := map[string]interface{}{"duration": 10}
+	snapshot, err := pe.CalculatePriceWithInputs(toolDef, params, 1.0)
+	require.NoError(t, err)
+	require.NotNil(t, snapshot)
+
+	// 10s video = 2x base cost = 250 credits
+	assert.Equal(t, 250, snapshot.ChargedCredits)
+	assert.Equal(t, 250000, snapshot.ChargedQuota)
+	assert.Equal(t, "per_second", snapshot.ProviderCostBasis)
+	assert.Equal(t, 0.160, snapshot.ProviderEstimatedCostUSD)
+	assert.True(t, snapshot.TargetMargin >= 60.0)
+
+	// 2. Save quote and retrieve
+	quoteId := pe.SaveQuote(snapshot)
+	require.NotEmpty(t, quoteId)
+
+	retrieved, err := pe.GetQuote(quoteId)
+	require.NoError(t, err)
+	assert.Equal(t, snapshot.ChargedCredits, retrieved.ChargedCredits)
+	assert.Equal(t, snapshot.ProviderModel, retrieved.ProviderModel)
+
+	// 3. Unknown quote returns ErrQuoteNotFound
+	_, err = pe.GetQuote("quote_non_existent")
+	assert.ErrorIs(t, err, ErrQuoteNotFound)
+
+	// 4. Force expiration and verify ErrQuoteExpired
+	pe.quotesMu.Lock()
+	entry := pe.quoteCache[quoteId]
+	entry.expiresAt = time.Now().Add(-1 * time.Minute)
+	pe.quoteCache[quoteId] = entry
+	pe.quotesMu.Unlock()
+
+	_, err = pe.GetQuote(quoteId)
+	assert.ErrorIs(t, err, ErrQuoteExpired)
+}
+
+func TestStudioPricing_ProfitabilityGuardFailsClosed(t *testing.T) {
+	pe := NewPricingEngine()
+
+	// 1. Snapshot with insufficient margin (charged quota too low)
+	unprofitableSnapshot := &model.StudioPricingSnapshot{
+		ProviderEstimatedCostUSD: 0.100, // Costs 10 cents
+		ChargedQuota:             10000, // 10,000 Quota = 2 cents revenue -> Gross profit is negative!
+	}
+	err := pe.ValidateProfitability(unprofitableSnapshot, 60.0)
+	assert.Error(t, err)
+	assert.ErrorIs(t, err, ErrMarginBelowFloor)
+
+	// 2. Snapshot below minimum floor (e.g. 50% margin when 60% required)
+	// Cost = $0.05, Revenue = $0.08 -> Margin = 37.5%
+	lowMarginSnapshot := &model.StudioPricingSnapshot{
+		ProviderEstimatedCostUSD: 0.050,
+		ChargedQuota:             40000, // $0.080 revenue
+	}
+	err = pe.ValidateProfitability(lowMarginSnapshot, 60.0)
+	assert.Error(t, err)
+
+	// 3. Snapshot with healthy 65% margin passes
+	// Cost = $0.035, ChargedQuota = 50,000 ($0.100 revenue) -> Margin = 65%
+	healthySnapshot := &model.StudioPricingSnapshot{
+		ProviderEstimatedCostUSD: 0.035,
+		ChargedQuota:             50000,
+	}
+	err = pe.ValidateProfitability(healthySnapshot, 60.0)
+	assert.NoError(t, err)
+}
+
+func TestStudioPricing_CeilRoundingPreservesMargin(t *testing.T) {
+	pe := NewPricingEngine()
+
+	// Arbitrary fractional cost: $0.0133 at 60% target margin
+	// sellPrice = 0.0133 / 0.4 = 0.03325
+	// baseQuota = 0.03325 * 500,000 = 16,625 Quota units
+	// calculatedCredits = 16.625
+	// chargedCredits = ceil(16.625) = 17 Credits = 17,000 Quota units
+	credits, quota, sellUSD := pe.CalculatePrice("utility", 0.0133, 60.0, 1.0)
+	assert.Equal(t, 17, credits)
+	assert.Equal(t, 17000, quota)
+	assert.InDelta(t, 0.03325, sellUSD, 0.0001)
+
+	// Calculate actual realized gross margin from charged quota
+	revenueUSD := float64(quota) / common.QuotaPerUnit // 17000 / 500000 = 0.034
+	grossProfitUSD := revenueUSD - 0.0133
+	actualMargin := (grossProfitUSD / revenueUSD) * 100.0
+
+	// Actual margin is 60.88%, preserving the >= 60.0% floor!
+	assert.True(t, actualMargin >= 60.0, "Ceil rounding must mathematically guarantee margin >= target")
+}
+
+func TestStudioSecurity_SSRF_AdvancedBlocklist(t *testing.T) {
+	// AWS / GCP Metadata
+	assert.ErrorIs(t, ValidateExternalURL("http://169.254.169.254/latest/meta-data"), ErrSSRFForbidden)
+	assert.ErrorIs(t, ValidateExternalURL("http://169.254.170.2/v2/metadata"), ErrSSRFForbidden)
+
+	// Alibaba Cloud Metadata
+	assert.ErrorIs(t, ValidateExternalURL("http://100.100.100.200/latest/meta-data"), ErrSSRFForbidden)
+
+	// RFC 1918 Private ranges
+	assert.ErrorIs(t, ValidateExternalURL("http://10.254.1.1/internal-asset.png"), ErrSSRFForbidden)
+	assert.ErrorIs(t, ValidateExternalURL("http://192.168.1.50:80/photo.jpg"), ErrSSRFForbidden)
+	assert.ErrorIs(t, ValidateExternalURL("http://172.16.0.5/image.png"), ErrSSRFForbidden)
+
+	// Loopback and IPv4-mapped IPv6
+	assert.ErrorIs(t, ValidateExternalURL("http://127.0.0.1:9090/test"), ErrSSRFForbidden)
+	assert.ErrorIs(t, ValidateExternalURL("http://localhost:8080/image"), ErrSSRFForbidden)
+
+	// Dangerous internal ports
+	assert.ErrorIs(t, ValidateExternalURL("http://example.com:22/ssh"), ErrSSRFForbidden)
+	assert.ErrorIs(t, ValidateExternalURL("http://example.com:5432/db"), ErrSSRFForbidden)
+	assert.ErrorIs(t, ValidateExternalURL("http://example.com:6379/redis"), ErrSSRFForbidden)
+}
+
+func TestStudioSecurity_ValidateMediaUpload(t *testing.T) {
+	// Valid PNG upload within 15MB
+	validPNG := []byte{0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00, 0x00, 0x0D}
+	mime, err := ValidateMediaUpload(validPNG, "image.png", false)
+	require.NoError(t, err)
+	assert.Equal(t, "image/png", mime)
+
+	// Oversized image payload (>15MB)
+	oversized := make([]byte, 16*1024*1024)
+	copy(oversized[:8], []byte{0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A})
+	_, err = ValidateMediaUpload(oversized, "huge.png", false)
+	assert.ErrorIs(t, err, ErrFileSizeExceeded)
+
+	// Video header when video is not allowed
+	mp4Header := []byte{0x00, 0x00, 0x00, 0x18, 'f', 't', 'y', 'p', 'm', 'p', '4', '2'}
+	_, err = ValidateMediaUpload(mp4Header, "clip.mp4", false)
+	assert.ErrorIs(t, err, ErrVideoNotAllowed)
+
+	// Video header when video IS allowed
+	mime, err = ValidateMediaUpload(mp4Header, "clip.mp4", true)
+	require.NoError(t, err)
+	assert.Equal(t, "video/mp4", mime)
+}
+
+func TestStudioService_ConcurrentSettlement_RaceSafe(t *testing.T) {
+	db := setupTestDBForStudio(t)
+
+	user := model.User{Username: "studio_race_user", Quota: 100000, Status: common.UserStatusEnabled}
+	require.NoError(t, db.Create(&user).Error)
+
+	mockProvider := NewDeterministicMockProvider(MockModeDelayedSuccess)
+	studioSvc := NewStudioService(mockProvider)
+
+	job, err := studioSvc.SubmitJob(
+		context.Background(),
+		user.Id,
+		"image-generate",
+		"",
+		"idemp_race_1",
+		"mock",
+		map[string]interface{}{"prompt": "Race condition verification"},
+		1.0,
+		"127.0.0.1",
+	)
+	require.NoError(t, err)
+	assert.Equal(t, model.StudioJobStatusProcessing, job.Status)
+
+	// Advance mock provider state to succeeded
+	mockProvider.JobStatusMap[job.ProviderJobId] = "completed"
+
+	// Simulate concurrent webhook / poll race
+	done := make(chan bool, 2)
+	for i := 0; i < 2; i++ {
+		go func() {
+			_, _ = studioSvc.PollJob(context.Background(), job.Id, user.Id, false)
+			done <- true
+		}()
+	}
+	<-done
+	<-done
+
+	// Verify wallet balance: should only be settled ONCE (deducting 5,000, leaving 95,000)
+	bal, err := model.GetUserQuota(user.Id, true)
+	require.NoError(t, err)
+	assert.Equal(t, 95000, bal, "Concurrent settlement must never double-deduct wallet quota")
+}
+

@@ -87,6 +87,7 @@ export function StudioPlayground({
   const [durationSec, setDurationSec] = useState(5)
   const [activeTemplateId, setActiveTemplateId] = useState<string | null>(null)
   const [providerOverride, setProviderOverride] = useState<'fal' | 'mock' | 'auto'>('auto')
+  const [confirmedRights, setConfirmedRights] = useState(false)
 
   // Job execution state
   const [activeJob, setActiveJob] = useState<StudioJob | null>(null)
@@ -118,12 +119,18 @@ export function StudioPlayground({
     }
   }, [t])
 
-  // Restore state from localStorage if available
+  // Restore state from localStorage if available (with 2-hour TTL enforcement)
   useEffect(() => {
     try {
       const saved = localStorage.getItem(STORAGE_KEY)
       if (saved) {
         const parsed: SavedPendingJob = JSON.parse(saved)
+        const TWO_HOURS_MS = 2 * 60 * 60 * 1000
+        if (parsed.timestamp && Date.now() - parsed.timestamp > TWO_HOURS_MS) {
+          localStorage.removeItem(STORAGE_KEY)
+          return
+        }
+
         if (parsed.tool_id) {
           onToolChange(parsed.tool_id)
         }
@@ -198,15 +205,26 @@ export function StudioPlayground({
     return params
   }, [prompt, negativePrompt, imageUrl, aspectRatio, scaleFactor, durationSec])
 
-  // Save pending state for top-up redirect
+  // Save pending state for top-up redirect (stripping base64 media to prevent storage leak)
   const handlePreserveState = () => {
+    const rawParams = buildInputParams()
+    const sanitizedParams: Record<string, unknown> = {}
+    for (const [key, val] of Object.entries(rawParams)) {
+      if (typeof val === 'string' && val.startsWith('data:')) {
+        // Do not persist raw base64 media in localStorage
+        continue
+      }
+      sanitizedParams[key] = val
+    }
+
     const pendingJob: SavedPendingJob = {
       tool_id: currentTool.id,
       template_id: activeTemplateId || undefined,
-      input_params: buildInputParams(),
+      input_params: sanitizedParams,
       timestamp: Date.now(),
     }
     localStorage.setItem(STORAGE_KEY, JSON.stringify(pendingJob))
+    sessionStorage.setItem('tora_studio_purchase_origin', currentTool.id)
   }
 
   // Handle image file upload to base64
@@ -293,6 +311,15 @@ export function StudioPlayground({
 
     if (!needsImage && !prompt.trim()) {
       toast.error(t('กรุณาระบุคำสั่ง Prompt เพื่อสร้างผลงาน'))
+      return
+    }
+
+    // Require ownership & rights confirmation for Object Cleanup (Section 30)
+    if (
+      (currentTool.slug === 'object-erase' || currentTool.id === 'object-erase') &&
+      !confirmedRights
+    ) {
+      toast.error(t('กรุณายืนยันสิทธิ์ในการแก้ไขรูปภาพก่อนเริ่มดำเนินการ'))
       return
     }
 
@@ -621,6 +648,27 @@ export function StudioPlayground({
                       10 {t('วินาที (10s Clip)')}
                     </Button>
                   </div>
+                </div>
+              )}
+
+              {/* Object Cleanup Ownership & Rights Confirmation */}
+              {(currentTool?.slug === 'object-erase' || currentTool?.id === 'object-erase') && (
+                <div className='flex items-start gap-2.5 rounded-lg border border-border/70 bg-muted/30 p-3 text-xs'>
+                  <input
+                    type='checkbox'
+                    id='confirmed-rights-checkbox'
+                    checked={confirmedRights}
+                    onChange={(e) => setConfirmedRights(e.target.checked)}
+                    className='mt-0.5 size-4 rounded border-border text-primary focus:ring-primary'
+                  />
+                  <Label
+                    htmlFor='confirmed-rights-checkbox'
+                    className='cursor-pointer text-[11px] leading-relaxed text-muted-foreground'
+                  >
+                    {t(
+                      'ฉันยืนยันว่าเป็นเจ้าของหรือได้รับสิทธิ์ในการแก้ไขรูปภาพนี้ และยอมรับข้อกำหนดการใช้งาน (Object Cleanup & Inpainting)'
+                    )}
+                  </Label>
                 </div>
               )}
             </CardContent>

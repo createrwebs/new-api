@@ -128,18 +128,36 @@ type StudioToolJob struct {
 	Status         StudioJobStatus `json:"status" gorm:"type:varchar(32);index;not null"`
 	ReservedQuota  int             `json:"reserved_quota" gorm:"type:bigint;not null;default:0"`
 	SettledQuota   int             `json:"settled_quota" gorm:"type:bigint;not null;default:0"`
-	InputParams    string          `json:"input_params" gorm:"type:text"` // JSON payload
-	OutputResult   string          `json:"output_result" gorm:"type:text"` // JSON payload / URLs
-	ErrorMessage   string          `json:"error_message" gorm:"type:text"`
-	RiskClass      string          `json:"risk_class" gorm:"type:varchar(32);default:'low'"`
-	ClientIP       string          `json:"client_ip" gorm:"type:varchar(64)"`
-	CreatedAt      int64           `json:"created_at" gorm:"bigint;index"`
-	UpdatedAt      int64           `json:"updated_at" gorm:"bigint"`
-	CompletedAt    int64           `json:"completed_at" gorm:"bigint"`
+	InputParams     string          `json:"input_params" gorm:"type:text"` // JSON payload
+	OutputResult    string          `json:"output_result" gorm:"type:text"` // JSON payload / URLs
+	PricingSnapshot string          `json:"pricing_snapshot" gorm:"type:text"` // JSON of StudioPricingSnapshot (Section 14)
+	ErrorMessage    string          `json:"error_message" gorm:"type:text"`
+	RiskClass       string          `json:"risk_class" gorm:"type:varchar(32);default:'low'"`
+	ClientIP        string          `json:"client_ip" gorm:"type:varchar(64)"`
+	CreatedAt       int64           `json:"created_at" gorm:"bigint;index"`
+	UpdatedAt       int64           `json:"updated_at" gorm:"bigint"`
+	CompletedAt     int64           `json:"completed_at" gorm:"bigint"`
 }
 
 func (j *StudioToolJob) TableName() string {
 	return "studio_tool_jobs"
+}
+
+// StudioPricingSnapshot records complete commercial audit metadata for a studio job (Section 14).
+type StudioPricingSnapshot struct {
+	PricingVersion          string  `json:"pricing_version"`
+	Provider                string  `json:"provider"`
+	ProviderModel           string  `json:"provider_model"`
+	ProviderEstimatedCostUSD float64 `json:"provider_estimated_cost_usd"`
+	ProviderCostBasis       string  `json:"provider_cost_basis"` // "per_image", "per_second", "flat"
+	TargetMargin            float64 `json:"target_margin"`
+	CalculatedSellUSD       float64 `json:"calculated_sell_usd"`
+	CalculatedCredits       float64 `json:"calculated_credits"`
+	ChargedCredits          int     `json:"charged_credits"`
+	ChargedQuota            int     `json:"charged_quota"`
+	PlanMultiplier          float64 `json:"plan_multiplier"`
+	QuotedAt                int64   `json:"quoted_at"`
+	ExpiresAt               int64   `json:"expires_at"`
 }
 
 // StudioJobEvent records state changes for auditability and recovery.
@@ -157,35 +175,42 @@ func (e *StudioJobEvent) TableName() string {
 	return "studio_job_events"
 }
 
-// StudioAsset tracks uploaded input and generated output media assets.
+// StudioAsset tracks uploaded input and generated output media assets (Section 21 & 24).
 type StudioAsset struct {
-	Id         string `json:"id" gorm:"primaryKey;type:varchar(64)"`
-	UserId     int    `json:"user_id" gorm:"index;not null"`
-	JobId      string `json:"job_id" gorm:"type:varchar(64);index"`
-	AssetType  string `json:"asset_type" gorm:"type:varchar(32);not null"` // "input", "output"
-	MIMEType   string `json:"mime_type" gorm:"type:varchar(64);not null"`
-	FileSize   int64  `json:"file_size" gorm:"bigint;not null"`
-	StorageURL string `json:"storage_url" gorm:"type:varchar(512);not null"`
-	ExpiryAt   int64  `json:"expiry_at" gorm:"bigint"`
-	CreatedAt  int64  `json:"created_at" gorm:"bigint"`
+	Id                 string `json:"id" gorm:"primaryKey;type:varchar(64)"`
+	UserId             int    `json:"user_id" gorm:"index;not null"`
+	JobId              string `json:"job_id" gorm:"type:varchar(64);index"`
+	AssetType          string `json:"asset_type" gorm:"type:varchar(32);not null"` // "input", "output"
+	MIMEType           string `json:"mime_type" gorm:"type:varchar(64);not null"`
+	FileSize           int64  `json:"file_size" gorm:"bigint;not null"`
+	Width              int    `json:"width" gorm:"type:int;default:0"`
+	Height             int    `json:"height" gorm:"type:int;default:0"`
+	Duration           int    `json:"duration" gorm:"type:int;default:0"`
+	AvailabilityStatus string `json:"availability_status" gorm:"type:varchar(32);default:'available'"`
+	StorageURL         string `json:"storage_url" gorm:"type:varchar(512);not null"`
+	ExpiryAt           int64  `json:"expiry_at" gorm:"bigint;index"`
+	CreatedAt          int64  `json:"created_at" gorm:"bigint"`
 }
 
 func (a *StudioAsset) TableName() string {
 	return "studio_assets"
 }
 
-// StudioCostSnapshot captures provider COGS for margin telemetry (Section 35).
+// StudioCostSnapshot captures provider COGS for margin telemetry (Section 19 & 35).
 type StudioCostSnapshot struct {
-	Id            int     `json:"id" gorm:"primaryKey;autoIncrement"`
-	JobId         string  `json:"job_id" gorm:"type:varchar(64);uniqueIndex;not null"`
-	ToolId        string  `json:"tool_id" gorm:"type:varchar(64);index;not null"`
-	ProviderName  string  `json:"provider_name" gorm:"type:varchar(32);not null"`
-	ProviderJobId string  `json:"provider_job_id" gorm:"type:varchar(128)"`
-	CostUSD       float64 `json:"cost_usd" gorm:"type:numeric(8,4);not null"`
-	QuotaCost     int     `json:"quota_cost" gorm:"type:bigint;not null"`
-	MarginUSD     float64 `json:"margin_usd" gorm:"type:numeric(8,4);not null"`
-	MarginPercent float64 `json:"margin_percent" gorm:"type:numeric(5,2);not null"`
-	SnapshotAt    int64   `json:"snapshot_at" gorm:"bigint;index"`
+	Id                 int     `json:"id" gorm:"primaryKey;autoIncrement"`
+	JobId              string  `json:"job_id" gorm:"type:varchar(64);uniqueIndex;not null"`
+	ToolId             string  `json:"tool_id" gorm:"type:varchar(64);index;not null"`
+	ProviderName       string  `json:"provider_name" gorm:"type:varchar(32);not null"`
+	ProviderJobId      string  `json:"provider_job_id" gorm:"type:varchar(128)"`
+	CostUSD            float64 `json:"cost_usd" gorm:"type:numeric(8,4);not null"`
+	QuotaCost          int     `json:"quota_cost" gorm:"type:bigint;not null"`
+	ToraRevenueUSD     float64 `json:"tora_revenue_usd" gorm:"type:numeric(8,4);default:0"`
+	GrossProfitUSD     float64 `json:"gross_profit_usd" gorm:"type:numeric(8,4);default:0"`
+	GrossMarginPercent float64 `json:"gross_margin_percent" gorm:"type:numeric(5,2);default:0"`
+	MarginUSD          float64 `json:"margin_usd" gorm:"type:numeric(8,4);not null"`
+	MarginPercent      float64 `json:"margin_percent" gorm:"type:numeric(5,2);not null"`
+	SnapshotAt         int64   `json:"snapshot_at" gorm:"bigint;index"`
 }
 
 func (s *StudioCostSnapshot) TableName() string {

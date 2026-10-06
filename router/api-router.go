@@ -372,6 +372,7 @@ func SetApiRouter(router *gin.Engine) {
 			studioPublicRoute.GET("/tools", controller.GetStudioTools)
 			studioPublicRoute.GET("/tools/:slug", controller.GetStudioToolBySlug)
 			studioPublicRoute.GET("/templates", controller.GetStudioTemplates)
+			studioPublicRoute.POST("/quote", controller.QuoteStudioJob)
 		}
 
 		studioUserRoute := apiRouter.Group("/studio")

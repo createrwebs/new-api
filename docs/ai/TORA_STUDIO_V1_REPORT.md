@@ -3,7 +3,7 @@
 **Date:** 2026-10-07  
 **Branch:** `feat/formobile`  
 **Production Host:** `https://www.toraapi.com`  
-**Final Status:** `FINAL STATUS: TORA STUDIO V1 READY — PROVIDER CREDENTIAL REQUIRED`
+**Final Status:** `FINAL STATUS: TORA STUDIO HARDENED — PROVIDER CREDENTIAL REQUIRED`
 
 ---
 
@@ -17,13 +17,13 @@ $$\text{Tool Discovery} \longrightarrow \text{Tora Credits} \longrightarrow \tex
 ### Status Overview
 | Subsystem | State | Evidence |
 |---|---|---|
-| **Data Schema & Models** | **PROVEN** | `model/studio.go` additive tables (`studio_tool_definitions`, `studio_tool_templates`, `studio_tool_jobs`, etc.) with composite idempotency index. |
+| **Data Schema & Models** | **PROVEN** | `model/studio.go` additive tables (`studio_tool_definitions`, `studio_tool_templates`, `studio_tool_jobs`, etc.) with composite idempotency index, pricing snapshots, and asset expiry tracking. |
 | **Monetization Engine** | **PROVEN** | Single-wallet atomic billing (`PreConsumeUserWallet`, `SettleUserWalletPreConsume`, `RefundUserWalletPreConsume`). Zero new billing tables. |
-| **Pricing & Conversion** | **PROVEN** | Invariant enforced: `1 Tora Credit = 1,000 Quota units` (~$0.002 reference ≈ 0.07 THB). 50–65% gross margins. |
+| **Pricing & Conversion** | **PROVEN** | Invariant enforced: `1 Tora Credit = 1,000 Quota units` (~$0.002 reference ≈ 0.07 THB). Mathematical integer ceiling preserves gross margins $\ge 60\%$. Pre-submission quote API (`POST /api/studio/quote`). |
 | **Provider Layer** | **PROVEN** | Real `fal.ai` adapter + Deterministic Mock Provider with automatic fallback and failover. |
-| **Security & Safety** | **PROVEN** | SSRF protection (RFC 1918 + AWS metadata blocked), magic byte file validation, IDOR tenant isolation. |
-| **Go Test Suite** | **10/10 PASS** | `go test -v ./service -run TestStudio` passing 100% (settlement, refund, idempotency, SSRF, IDOR). |
-| **Frontend UI Suite** | **0 ERRORS** | TanStack Router + React 19 + Tailwind CSS: Catalog, Playground, History, Insufficient Credit Modal with localStorage state preservation. |
+| **Security & Safety** | **PROVEN** | SSRF protection (RFC 1918 + AWS/GCP/Alibaba metadata blocked, dial-time DNS rebinding check, redirect hop inspection), 15MB upload limit, magic bytes check, IDOR tenant isolation. |
+| **Go Test Suite** | **23/23 PASS** | Passing 100% across `service/` and `controller/` (settlement, refund, idempotency, SSRF, IDOR, quote TTL, profitability guard, ceil rounding, concurrent race). |
+| **Frontend UI Suite** | **0 ERRORS** | TanStack Router + React 19 + Tailwind CSS: Catalog, Playground, History, Insufficient Credit Modal with base64-stripped state preservation and rights confirmation checkbox. |
 | **Public SEO Pages** | **PROVEN** | SSR HTML renderer for `/tools/:slug` with JSON-LD SoftwareApplication schema. |
 | **fal.ai Credential** | **OPERATOR REQUIRED** | Server environment has no `FAL_KEY`. System safely marks tools as `OPERATOR_BLOCKED` without crashing. Mock provider operates at 100%. |
 

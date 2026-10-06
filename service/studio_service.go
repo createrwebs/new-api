@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"strings"
 
 	"github.com/QuantumNous/new-api/common"
@@ -47,6 +48,13 @@ func (s *StudioService) GetProvider(name string) StudioProvider {
 	return s.providers[name]
 }
 
+func (s *StudioService) GetPricingEngine() *PricingEngine {
+	if s.pricingEngine == nil {
+		s.pricingEngine = NewPricingEngine()
+	}
+	return s.pricingEngine
+}
+
 // recordEvent persists an audit event for state transitions.
 func (s *StudioService) recordEvent(db *gorm.DB, jobId string, eventType string, oldStatus model.StudioJobStatus, newStatus model.StudioJobStatus, payload string) {
 	if db == nil {
@@ -74,6 +82,7 @@ func (s *StudioService) SubmitJob(
 	inputParams map[string]interface{},
 	planMultiplier float64,
 	clientIP string,
+	isAdmin ...bool,
 ) (*model.StudioToolJob, error) {
 	if strings.TrimSpace(idempotencyKey) == "" {
 		return nil, errors.New("idempotency_key is required")
@@ -94,7 +103,12 @@ func (s *StudioService) SubmitJob(
 		return nil, fmt.Errorf("invalid tool requested: %w", err)
 	}
 
-	// 3. Select Provider
+	// 3. Select Provider & guard mock usage in production
+	userIsAdmin := false
+	if len(isAdmin) > 0 {
+		userIsAdmin = isAdmin[0]
+	}
+
 	if providerName == "" {
 		providerName = toolDef.PrimaryProvider
 	}
@@ -102,9 +116,19 @@ func (s *StudioService) SubmitJob(
 		providerName = "mock"
 	}
 
+	if providerName == "mock" && !userIsAdmin {
+		// Mock provider is strictly prohibited for non-admin requests in release mode
+		if !common.DebugEnabled && os.Getenv("GIN_MODE") == "release" {
+			return nil, errors.New("mock provider is disabled in production environment for non-admin requests")
+		}
+	}
+
 	provider := s.GetProvider(providerName)
 	if provider == nil {
-		// Fallback to mock if provider is unavailable or not registered
+		// Fallback to mock only if registered and permitted
+		if !userIsAdmin && !common.DebugEnabled && os.Getenv("GIN_MODE") == "release" {
+			return nil, fmt.Errorf("provider %s is not registered or unavailable", providerName)
+		}
 		provider = s.GetProvider("mock")
 		if provider == nil {
 			return nil, fmt.Errorf("provider %s is not registered or unavailable", providerName)
@@ -112,8 +136,22 @@ func (s *StudioService) SubmitJob(
 		providerName = "mock"
 	}
 
-	// 4. Calculate final quota cost based on plan multiplier
-	_, quotaToReserve := s.pricingEngine.EstimateToolCost(toolDef, planMultiplier)
+	// 4. Calculate dynamic pricing snapshot & enforce profitability guard (Section 14 & 35)
+	pricingSnapshot, err := s.pricingEngine.CalculatePriceWithInputs(toolDef, inputParams, planMultiplier)
+	if err != nil {
+		return nil, fmt.Errorf("failed calculating pricing snapshot: %w", err)
+	}
+
+	minMargin := toolDef.MarginPercent
+	if minMargin <= 0 {
+		minMargin = MinGrossMarginFloor
+	}
+	if err := s.pricingEngine.ValidateProfitability(pricingSnapshot, minMargin); err != nil {
+		return nil, err
+	}
+
+	quotaToReserve := pricingSnapshot.ChargedQuota
+	pricingSnapshotJSON, _ := json.Marshal(pricingSnapshot)
 
 	// 5. Generate durable request ID and job ID
 	jobId := fmt.Sprintf("job_%d_%s", common.GetTimestamp(), common.GetUUID()[:8])
@@ -133,20 +171,21 @@ func (s *StudioService) SubmitJob(
 
 	// 7. Record Job in RESERVED State
 	job := &model.StudioToolJob{
-		Id:             jobId,
-		UserId:         userId,
-		ToolId:         toolId,
-		TemplateId:     templateId,
-		RequestId:      requestId,
-		IdempotencyKey: idempotencyKey,
-		ProviderName:   providerName,
-		Status:         model.StudioJobStatusReserved,
-		ReservedQuota:  quotaToReserve,
-		InputParams:    string(inputParamsJSON),
-		RiskClass:      toolDef.RiskClass,
-		ClientIP:       clientIP,
-		CreatedAt:      common.GetTimestamp(),
-		UpdatedAt:      common.GetTimestamp(),
+		Id:              jobId,
+		UserId:          userId,
+		ToolId:          toolId,
+		TemplateId:      templateId,
+		RequestId:       requestId,
+		IdempotencyKey:  idempotencyKey,
+		ProviderName:    providerName,
+		Status:          model.StudioJobStatusReserved,
+		ReservedQuota:   quotaToReserve,
+		InputParams:     string(inputParamsJSON),
+		PricingSnapshot: string(pricingSnapshotJSON),
+		RiskClass:       toolDef.RiskClass,
+		ClientIP:        clientIP,
+		CreatedAt:       common.GetTimestamp(),
+		UpdatedAt:       common.GetTimestamp(),
 	}
 
 	if model.DB != nil {
@@ -222,14 +261,17 @@ func (s *StudioService) SubmitJob(
 	return job, nil
 }
 
-// recordCostSnapshot captures financial telemetry for margin analytics (Section 34, 35).
+// recordCostSnapshot captures financial telemetry for margin analytics (Section 19, 34, 35).
 func (s *StudioService) recordCostSnapshot(db *gorm.DB, job *model.StudioToolJob, toolDef *model.StudioToolDefinition, providerName string) {
 	if db == nil || toolDef == nil {
 		return
 	}
 
 	costUSD := 0.005
-	if p, ok := s.providers[providerName]; ok {
+	var snapshot model.StudioPricingSnapshot
+	if job.PricingSnapshot != "" && json.Unmarshal([]byte(job.PricingSnapshot), &snapshot) == nil && snapshot.ProviderEstimatedCostUSD > 0 {
+		costUSD = snapshot.ProviderEstimatedCostUSD
+	} else if p, ok := s.providers[providerName]; ok {
 		if fal, isFal := p.(*FalProvider); isFal {
 			costUSD = fal.EstimateCost(toolDef.PrimaryModel)
 		}
@@ -242,18 +284,21 @@ func (s *StudioService) recordCostSnapshot(db *gorm.DB, job *model.StudioToolJob
 		marginPercent = (marginUSD / revenueUSD) * 100.0
 	}
 
-	snapshot := model.StudioCostSnapshot{
-		JobId:         job.Id,
-		ToolId:        job.ToolId,
-		ProviderName:  providerName,
-		ProviderJobId: job.ProviderJobId,
-		CostUSD:       costUSD,
-		QuotaCost:     job.SettledQuota,
-		MarginUSD:     marginUSD,
-		MarginPercent: marginPercent,
-		SnapshotAt:    common.GetTimestamp(),
+	costRecord := model.StudioCostSnapshot{
+		JobId:              job.Id,
+		ToolId:             job.ToolId,
+		ProviderName:       providerName,
+		ProviderJobId:      job.ProviderJobId,
+		CostUSD:            costUSD,
+		QuotaCost:          job.SettledQuota,
+		ToraRevenueUSD:     revenueUSD,
+		GrossProfitUSD:     marginUSD,
+		GrossMarginPercent: marginPercent,
+		MarginUSD:          marginUSD,
+		MarginPercent:      marginPercent,
+		SnapshotAt:         common.GetTimestamp(),
 	}
-	_ = db.Create(&snapshot)
+	_ = db.Create(&costRecord)
 }
 
 // PollJob inspects background job progress and settles/refunds upon terminal state.

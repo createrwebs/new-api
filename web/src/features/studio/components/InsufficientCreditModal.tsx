@@ -34,6 +34,7 @@ export function InsufficientCreditModal({
 
   const handleTopUp = () => {
     onPreserveStateAndTopUp()
+    sessionStorage.setItem('tora_studio_purchase_origin', data.tool_id || 'studio')
     onOpenChange(false)
     navigate({ to: '/wallet' })
   }
