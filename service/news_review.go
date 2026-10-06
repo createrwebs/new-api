@@ -425,6 +425,7 @@ type GlobalGrowthOverview struct {
 	GA4Status              string                       `json:"ga4_status"`
 	GA4DataAvailable       bool                         `json:"ga4_data_available"`
 	GA4PropertyID          string                       `json:"ga4_property_id"`
+	GA4LastError           string                       `json:"ga4_last_error,omitempty"`
 	MassAutopublish        bool                         `json:"mass_autopublish"`
 	AutonomousPolicy       MassAutoPublishState         `json:"autonomous_policy"`
 	DevToUpdatePolicy      string                       `json:"devto_update_policy"`
@@ -556,6 +557,7 @@ func GetGlobalGrowthOverview() (*GlobalGrowthOverview, error) {
 		GA4Status:              ga4Status.Status,
 		GA4DataAvailable:       ga4Status.DataAvailable,
 		GA4PropertyID:          ga4Status.PropertyID,
+		GA4LastError:           ga4Status.LastError,
 		MassAutopublish:        false, // Strictly disabled (Section 12)
 		AutonomousPolicy:       policyState,
 		DevToUpdatePolicy:      devPub.UpdatePolicy,

@@ -209,6 +209,7 @@ func (c *DefaultGA4Client) GetNormalizedGA4Status(ctx context.Context, forceRefr
 		body, _ := io.ReadAll(resp.Body)
 		overview.Status = GA4StatusOperatorBlocked
 		overview.LastError = fmt.Sprintf("GA4 API HTTP %d: %s", resp.StatusCode, string(body))
+		common.SysLog(fmt.Sprintf("[GA4] Health check probe failed: %s", overview.LastError))
 		cachedGA4Status = overview
 		lastGA4CheckAt = now
 		return overview
