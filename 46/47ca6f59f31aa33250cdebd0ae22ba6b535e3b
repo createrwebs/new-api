@@ -1,0 +1,18 @@
+scripts/test_prod_canary_cap_1.py
+  h_f97827f62b0fea 1-114
+scripts/test_prod_cap_hardened.py
+  h_f97827f62b0fea 1-142
+scripts/test_prod_newsroom_autopilot.py
+  h_f97827f62b0fea 107,110
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.3",
+  "base_commit_sha": "4647ca6f59f31aa33250cdebd0ae22ba6b535e3b",
+  "prompts": {},
+  "humans": {
+    "h_f97827f62b0fea": {
+      "author": "NOPPANAN THEERACHARTE <noppanan.the@axonstech.com>"
+    }
+  }
+}
