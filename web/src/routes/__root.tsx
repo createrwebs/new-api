@@ -66,9 +66,9 @@ function RootComponent() {
 
   // Track SPA route navigation with page_view event (Section 4 & 18)
   useEffect(() => {
-    const fullPath = location.pathname + (location.search || '')
+    const fullPath = location.pathname + (location.searchStr || '')
     trackPageView(fullPath)
-  }, [location.pathname, location.search])
+  }, [location.pathname, location.searchStr])
 
   // Preserve UTM attribution parameters in sessionStorage across route transitions (Section 5 & 9)
   useEffect(() => {
@@ -97,7 +97,7 @@ function RootComponent() {
         /* ignore */
       }
     }
-  }, [location.search])
+  }, [location.searchStr])
 
   // Load system configuration (logo, system name, etc.) from backend
   useSystemConfig({ autoLoad: true })
