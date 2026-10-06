@@ -201,7 +201,7 @@ Real release readiness still requires:
 ### Growth Channels (`CONTROLLED ACTIVATION & SOCIAL CANARY`)
 
 - Google Search Console (`GSC = CONNECTED / WARMING UP`): Delta-aware ingestion implemented (`service/news_gsc.go`), caching `FINAL` partitions (age > 3 days) immutably and querying missing/partial dates with `dataState=all`. Hourly worker queries delta partitions; selective URL inspection limited to max 2/run.
-- Google Analytics 4 (`GA4 = OPERATOR_BLOCKED`): Production web audit revealed no active `gtag.js` or Measurement ID installed (comments only); `GA4_PROPERTY_ID` not configured. Read-only GA4 Data API client built in `service/news_ga4.go` ready for activation upon operator credential provision.
+- Google Analytics 4 (`GA4 = OPERATOR_BLOCKED — WEB INSTRUMENTATION COMPLETE`): GA4 web instrumentation deployed across SSR News (`controller/news.go`) and React SPA (`web/src/routes/__root.tsx`, `web/src/lib/analytics.ts`). Features `send_page_view: false` to prevent duplicate tracking, single TanStack router listener, strict regex privacy scrubbing (zero AI prompts/responses, emails, tokens, keys), product funnel events (`sign_up`, `login`, `pricing_view`, `chat_started`, `first_successful_chat`, `begin_checkout`, `purchase`), and CTA tracking with UTM persistence. Joined GSC + GA4 + local conversion funnel in `service/news_review.go` with Opportunity Quality classification (`TRAFFIC_OPPORTUNITY` vs `BUSINESS_VALUE_OPPORTUNITY`). Runbook documented at `docs/ai/GA4_GROWTH_ATTRIBUTION_RUNBOOK.md`. Awaiting operator GA4 Property/credentials provisioning.
 - DEV Community (`DEVTO = ACTIVE`): `DEVTO_API_KEY` active, Post 8 published live (Article ID `4804790`). Enforces idempotent update policy (`DEVTO_UPDATE_POLICY=UPDATE_EXISTING`) preventing duplicate articles. Real stats (views, reactions, comments) collected live.
 - Meta Facebook (`FACEBOOK = OPERATOR_BLOCKED`): Graph API v26.0 connector with Page ID and permissions verification, Thai text formatting, and pre-flight idempotency checks. Awaiting `FACEBOOK_PAGE_ACCESS_TOKEN` & `FACEBOOK_PAGE_ID`.
 - LinkedIn (`LINKEDIN = OPERATOR_BLOCKED`): REST API 202609 connector with Organization ID verification and pre-flight idempotency checks. Awaiting `LINKEDIN_ACCESS_TOKEN` & `LINKEDIN_ORG_ID`.
@@ -213,7 +213,7 @@ Real release readiness still requires:
 Core product & growth engineering complete:
 
 ```text
-[R1-R4 COMPLETED] -> [R6-R7 COMPLETED] -> [R10 COMPLETED] -> [R11 COMPLETED] -> [R11-M COMPLETED] -> [R11-LIVE COMPLETED] -> [R11-PG COMPLETED] -> [R11-STAGING COMPLETED] -> [R11-PROD-PREFLIGHT COMPLETED] -> [R11-PROD-DEPLOY-SAFETY COMPLETED] -> [R11-PROD-DEPLOY COMPLETED (R11 PRODUCTION = PASS)] -> [R11-GROWTH-ACTIVATION COMPLETED] -> [R11-GROWTH-CLOSED-LOOP COMPLETED] -> [R11-SOCIAL-CANARY COMPLETED (DEV.TO LIVE, GSC CONNECTED, FB/LI OPERATOR_BLOCKED)] -> [R5 OPERATOR_BLOCKED] -> [R8 OPERATOR_BLOCKED] -> [R9 BLOCKED]
+[R1-R4 COMPLETED] -> [R6-R7 COMPLETED] -> [R10 COMPLETED] -> [R11 COMPLETED] -> [R11-M COMPLETED] -> [R11-LIVE COMPLETED] -> [R11-PG COMPLETED] -> [R11-STAGING COMPLETED] -> [R11-PROD-PREFLIGHT COMPLETED] -> [R11-PROD-DEPLOY-SAFETY COMPLETED] -> [R11-PROD-DEPLOY COMPLETED (R11 PRODUCTION = PASS)] -> [R11-GROWTH-ACTIVATION COMPLETED] -> [R11-GROWTH-CLOSED-LOOP COMPLETED] -> [R11-SOCIAL-CANARY COMPLETED] -> [R11-GA4-GROWTH-ATTRIBUTION COMPLETED (WEB INSTRUMENTED, OPERATOR SETUP REQUIRED)] -> [R5 OPERATOR_BLOCKED] -> [R8 OPERATOR_BLOCKED] -> [R9 BLOCKED]
 ```
 
 ## Truthful Verification State
@@ -226,7 +226,7 @@ Core product & growth engineering complete:
 - `GROWTH CLOSED LOOP = PASS`
 - `DEVTO = ACTIVE (LIVE IDEMPOTENT IN PRODUCTION — ARTICLE 4804790)`
 - `GSC = CONNECTED (LIVE PROVEN ON sc-domain:toraapi.com — DELTA-AWARE INGESTION)`
-- `GA4 = OPERATOR_BLOCKED (NO ACTIVE GTAG / MEASUREMENT ID ON WEB ORIGIN)`
+- `GA4 = OPERATOR_BLOCKED (WEB INSTRUMENTATION FULLY DEPLOYED — OPERATOR PROPERTY SETUP REQUIRED)`
 - `FACEBOOK = OPERATOR_BLOCKED (AWAITING OPERATOR CREDENTIALS)`
 - `LINKEDIN = OPERATOR_BLOCKED (AWAITING OPERATOR CREDENTIALS)`
 - `BACKLOG SAFETY INVARIANT = PASS (SUPPRESSED HISTORICAL BACKLOG)`
@@ -234,10 +234,12 @@ Core product & growth engineering complete:
 
 ## Currently Executing Task
 
-**FINAL STATUS: SOCIAL CANARIES PARTIALLY VERIFIED — OPERATOR CREDENTIALS REQUIRED**:
-1. **Delta-Aware GSC Scheduling**: Made Search Analytics ingestion delta-aware; cached finalized historical partitions immutably; fetching only missing/recent partitions with `dataState=all`; tagged observations as `FINAL` (age > 3 days) or `PARTIAL`; selective URL inspection limited to 2/run.
-2. **GA4 Readiness Audit**: Audited `https://www.toraapi.com` web frontend — no active GA4 tag found; marked `GA4 = OPERATOR_BLOCKED`. Implemented complete read-only GA4 Data API client in `service/news_ga4.go`.
-3. **Facebook & LinkedIn Connectors & Operator Boundary**: Graph API v26.0 and LinkedIn REST API 202609 connectors updated with token/ID verification, pre-flight idempotency checks, and explicit `OPERATOR_BLOCKED` failure classification when credentials are not configured.
-4. **Backlog Safety Invariant**: Enforced strict suppression of historical backlog (~4,742 rows) while allowing canary allowlist post 8. Computed and exposed `raw_pending_count`, `eligible_pending_count`, `suppressed_historical_count`, and `canary_eligible_count` in overview telemetry.
-5. **Autonomous Mode Policy Engine**: Built `service/news_policy.go` evaluating publish eligibility based on editorial risk (`LOW` -> candidate for future auto-publish, `MEDIUM` -> review required, `HIGH` -> never auto-publish). Canonical Tora publication verified first. `MASS_AUTOPUBLISH=false` strictly enforced.
+**FINAL STATUS: GA4 IMPLEMENTED — OPERATOR PROPERTY/CREDENTIAL SETUP REQUIRED**:
+1. **Frontend Web Instrumentation**: Implemented full privacy-safe GA4 instrumentation in `web/src/lib/analytics.ts` and `web/src/routes/__root.tsx`. Uses environment-driven Measurement ID (`GA4_MEASUREMENT_ID` with fallback to `GOOGLE_ANALYTICS_ID`). Drops traffic on localhost/staging domains (`isTrackingAllowed`).
+2. **Double-Counting Prevention**: Initialized `gtag` with `{ send_page_view: false }`. Dispatches explicit single `page_view` events on SSR News `<head>` and SPA TanStack Router transitions with deduplication guard.
+3. **Product & Conversion Funnel Instrumentation**: Tracked `sign_up`, `login`, `pricing_view`, `chat_started`, `first_successful_chat`, `begin_checkout`, and `purchase`. Zero sensitive prompt/completion data, keys, tokens, or emails exposed.
+4. **News CTA Tracking & UTM Preservation**: Annotated SSR News CTAs (`news_cta_click`, `news_internal_link_click`) and forwarded UTM parameters via `sessionStorage` (`tora_utm_attribution`) across the signup and payment funnels.
+5. **GSC + GA4 Closed Loop Join**: Enhanced `service/news_review.go` and `GetPostGrowthRecord` joining GSC metrics, GA4 landing page telemetry, and local conversion events. Serialized empty metrics as `null` pointers (`*int`) rather than fake zeros.
+6. **Opportunity Quality Engine**: Classified content opportunities into `TRAFFIC_OPPORTUNITY` (high impression, low CTR), `CONTENT_MISMATCH_OPPORTUNITY` (traffic but low engagement), `BUSINESS_VALUE_EXPAND_CLUSTER` (conversions starting), `BUSINESS_VALUE_HIGH_CONVERSION`, and `NO_DATA_YET`.
+7. **Worker Integration & Operator Runbook**: Added GA4 sync step to `service/news_growth_worker.go` and authored comprehensive setup runbook in `docs/ai/GA4_GROWTH_ATTRIBUTION_RUNBOOK.md`.
 

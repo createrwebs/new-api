@@ -278,20 +278,24 @@ func InjectUmamiAnalytics() {
 
 func InjectGoogleAnalytics() {
 	analyticsInjectBuilder := &strings.Builder{}
-	if os.Getenv("GOOGLE_ANALYTICS_ID") != "" {
-		gaID := os.Getenv("GOOGLE_ANALYTICS_ID")
+	gaID := common.GetGA4MeasurementID()
+	if gaID != "" {
 		// Google Analytics 4 (gtag.js)
+		// Requirement 16 & 18: send_page_view: false prevents auto-tracking collision with TanStack SPA router.
 		analyticsInjectBuilder.WriteString("<script async src=\"https://www.googletagmanager.com/gtag/js?id=")
 		analyticsInjectBuilder.WriteString(gaID)
-		analyticsInjectBuilder.WriteString("\"></script>")
-		analyticsInjectBuilder.WriteString("<script>")
-		analyticsInjectBuilder.WriteString("window.dataLayer = window.dataLayer || [];")
-		analyticsInjectBuilder.WriteString("function gtag(){dataLayer.push(arguments);}")
-		analyticsInjectBuilder.WriteString("gtag('js', new Date());")
-		analyticsInjectBuilder.WriteString("gtag('config', '")
+		analyticsInjectBuilder.WriteString("\"></script>\n")
+		analyticsInjectBuilder.WriteString("<script>\n")
+		analyticsInjectBuilder.WriteString("  window.dataLayer = window.dataLayer || [];\n")
+		analyticsInjectBuilder.WriteString("  function gtag(){dataLayer.push(arguments);}\n")
+		analyticsInjectBuilder.WriteString("  gtag('js', new Date());\n")
+		analyticsInjectBuilder.WriteString("  var isDevOrLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' || window.location.hostname.endsWith('.local') || window.location.hostname.indexOf('staging') !== -1;\n")
+		analyticsInjectBuilder.WriteString("  if (!isDevOrLocal) {\n")
+		analyticsInjectBuilder.WriteString("    gtag('config', '")
 		analyticsInjectBuilder.WriteString(gaID)
-		analyticsInjectBuilder.WriteString("');")
-		analyticsInjectBuilder.WriteString("</script>")
+		analyticsInjectBuilder.WriteString("', { send_page_view: false });\n")
+		analyticsInjectBuilder.WriteString("  }\n")
+		analyticsInjectBuilder.WriteString("</script>\n")
 	}
 	analyticsInjectBuilder.WriteString("<!--Google Analytics QuantumNous-->\n")
 	analyticsInject := []byte(analyticsInjectBuilder.String())

@@ -21,6 +21,7 @@ import { useState, useCallback } from 'react'
 import { toast } from 'sonner'
 
 import { handleServerError } from '@/lib/handle-server-error'
+import { trackCheckoutStarted } from '@/lib/analytics'
 
 import {
   calculateAmount,
@@ -112,6 +113,7 @@ export function usePayment() {
     async (topupAmount: number, paymentType: string) => {
       try {
         setProcessing(true)
+        trackCheckoutStarted(paymentType)
 
         const isStripe = isStripePayment(paymentType)
         const amount = Math.floor(topupAmount)

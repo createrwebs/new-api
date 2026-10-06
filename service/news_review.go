@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
@@ -112,6 +113,32 @@ type GrowthTimelineEvent struct {
 	Status    string `json:"status"`
 }
 
+// GA4PostAnalytics models page-level GA4 telemetry for a news post (Section 15)
+type GA4PostAnalytics struct {
+	LandingPage    string   `json:"landing_page"`
+	Sessions       *int     `json:"sessions"`        // null if data unavailable
+	ActiveUsers    *int     `json:"active_users"`    // null if data unavailable
+	EngagementRate *float64 `json:"engagement_rate"` // null if data unavailable
+	Conversions    *int     `json:"conversions"`     // null if data unavailable
+	DataAvailable  bool     `json:"data_available"`
+	Status         string   `json:"status"` // DATA_AVAILABLE, NO_DATA_YET, OPERATOR_BLOCKED
+}
+
+// GrowthFunnelSummary unifies Search -> Content -> Product Conversion signals (Section 15)
+type GrowthFunnelSummary struct {
+	Impressions       *int     `json:"impressions"`        // GSC (null if no data)
+	Clicks            *int     `json:"clicks"`             // GSC (null if no data)
+	CTR               *float64 `json:"ctr"`                // GSC (null if no data)
+	AveragePosition   *float64 `json:"average_position"`   // GSC (null if no data)
+	LandingSessions   *int     `json:"landing_sessions"`   // GA4 (null if no data)
+	EngagementRate    *float64 `json:"engagement_rate"`    // GA4 (null if no data)
+	CTAClicks         int      `json:"cta_clicks"`         // Local conversion / click events
+	SignupsAttributed int      `json:"signups_attributed"` // Local sign_up conversions
+	PaidConversions   int      `json:"paid_conversions"`   // Local purchase / subscription / topup
+	OpportunityType   string   `json:"opportunity_type"`   // TRAFFIC_OPPORTUNITY, BUSINESS_VALUE_EXPAND_CLUSTER, BUSINESS_VALUE_HIGH_CONVERSION, CONTENT_MISMATCH_OPPORTUNITY, NO_DATA_YET
+	DataFreshness     string   `json:"data_freshness"`     // e.g. "GSC: CONNECTED (NO_ROWS) | GA4: OPERATOR_BLOCKED"
+}
+
 // PostGrowthRecord provides an unified growth and distribution record for a post (Section 15)
 type PostGrowthRecord struct {
 	PostId           int                          `json:"post_id"`
@@ -135,6 +162,8 @@ type PostGrowthRecord struct {
 	Timeline         []GrowthTimelineEvent        `json:"timeline,omitempty"`
 	SignupsCount     int                          `json:"signups_count"`
 	ConversionsCount int                          `json:"conversions_count"`
+	GA4Analytics     *GA4PostAnalytics            `json:"ga4_analytics,omitempty"`
+	GrowthFunnel     *GrowthFunnelSummary         `json:"growth_funnel,omitempty"`
 }
 
 // GetPostGrowthRecord compiles all growth telemetry associated with a single news post
@@ -233,6 +262,117 @@ func GetPostGrowthRecord(postId int) (*PostGrowthRecord, error) {
 		})
 	}
 
+	// Local CTA clicks
+	var ctaClicks int64
+	model.DB.Model(&model.NewsAnalyticEvent{}).Where("post_id = ? AND event_type IN ?", postId, []string{"cta_click", "news_cta_click"}).Count(&ctaClicks)
+	var ctaConvClicks int64
+	model.DB.Model(&model.NewsConversionEvent{}).Where("content_id = ? AND event_type IN ?", contentIdStr, []string{"cta_click", "news_cta_click"}).Count(&ctaConvClicks)
+	totalCTAClicks := int(ctaClicks + ctaConvClicks)
+
+	// GA4 Telemetry (Section 15)
+	ga4Client := NewDefaultGA4Client()
+	ga4StatusOverview := ga4Client.GetNormalizedGA4Status(context.Background(), false)
+	landingPath := fmt.Sprintf("/news/%s", post.Slug)
+
+	var ga4PostAnalytics *GA4PostAnalytics
+	if ga4StatusOverview.Status == GA4StatusOperatorBlocked {
+		ga4PostAnalytics = &GA4PostAnalytics{
+			LandingPage:   landingPath,
+			Status:        GA4StatusOperatorBlocked,
+			DataAvailable: false,
+		}
+	} else if ga4StatusOverview.Status == GA4StatusDataAvailable {
+		ga4PostAnalytics = &GA4PostAnalytics{
+			LandingPage:   landingPath,
+			Status:        "NO_DATA_YET",
+			DataAvailable: false,
+		}
+		// Query recent 28-day landing page metrics
+		lpMetrics, qErr := ga4Client.QueryLandingPageMetrics(context.Background(), "28daysAgo", "yesterday")
+		if qErr == nil {
+			for _, m := range lpMetrics {
+				if strings.Contains(m.LandingPage, landingPath) {
+					sessionsVal := m.Sessions
+					usersVal := m.ActiveUsers
+					engRateVal := m.EngagementRate
+					convVal := m.Conversions
+					ga4PostAnalytics = &GA4PostAnalytics{
+						LandingPage:    m.LandingPage,
+						Sessions:       &sessionsVal,
+						ActiveUsers:    &usersVal,
+						EngagementRate: &engRateVal,
+						Conversions:    &convVal,
+						DataAvailable:  true,
+						Status:         GA4StatusDataAvailable,
+					}
+					break
+				}
+			}
+		}
+	} else {
+		ga4PostAnalytics = &GA4PostAnalytics{
+			LandingPage:   landingPath,
+			Status:        ga4StatusOverview.Status,
+			DataAvailable: false,
+		}
+	}
+
+	// Build Growth Funnel Summary joining GSC + GA4 + Local conversions (Section 15)
+	var funnelImp *int
+	var funnelClicks *int
+	var funnelCTR *float64
+	var funnelPos *float64
+	if len(metrics) > 0 && totalImp > 0 {
+		funnelImp = &totalImp
+		funnelClicks = &totalClicks
+		funnelCTR = &avgCTR
+		funnelPos = &avgPos
+	}
+
+	var funnelSessions *int
+	var funnelEngRate *float64
+	if ga4PostAnalytics != nil && ga4PostAnalytics.Sessions != nil {
+		funnelSessions = ga4PostAnalytics.Sessions
+		funnelEngRate = ga4PostAnalytics.EngagementRate
+	}
+
+	// Section 15 SEO Opportunity Quality classification
+	// Distinguish TRAFFIC_OPPORTUNITY vs BUSINESS_VALUE_OPPORTUNITY
+	var oppType string
+	if funnelImp == nil && funnelSessions == nil {
+		oppType = "NO_DATA_YET"
+	} else if int(conversions) > 0 || (int(signups) > 0 && totalClicks > 5) {
+		oppType = "BUSINESS_VALUE_HIGH_CONVERSION"
+	} else if totalClicks > 10 && totalCTAClicks >= 2 {
+		oppType = "BUSINESS_VALUE_EXPAND_CLUSTER"
+	} else if (totalClicks > 10 || (funnelSessions != nil && *funnelSessions > 15)) &&
+		(funnelEngRate != nil && *funnelEngRate < 0.20) {
+		oppType = "CONTENT_MISMATCH_OPPORTUNITY"
+	} else if totalImp > 100 && avgCTR < 2.0 {
+		oppType = "TRAFFIC_OPPORTUNITY"
+	} else if totalImp > 0 || (funnelSessions != nil && *funnelSessions > 0) {
+		oppType = "TRAFFIC_OPPORTUNITY"
+	} else {
+		oppType = "NO_DATA_YET"
+	}
+
+	gscStatus := GetNormalizedGSCStatus(context.Background(), false)
+	freshness := fmt.Sprintf("GSC: %s | GA4: %s", gscStatus.Status, ga4StatusOverview.Status)
+
+	funnelSummary := &GrowthFunnelSummary{
+		Impressions:       funnelImp,
+		Clicks:            funnelClicks,
+		CTR:               funnelCTR,
+		AveragePosition:   funnelPos,
+		LandingSessions:   funnelSessions,
+		EngagementRate:    funnelEngRate,
+		CTAClicks:         totalCTAClicks,
+		SignupsAttributed: int(signups),
+		PaidConversions:   int(conversions),
+		OpportunityType:   oppType,
+		DataFreshness:     freshness,
+	}
+
 	return &PostGrowthRecord{
 		PostId:           post.Id,
 		Slug:             post.Slug,
@@ -255,6 +395,8 @@ func GetPostGrowthRecord(postId int) (*PostGrowthRecord, error) {
 		Timeline:         timeline,
 		SignupsCount:     int(signups),
 		ConversionsCount: int(conversions),
+		GA4Analytics:     ga4PostAnalytics,
+		GrowthFunnel:     funnelSummary,
 	}, nil
 }
 

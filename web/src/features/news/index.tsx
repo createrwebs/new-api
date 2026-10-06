@@ -556,19 +556,68 @@ export function NewsAdmin() {
                 <div className="grid grid-cols-3 gap-3 p-3 bg-muted/40 rounded-lg text-center">
                   <div>
                     <span className="text-xs text-muted-foreground block">Organic Views</span>
-                    <span className="text-lg font-bold font-mono">{selectedRecord.view_count}</span>
+                    <span className="text-lg font-bold font-mono">{selectedRecord.view_count || selectedRecord.total_impressions || 0}</span>
                   </div>
                   <div>
                     <span className="text-xs text-muted-foreground block">Search Clicks</span>
-                    <span className="text-lg font-bold font-mono">{selectedRecord.search_clicks}</span>
+                    <span className="text-lg font-bold font-mono">{selectedRecord.search_clicks || selectedRecord.total_clicks || 0}</span>
                   </div>
                   <div>
                     <span className="text-xs text-muted-foreground block">Avg Position</span>
                     <span className="text-lg font-bold font-mono">
-                      {selectedRecord.average_position > 0 ? selectedRecord.average_position.toFixed(1) : '—'}
+                      {(selectedRecord.average_position && selectedRecord.average_position > 0) ? selectedRecord.average_position.toFixed(1) : '—'}
                     </span>
                   </div>
                 </div>
+
+                {/* Growth Attribution Funnel */}
+                {selectedRecord.growth_funnel && (
+                  <div className="border rounded-lg p-3.5 space-y-3 bg-card">
+                    <div className="flex items-center justify-between">
+                      <span className="font-semibold text-xs uppercase text-muted-foreground flex items-center gap-1.5">
+                        <TrendingUp className="h-4 w-4 text-primary" />
+                        Growth Attribution Funnel
+                      </span>
+                      <Badge variant="outline" className="text-[11px] font-mono">
+                        {selectedRecord.growth_funnel.opportunity_type}
+                      </Badge>
+                    </div>
+
+                    <div className="grid grid-cols-4 gap-2 text-center text-xs">
+                      <div className="bg-muted/30 p-2 rounded">
+                        <span className="text-muted-foreground block text-[10px]">1. Search / GSC</span>
+                        <span className="font-bold font-mono">
+                          {selectedRecord.growth_funnel.clicks !== null ? `${selectedRecord.growth_funnel.clicks} clicks` : '—'}
+                        </span>
+                      </div>
+                      <div className="bg-muted/30 p-2 rounded">
+                        <span className="text-muted-foreground block text-[10px]">2. GA4 Sessions</span>
+                        <span className="font-bold font-mono">
+                          {selectedRecord.growth_funnel.landing_sessions !== null ? `${selectedRecord.growth_funnel.landing_sessions}` : '—'}
+                        </span>
+                      </div>
+                      <div className="bg-muted/30 p-2 rounded">
+                        <span className="text-muted-foreground block text-[10px]">3. CTA Clicks</span>
+                        <span className="font-bold font-mono">
+                          {selectedRecord.growth_funnel.cta_clicks}
+                        </span>
+                      </div>
+                      <div className="bg-muted/30 p-2 rounded">
+                        <span className="text-muted-foreground block text-[10px]">4. Signups / Paid</span>
+                        <span className="font-bold font-mono text-primary">
+                          {selectedRecord.growth_funnel.signups_attributed} / {selectedRecord.growth_funnel.paid_conversions}
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="flex justify-between items-center text-[11px] text-muted-foreground font-mono">
+                      <span>Data Freshness: {selectedRecord.growth_funnel.data_freshness}</span>
+                      {selectedRecord.ga4_analytics && (
+                        <span>GA4: {selectedRecord.ga4_analytics.status}</span>
+                      )}
+                    </div>
+                  </div>
+                )}
 
                 {/* Google Search Console URL Inspection */}
                 <div className="border rounded-lg p-3.5 space-y-2">

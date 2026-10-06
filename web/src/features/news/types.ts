@@ -119,20 +119,52 @@ export interface NewsDistributionRecord {
   published_at?: number
 }
 
+export interface GA4PostAnalytics {
+  landing_page: string
+  sessions: number | null
+  active_users: number | null
+  engagement_rate: number | null
+  conversions: number | null
+  data_available: boolean
+  status: string
+}
+
+export interface GrowthFunnelSummary {
+  impressions: number | null
+  clicks: number | null
+  ctr: number | null
+  average_position: number | null
+  landing_sessions: number | null
+  engagement_rate: number | null
+  cta_clicks: number
+  signups_attributed: number
+  paid_conversions: number
+  opportunity_type: string
+  data_freshness: string
+}
+
 export interface PostGrowthRecord {
   post_id: number
   title: string
   slug: string
+  content_type?: string
   status: string
   published_at: number
   canonical_url: string
-  view_count: number
-  average_position: number
-  search_clicks: number
-  search_impressions: number
+  view_count?: number
+  average_position?: number
+  search_clicks?: number
+  search_impressions?: number
+  total_impressions?: number
+  total_clicks?: number
+  average_ctr?: number
+  signups_count?: number
+  conversions_count?: number
   url_inspection?: NewsUrlInspection
   distributions: NewsDistributionRecord[]
   devto_analytics?: DevToAnalytics
+  ga4_analytics?: GA4PostAnalytics
+  growth_funnel?: GrowthFunnelSummary
   experiments: NewsSeoExperiment[]
   opportunities: NewsGrowthOpportunity[]
   internal_links: RecommendedLink[]

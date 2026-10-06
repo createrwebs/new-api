@@ -54,3 +54,18 @@ func GetGSCCredentialsJSON() string {
 	return strings.TrimSpace(os.Getenv("GSC_CREDENTIALS_JSON"))
 }
 
+// GetGA4MeasurementID returns the GA4 Measurement ID (e.g. G-XXXXXXXXXX)
+// Configured via GA4_MEASUREMENT_ID or GOOGLE_ANALYTICS_ID.
+func GetGA4MeasurementID() string {
+	val := strings.TrimSpace(os.Getenv("GA4_MEASUREMENT_ID"))
+	if val == "" {
+		val = strings.TrimSpace(os.Getenv("GOOGLE_ANALYTICS_ID"))
+	}
+	return val
+}
+
+// GetGA4PropertyID returns the GA4 numeric Property ID (e.g. 123456789 or properties/123456789)
+func GetGA4PropertyID() string {
+	return strings.TrimSpace(os.Getenv("GA4_PROPERTY_ID"))
+}
+

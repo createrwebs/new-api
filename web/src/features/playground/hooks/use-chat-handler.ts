@@ -20,6 +20,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { handleServerError } from '@/lib/handle-server-error'
+import { trackChatStarted, trackFirstSuccessfulChat } from '@/lib/analytics'
 
 import { sendChatCompletion } from '../api'
 import { ERROR_MESSAGES } from '../constants'
@@ -207,6 +208,7 @@ export function useChatHandler({
       if (generation !== requestGenerationRef.current) return
       flushStreamUpdates(generation)
       setIsRequesting(false)
+      trackFirstSuccessfulChat()
       onMessageUpdate((prev) => {
         if (generation !== requestGenerationRef.current) return prev
         return updateLastAssistantMessage(prev, (message) =>
@@ -250,6 +252,7 @@ export function useChatHandler({
       abortControllerRef.current = null
       discardPendingStreamUpdates(generation)
       setIsRequesting(true)
+      trackChatStarted()
       const payload = buildChatCompletionPayload(
         messages,
         config,
@@ -292,6 +295,7 @@ export function useChatHandler({
 
       try {
         setIsRequesting(true)
+        trackChatStarted()
         const response = await sendChatCompletion(
           payload,
           abortController.signal
@@ -308,6 +312,7 @@ export function useChatHandler({
           return
         }
 
+        trackFirstSuccessfulChat()
         onMessageUpdate((prev) => {
           if (requestGenerationRef.current !== generation) return prev
           return updateLastAssistantMessage(prev, (message) => {

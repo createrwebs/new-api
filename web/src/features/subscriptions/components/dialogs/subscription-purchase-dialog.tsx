@@ -30,6 +30,7 @@ import { Separator } from '@/components/ui/separator'
 import { useSystemConfig } from '@/hooks/use-system-config'
 import { formatQuota } from '@/lib/format'
 import { handleServerError } from '@/lib/handle-server-error'
+import { trackCheckoutStarted, trackSubscriptionSuccess } from '@/lib/analytics'
 import { DEFAULT_CURRENCY_CONFIG } from '@/stores/system-config-store'
 
 import {
@@ -105,6 +106,7 @@ export function SubscriptionPurchaseDialog(props: Props) {
 
   const handlePayStripe = async () => {
     setPaying(true)
+    trackCheckoutStarted('stripe')
     try {
       const res = await paySubscriptionStripe({ plan_id: plan.id })
       if (res.message === 'success' && res.data?.pay_link) {
@@ -123,6 +125,7 @@ export function SubscriptionPurchaseDialog(props: Props) {
 
   const handlePayCreem = async () => {
     setPaying(true)
+    trackCheckoutStarted('creem')
     try {
       const res = await paySubscriptionCreem({ plan_id: plan.id })
       if (res.message === 'success' && res.data?.checkout_url) {
@@ -143,6 +146,7 @@ export function SubscriptionPurchaseDialog(props: Props) {
   // across the await, so a popup would be blocked. Same as the wallet hook.
   const handlePayWaffoPancake = async () => {
     setPaying(true)
+    trackCheckoutStarted('waffo_pancake')
     try {
       const res = await paySubscriptionWaffoPancake({ plan_id: plan.id })
       if (res.message === 'success' && res.data?.checkout_url) {
@@ -168,6 +172,7 @@ export function SubscriptionPurchaseDialog(props: Props) {
       return
     }
     setPaying(true)
+    trackCheckoutStarted(selectedEpayMethod)
     try {
       const res = await paySubscriptionEpay({
         plan_id: plan.id,
@@ -211,6 +216,7 @@ export function SubscriptionPurchaseDialog(props: Props) {
     try {
       const res = await paySubscriptionBalance({ plan_id: plan.id })
       if (res.success) {
+        trackSubscriptionSuccess()
         toast.success(t('Subscription purchased successfully'))
         void props.onPurchaseSuccess?.()
         props.onOpenChange(false)

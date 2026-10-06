@@ -74,6 +74,7 @@ func RenderNewsIndexPage(c *gin.Context) {
     body { font-family: 'Sarabun', -apple-system, BlinkMacSystemFont, sans-serif; }
     code, pre { font-family: 'JetBrains Mono', monospace; }
   </style>
+` + renderGA4HeadScript("news_index", nil) + `
 </head>
 <body class="bg-slate-950 text-slate-100 min-h-screen flex flex-col antialiased selection:bg-indigo-500 selection:text-white">
   <!-- Top Navigation Header -->
@@ -87,12 +88,12 @@ func RenderNewsIndexPage(c *gin.Context) {
       <nav class="hidden md:flex items-center gap-6 text-sm font-medium text-slate-300">
         <a href="` + canonicalBase + `" class="hover:text-white transition">หน้าหลัก</a>
         <a href="/news" class="text-indigo-400 font-semibold">ข่าว AI</a>
-        <a href="/pricing" class="hover:text-white transition">ราคา & โควตา</a>
+        <a href="/pricing" data-analytics-cta="header_pricing" data-destination-type="pricing" class="hover:text-white transition">ราคา & โควตา</a>
         <a href="` + canonicalBase + `/docs" class="hover:text-white transition">เอกสาร API</a>
       </nav>
       <div class="flex items-center gap-3">
         <a href="/login" class="text-xs font-semibold px-3 py-1.5 rounded-lg border border-slate-700 text-slate-300 hover:text-white hover:border-slate-500 transition">เข้าสู่ระบบ</a>
-        <a href="/register" class="text-xs font-semibold px-3.5 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white transition shadow-sm">เริ่มใช้งานฟรี</a>
+        <a href="/register" data-analytics-cta="header_signup" data-destination-type="register" class="text-xs font-semibold px-3.5 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white transition shadow-sm">เริ่มใช้งานฟรี</a>
       </div>
     </div>
   </header>
@@ -204,8 +205,8 @@ func RenderNewsIndexPage(c *gin.Context) {
         <p class="text-slate-300 text-sm max-w-xl">เชื่อมต่อ GPT-4.5, Claude 3.7, DeepSeek-V3 ผ่าน API เดียว พร้อมระบบ Fallback ป้องกัน Downtime และชำระเงินสะดวกผ่าน PromptPay</p>
       </div>
       <div class="flex items-center gap-3 shrink-0">
-        <a href="/register" class="px-5 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-bold shadow-lg shadow-indigo-500/20 transition">เริ่มต้นฟรี</a>
-        <a href="/pricing" class="px-5 py-2.5 rounded-xl border border-slate-700 hover:border-slate-500 text-slate-300 text-sm font-medium transition">ดูราคาและสเปก</a>
+        <a href="/register" data-analytics-cta="bottom_signup" data-destination-type="register" class="px-5 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-bold shadow-lg shadow-indigo-500/20 transition">เริ่มต้นฟรี</a>
+        <a href="/pricing" data-analytics-cta="bottom_pricing" data-destination-type="pricing" class="px-5 py-2.5 rounded-xl border border-slate-700 hover:border-slate-500 text-slate-300 text-sm font-medium transition">ดูราคาและสเปก</a>
       </div>
     </div>
   </section>
@@ -226,6 +227,7 @@ func RenderNewsIndexPage(c *gin.Context) {
       </div>
     </div>
   </footer>
+` + renderNewsClientInteractions(nil) + `
 </body>
 </html>`)
 
@@ -315,6 +317,7 @@ func RenderNewsPostPage(c *gin.Context) {
     body { font-family: 'Sarabun', -apple-system, BlinkMacSystemFont, sans-serif; }
     code, pre { font-family: 'JetBrains Mono', monospace; }
   </style>
+` + renderGA4HeadScript("news_article", post) + `
 </head>
 <body class="bg-slate-950 text-slate-100 min-h-screen flex flex-col antialiased selection:bg-indigo-500 selection:text-white">
   <!-- Header -->
@@ -326,7 +329,7 @@ func RenderNewsPostPage(c *gin.Context) {
       </a>
       <div class="flex items-center gap-3">
         <a href="` + canonicalBase + `" class="text-xs font-semibold text-slate-400 hover:text-white transition">Tora AI Home</a>
-        <a href="/register" class="text-xs font-semibold px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white transition">ทดลองใช้ API ฟรี</a>
+        <a href="/register" data-analytics-cta="header_signup" data-destination-type="register" class="text-xs font-semibold px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white transition">ทดลองใช้ API ฟรี</a>
       </div>
     </div>
   </header>
@@ -381,8 +384,8 @@ func RenderNewsPostPage(c *gin.Context) {
         <p class="text-slate-300 text-sm max-w-md">รองรับมาตรฐาน OpenAI Compatible พร้อมระบบ Route Engine สลับ upstream อัตโนมัติเมื่อเกิด Rate Limit</p>
       </div>
       <div class="flex items-center gap-3 shrink-0">
-        <a href="/register" class="px-5 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-bold shadow-lg shadow-indigo-500/20 transition">สมัครใช้งานฟรี</a>
-        <a href="/pricing" class="px-5 py-2.5 rounded-xl border border-slate-700 hover:border-slate-500 text-slate-300 text-sm font-medium transition">เปรียบเทียบราคา</a>
+        <a href="/register" data-analytics-cta="bottom_signup" data-destination-type="register" class="px-5 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-bold shadow-lg shadow-indigo-500/20 transition">สมัครใช้งานฟรี</a>
+        <a href="/pricing" data-analytics-cta="bottom_pricing" data-destination-type="pricing" class="px-5 py-2.5 rounded-xl border border-slate-700 hover:border-slate-500 text-slate-300 text-sm font-medium transition">เปรียบเทียบราคา</a>
       </div>
     </div>
   </article>
@@ -391,6 +394,7 @@ func RenderNewsPostPage(c *gin.Context) {
   <footer class="border-t border-slate-800/80 bg-slate-950 py-8 px-4 text-xs text-slate-500 text-center">
     <p>© 2026 Tora AI. All rights reserved. <a href="/news" class="hover:text-slate-300 ml-2">หน้ารวมข่าว AI</a></p>
   </footer>
+` + renderNewsClientInteractions(post) + `
 </body>
 </html>`)
 
@@ -867,6 +871,111 @@ func AdminTriggerGrowthIteration(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"success": true, "data": res})
+}
+
+// renderGA4HeadScript generates privacy-safe GA4 tracking script tag for Go SSR news pages
+func renderGA4HeadScript(pageType string, post *model.NewsPost) string {
+	gaID := common.GetGA4MeasurementID()
+	if gaID == "" {
+		return ""
+	}
+
+	var sb strings.Builder
+	sb.WriteString("\n  <!-- Google Analytics 4 (GA4) -->\n")
+	sb.WriteString("  <script async src=\"https://www.googletagmanager.com/gtag/js?id=" + html.EscapeString(gaID) + "\"></script>\n")
+	sb.WriteString("  <script>\n")
+	sb.WriteString("    window.dataLayer = window.dataLayer || [];\n")
+	sb.WriteString("    function gtag(){dataLayer.push(arguments);}\n")
+	sb.WriteString("    gtag('js', new Date());\n")
+	sb.WriteString("    var isDevOrLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' || window.location.hostname.endsWith('.local') || window.location.hostname.indexOf('staging') !== -1;\n")
+	sb.WriteString("    if (!isDevOrLocal) {\n")
+	sb.WriteString("      gtag('config', '" + html.EscapeString(gaID) + "', { send_page_view: false });\n")
+
+	if pageType == "news_index" {
+		sb.WriteString("      gtag('event', 'page_view', {\n")
+		sb.WriteString("        page_title: 'Tora AI Tech News',\n")
+		sb.WriteString("        page_location: window.location.href,\n")
+		sb.WriteString("        page_path: window.location.pathname,\n")
+		sb.WriteString("        page_type: 'news_index'\n")
+		sb.WriteString("      });\n")
+	} else if pageType == "news_article" && post != nil {
+		dateStr := time.Unix(post.PublishedAt, 0).Format("2006-01-02")
+		sb.WriteString("      gtag('event', 'page_view', {\n")
+		sb.WriteString(fmt.Sprintf("        page_title: %q,\n", post.Title))
+		sb.WriteString(fmt.Sprintf("        page_location: %q,\n", post.CanonicalUrl))
+		sb.WriteString(fmt.Sprintf("        page_path: %q,\n", "/news/"+post.Slug))
+		sb.WriteString("        page_type: 'news_article',\n")
+		sb.WriteString(fmt.Sprintf("        news_post_id: %d,\n", post.Id))
+		sb.WriteString(fmt.Sprintf("        slug: %q,\n", post.Slug))
+		sb.WriteString(fmt.Sprintf("        content_type: %q,\n", post.ContentType))
+		sb.WriteString(fmt.Sprintf("        published_date: %q\n", dateStr))
+		sb.WriteString("      });\n")
+	}
+
+	sb.WriteString("    }\n")
+	sb.WriteString("  </script>\n")
+	return sb.String()
+}
+
+// renderNewsClientInteractions injects client-side event tracking for CTAs, internal links, and UTM preservation
+func renderNewsClientInteractions(post *model.NewsPost) string {
+	postId := 0
+	if post != nil {
+		postId = post.Id
+	}
+	return fmt.Sprintf(`  <!-- GA4 & Attribution Link Interactions -->
+  <script>
+    (function() {
+      // 1. UTM Preservation on Internal Navigation
+      if (window.location.search) {
+        try {
+          var params = new URLSearchParams(window.location.search);
+          var utm = new URLSearchParams();
+          ['utm_source', 'utm_medium', 'utm_campaign', 'utm_content', 'utm_term'].forEach(function(k) {
+            var val = params.get(k);
+            if (val) utm.set(k, val);
+          });
+          var utmQuery = utm.toString();
+          if (utmQuery) {
+            document.querySelectorAll('a[href^="/"]').forEach(function(a) {
+              var href = a.getAttribute('href');
+              if (href && href.indexOf('?') === -1 && href.indexOf('#') === -1 && !href.startsWith('/news')) {
+                a.setAttribute('href', href + '?' + utmQuery);
+              }
+            });
+          }
+        } catch(e) {}
+      }
+
+      // 2. Track News CTA Clicks
+      document.querySelectorAll('[data-analytics-cta]').forEach(function(el) {
+        el.addEventListener('click', function() {
+          var ctaType = el.getAttribute('data-analytics-cta');
+          var destType = el.getAttribute('data-destination-type') || 'unknown';
+          if (typeof gtag === 'function') {
+            gtag('event', 'news_cta_click', {
+              source_post_id: %d,
+              cta_type: ctaType,
+              destination_type: destType
+            });
+          }
+        });
+      });
+
+      // 3. Track In-Article Internal Link Clicks
+      document.querySelectorAll('.prose a').forEach(function(el) {
+        el.addEventListener('click', function() {
+          if (typeof gtag === 'function') {
+            gtag('event', 'news_internal_link_click', {
+              source_post_id: %d,
+              anchor_text: (el.innerText || '').trim().substring(0, 100),
+              destination: el.getAttribute('href') || ''
+            });
+          }
+        });
+      });
+    })();
+  </script>`, postId, postId)
 }
 
 

@@ -578,16 +578,58 @@ func TestNewsGrowth_PostRecordAndOverview(t *testing.T) {
 	assert.Equal(t, 201, record.PostId)
 	assert.Equal(t, "growth-record-post", record.Slug)
 	assert.Equal(t, 1, record.SignupsCount)
+	assert.NotNil(t, record.GrowthFunnel)
+	assert.Equal(t, 1, record.GrowthFunnel.SignupsAttributed)
+	assert.NotNil(t, record.GA4Analytics)
 
 	// Fetch global overview
 	overview, err := GetGlobalGrowthOverview()
 	require.NoError(t, err)
 	assert.NotNil(t, overview)
 	assert.Contains(t, overview.ChannelStatuses, "gsc")
+	assert.Contains(t, overview.ChannelStatuses, "ga4")
 	assert.Contains(t, overview.ChannelStatuses, "devto")
 	assert.Contains(t, overview.ChannelStatuses, "facebook")
-	assert.True(t, overview.ChannelStatuses["gsc"] == GSCStatusNotConfigured || overview.ChannelStatuses["gsc"] == "OPERATOR_BLOCKED")
+	assert.Equal(t, GA4StatusOperatorBlocked, overview.GA4Status)
 }
+
+func TestNewsGA4_ReadinessAndAttribution(t *testing.T) {
+	setupServiceNewsTestDB(t)
+
+	// 1. GA4 Client status without property ID must truthfully return OPERATOR_BLOCKED
+	client := &DefaultGA4Client{
+		PropertyID: "",
+	}
+	status := client.GetNormalizedGA4Status(context.Background(), true)
+	assert.Equal(t, GA4StatusOperatorBlocked, status.Status)
+	assert.False(t, status.DataAvailable)
+
+	// 2. Growth Collector iteration includes GA4 status truthfully
+	res, err := RunGrowthCollectorIteration(context.Background())
+	require.NoError(t, err)
+	assert.Equal(t, GA4StatusOperatorBlocked, res.GA4Status)
+
+	// 3. Funnel join with empty external data correctly nulls pointers (not zero-filled)
+	post := &model.NewsPost{
+		Id:           202,
+		Slug:         "ga4-test-post",
+		Title:        "GA4 Test Post",
+		ContentType:  model.ContentTypeGuide,
+		Status:       model.NewsStatusPublished,
+		CanonicalUrl: common.GetCanonicalBaseURL() + "/news/ga4-test-post",
+		PublishedAt:  common.GetTimestamp(),
+	}
+	require.NoError(t, model.CreateNewsPost(post))
+
+	record, err := GetPostGrowthRecord(202)
+	require.NoError(t, err)
+	assert.NotNil(t, record.GrowthFunnel)
+	assert.Nil(t, record.GrowthFunnel.Impressions, "External impressions must be nil when unavailable")
+	assert.Nil(t, record.GrowthFunnel.LandingSessions, "GA4 sessions must be nil when unavailable")
+	assert.Equal(t, "NO_DATA_YET", record.GrowthFunnel.OpportunityType)
+	assert.Equal(t, GA4StatusOperatorBlocked, record.GA4Analytics.Status)
+}
+
 
 
 

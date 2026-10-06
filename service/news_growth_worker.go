@@ -24,6 +24,7 @@ type GrowthCollectorResult struct {
 	OpportunitiesFound  int    `json:"opportunities_found"`
 	DailyReviewDate     string `json:"daily_review_date"`
 	GSCStatus           string `json:"gsc_status"`
+	GA4Status           string `json:"ga4_status"`
 	LastError           string `json:"last_error,omitempty"`
 }
 
@@ -94,7 +95,22 @@ func RunGrowthCollectorIteration(ctx context.Context) (*GrowthCollectorResult, e
 		}
 	}
 
-	// 4. Generate & persist internal Daily Growth Review (Section 16)
+	// 4. Collect GA4 Telemetry if configured (Section 11)
+	ga4Client := NewDefaultGA4Client()
+	ga4Status := ga4Client.GetNormalizedGA4Status(ctx, false)
+	res.GA4Status = ga4Status.Status
+	if ga4Status.Status == GA4StatusDataAvailable || ga4Status.Status == GA4StatusConnected {
+		lpMetrics, ga4Err := ga4Client.QueryLandingPageMetrics(ctx, "28daysAgo", "yesterday")
+		if ga4Err != nil {
+			logger.LogWarn(ctx, fmt.Sprintf("[GrowthWorker] GA4 landing page query returned: %v", ga4Err))
+		} else {
+			logger.LogInfo(ctx, fmt.Sprintf("[GrowthWorker] GA4 collected %d landing page rows", len(lpMetrics)))
+		}
+	} else {
+		logger.LogInfo(ctx, fmt.Sprintf("[GrowthWorker] GA4 status is %s (ready for operator provisioning)", ga4Status.Status))
+	}
+
+	// 5. Generate & persist internal Daily Growth Review (Section 16)
 	_, reviewErr := GenerateDailyGrowthReview(res.DailyReviewDate)
 	if reviewErr != nil {
 		logger.LogWarn(ctx, fmt.Sprintf("[GrowthWorker] Failed to generate daily growth review: %v", reviewErr))

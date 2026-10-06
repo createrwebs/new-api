@@ -23,6 +23,7 @@ import {
   Outlet,
   redirect,
   useNavigate,
+  useLocation,
 } from '@tanstack/react-router'
 import { TanStackRouterDevtools } from '@tanstack/react-router-devtools'
 import { useEffect } from 'react'
@@ -35,6 +36,8 @@ import { GeneralError } from '@/features/errors/general-error'
 import { NotFoundError } from '@/features/errors/not-found-error'
 import { getSetupStatus } from '@/features/setup/api'
 import { useSystemConfig } from '@/hooks/use-system-config'
+import { useStatus } from '@/hooks/use-status'
+import { initGA4, trackPageView } from '@/lib/analytics'
 import {
   bootstrapAuthentication,
   clearAuthenticatedClientState,
@@ -46,7 +49,54 @@ import { useAuthStore } from '@/stores/auth-store'
 
 function RootComponent() {
   const navigate = useNavigate()
+  const location = useLocation()
   const queryClient = useQueryClient()
+  const { status } = useStatus()
+
+  // Initialize GA4 tracking (Section 2 & 16)
+  useEffect(() => {
+    const gaId = (status as Record<string, unknown>)?.ga4_measurement_id as
+      | string
+      | undefined
+    if (gaId) {
+      initGA4(gaId)
+    }
+  }, [status])
+
+  // Track SPA route navigation with page_view event (Section 4 & 18)
+  useEffect(() => {
+    const fullPath = location.pathname + (location.search || '')
+    trackPageView(fullPath)
+  }, [location.pathname, location.search])
+
+  // Preserve UTM attribution parameters in sessionStorage across route transitions (Section 5 & 9)
+  useEffect(() => {
+    if (typeof window !== 'undefined' && window.location.search) {
+      try {
+        const searchParams = new URLSearchParams(window.location.search)
+        const utmKeys = [
+          'utm_source',
+          'utm_medium',
+          'utm_campaign',
+          'utm_content',
+          'utm_term',
+        ]
+        const utmEntries: Record<string, string> = {}
+        for (const k of utmKeys) {
+          const val = searchParams.get(k)
+          if (val) utmEntries[k] = val
+        }
+        if (Object.keys(utmEntries).length > 0) {
+          sessionStorage.setItem(
+            'tora_utm_attribution',
+            JSON.stringify(utmEntries)
+          )
+        }
+      } catch {
+        /* ignore */
+      }
+    }
+  }, [location.search])
 
   // Load system configuration (logo, system name, etc.) from backend
   useSystemConfig({ autoLoad: true })
