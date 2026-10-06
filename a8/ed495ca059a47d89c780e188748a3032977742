@@ -1,0 +1,36 @@
+docs/ai/AI_VISIBILITY_SCORECARD.md
+  h_f97827f62b0fea 1-60
+docs/ai/BACKLINK_OPPORTUNITIES.md
+  h_f97827f62b0fea 1-38
+docs/ai/CURRENT_STATE.md
+  h_f97827f62b0fea 7,9-14
+docs/ai/LEGACY_CONTENT_DECISION.md
+  h_f97827f62b0fea 1-62
+docs/ai/ORGANIC_GROWTH_30_DAY_REPORT.md
+  h_f97827f62b0fea 1-235
+docs/ai/ORGANIC_INDEXING_FUNNEL.md
+  h_f97827f62b0fea 1-60
+docs/ai/ORGANIC_SOURCE_SCORECARD.md
+  h_f97827f62b0fea 1-57
+docs/ai/ORGANIC_TOPIC_SCORECARD.md
+  h_f97827f62b0fea 1-36
+docs/ai/ROADMAP.md
+  h_f97827f62b0fea 518-544
+docs/ai/SEARCH_DEMAND_MAP.md
+  h_f97827f62b0fea 1-61
+scripts/audit_7day_burnin.py
+  h_f97827f62b0fea 1-198
+scripts/publish_evergreen_pillars.py
+  h_f97827f62b0fea 1-256
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.3",
+  "base_commit_sha": "a8ed495ca059a47d89c780e188748a3032977742",
+  "prompts": {},
+  "humans": {
+    "h_f97827f62b0fea": {
+      "author": "NOPPANAN THEERACHARTE <noppanan.the@axonstech.com>"
+    }
+  }
+}
