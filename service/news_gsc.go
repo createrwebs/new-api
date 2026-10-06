@@ -1,9 +1,14 @@
 package service
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"net/http"
+	"net/url"
 	"os"
 	"strings"
 	"time"
@@ -11,6 +16,7 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/model"
+	"golang.org/x/oauth2/jwt"
 )
 
 // GSCMetricRow represents a single query/page performance row from Search Console
@@ -66,20 +72,165 @@ func NewDefaultGSCClient() *DefaultGSCClient {
 	}
 }
 
-func (c *DefaultGSCClient) QuerySearchAnalytics(ctx context.Context, siteUrl string, startDate, endDate string, dimensions []string) ([]GSCMetricRow, error) {
+func (c *DefaultGSCClient) getAuthenticatedClient(ctx context.Context) (*http.Client, error) {
 	if c.CredentialsJSON == "" {
 		return nil, errors.New("GSC_CREDENTIALS_FILE, GSC_CREDENTIALS_JSON, or GOOGLE_APPLICATION_CREDENTIALS not configured (OPERATOR_BLOCKED)")
 	}
-	// In production, uses google.golang.org/api/webmasters/v3 with ReadOnlyScope.
-	// For autonomous orchestration without live GSC keys, zero secrets are logged.
-	return nil, errors.New("live GSC API requires Search Console Operator authorization (OPERATOR_BLOCKED)")
+	var key struct {
+		PrivateKeyID string `json:"private_key_id"`
+		PrivateKey   string `json:"private_key"`
+		ClientEmail  string `json:"client_email"`
+		TokenURI     string `json:"token_uri"`
+	}
+	if err := json.Unmarshal([]byte(c.CredentialsJSON), &key); err != nil {
+		return nil, fmt.Errorf("failed to parse google credentials json: %w", err)
+	}
+	if key.ClientEmail == "" || key.PrivateKey == "" {
+		return nil, errors.New("invalid google service account json: missing client_email or private_key (OPERATOR_BLOCKED)")
+	}
+	if key.TokenURI == "" {
+		key.TokenURI = "https://oauth2.googleapis.com/token"
+	}
+	jwtConf := &jwt.Config{
+		Email:        key.ClientEmail,
+		PrivateKey:   []byte(key.PrivateKey),
+		PrivateKeyID: key.PrivateKeyID,
+		Scopes:       []string{c.ReadOnlyScope},
+		TokenURL:     key.TokenURI,
+	}
+	return jwtConf.Client(ctx), nil
+}
+
+func (c *DefaultGSCClient) QuerySearchAnalytics(ctx context.Context, siteUrl string, startDate, endDate string, dimensions []string) ([]GSCMetricRow, error) {
+	client, err := c.getAuthenticatedClient(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if siteUrl == "" {
+		siteUrl = common.GetGSCSiteURL()
+	}
+	if startDate == "" {
+		startDate = time.Now().AddDate(0, 0, -28).Format("2006-01-02")
+	}
+	if endDate == "" {
+		endDate = time.Now().Format("2006-01-02")
+	}
+	if len(dimensions) == 0 {
+		dimensions = []string{"page", "query"}
+	}
+
+	escapedSite := url.QueryEscape(siteUrl)
+	apiURL := fmt.Sprintf("https://www.googleapis.com/webmasters/v3/sites/%s/searchAnalytics/query", escapedSite)
+
+	reqPayload := map[string]interface{}{
+		"startDate":  startDate,
+		"endDate":    endDate,
+		"dimensions": dimensions,
+		"rowLimit":   5000,
+	}
+	reqBytes, err := json.Marshal(reqPayload)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, apiURL, bytes.NewBuffer(reqBytes))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("GSC API query failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= 400 {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("GSC API error HTTP %d: %s", resp.StatusCode, string(body))
+	}
+
+	var res struct {
+		Rows []struct {
+			Keys        []string `json:"keys"`
+			Clicks      int      `json:"clicks"`
+			Impressions int      `json:"impressions"`
+			CTR         float64  `json:"ctr"`
+			Position    float64  `json:"position"`
+		} `json:"rows"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&res); err != nil {
+		return nil, fmt.Errorf("failed to decode GSC response: %w", err)
+	}
+
+	var results []GSCMetricRow
+	for _, row := range res.Rows {
+		m := GSCMetricRow{
+			Clicks:      row.Clicks,
+			Impressions: row.Impressions,
+			CTR:         row.CTR,
+			Position:    row.Position,
+			Date:        endDate,
+		}
+		if len(row.Keys) > 0 {
+			m.Page = row.Keys[0]
+		}
+		if len(row.Keys) > 1 {
+			m.Query = row.Keys[1]
+		}
+		results = append(results, m)
+	}
+	return results, nil
 }
 
 func (c *DefaultGSCClient) InspectURL(ctx context.Context, siteUrl string, inspectionUrl string) (bool, string, error) {
-	if c.CredentialsJSON == "" {
-		return false, "UNCONFIGURED", errors.New("GSC credentials not configured (GSC_CREDENTIALS_FILE or GSC_CREDENTIALS_JSON) (OPERATOR_BLOCKED)")
+	client, err := c.getAuthenticatedClient(ctx)
+	if err != nil {
+		return false, "UNCONFIGURED", err
 	}
-	return false, "UNCONFIGURED", errors.New("live URL inspection requires Search Console Operator authorization (OPERATOR_BLOCKED)")
+	if siteUrl == "" {
+		siteUrl = common.GetGSCSiteURL()
+	}
+	apiURL := "https://searchconsole.googleapis.com/v1/urlInspection/index:inspect"
+	reqPayload := map[string]interface{}{
+		"siteUrl":       siteUrl,
+		"inspectionUrl": inspectionUrl,
+	}
+	reqBytes, err := json.Marshal(reqPayload)
+	if err != nil {
+		return false, "ERROR", err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, apiURL, bytes.NewBuffer(reqBytes))
+	if err != nil {
+		return false, "ERROR", err
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return false, "ERROR", err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= 400 {
+		body, _ := io.ReadAll(resp.Body)
+		return false, "ERROR", fmt.Errorf("GSC inspection HTTP %d: %s", resp.StatusCode, string(body))
+	}
+
+	var res struct {
+		InspectionResult struct {
+			IndexStatusResult struct {
+				Verdict       string `json:"verdict"`
+				CoverageState string `json:"coverageState"`
+			} `json:"indexStatusResult"`
+		} `json:"inspectionResult"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&res); err != nil {
+		return false, "ERROR", fmt.Errorf("failed to decode GSC inspection response: %w", err)
+	}
+	verdict := res.InspectionResult.IndexStatusResult.Verdict
+	isIndexed := verdict == "PASS"
+	return isIndexed, verdict, nil
 }
 
 // IngestSearchMetrics processes incoming Search Console metrics into database
