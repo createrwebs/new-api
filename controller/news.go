@@ -873,6 +873,72 @@ func AdminTriggerGrowthIteration(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"success": true, "data": res})
 }
 
+// AdminGetAutopilotStatus returns live newsroom autopilot telemetry (Section 20 & 25)
+func AdminGetAutopilotStatus(c *gin.Context) {
+	status := service.GetAutopilotStatus()
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"data":    status,
+	})
+}
+
+// AdminTriggerAutopilot manually executes a specified newsroom action (scout, batch, report, or full)
+func AdminTriggerAutopilot(c *gin.Context) {
+	action := c.DefaultQuery("action", "scout")
+	ctx := c.Request.Context()
+
+	switch action {
+	case "scout":
+		res, err := service.RunAutopilotScoutCycle(ctx)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": err.Error()})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"success": true, "data": res, "action": "scout"})
+
+	case "batch":
+		limit, _ := strconv.Atoi(c.DefaultQuery("limit", "5"))
+		res, err := service.RunAutopilotPublishBatch(ctx, limit)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": err.Error()})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"success": true, "data": res, "action": "batch"})
+
+	case "report":
+		date := c.DefaultQuery("date", "")
+		res, err := service.RunDailyNewsroomReport(ctx, date)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": err.Error()})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"success": true, "data": res, "action": "report"})
+
+	case "full":
+		scoutRes, scoutErr := service.RunAutopilotScoutCycle(ctx)
+		if scoutErr != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": scoutErr.Error()})
+			return
+		}
+		batchRes, batchErr := service.RunAutopilotPublishBatch(ctx, 5)
+		if batchErr != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": batchErr.Error()})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{
+			"success": true,
+			"action":  "full",
+			"data": gin.H{
+				"scout": scoutRes,
+				"batch": batchRes,
+			},
+		})
+
+	default:
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "invalid action, choose: scout, batch, report, full"})
+	}
+}
+
 // renderGA4HeadScript generates privacy-safe GA4 tracking script tag for Go SSR news pages
 func renderGA4HeadScript(pageType string, post *model.NewsPost) string {
 	gaID := common.GetGA4MeasurementID()

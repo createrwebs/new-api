@@ -39,6 +39,8 @@ func setupServiceNewsTestDB(t *testing.T) {
 		&model.NewsDailyGrowthReview{},
 		&model.NewsUrlInspection{},
 		&model.NewsSeoExperiment{},
+		&model.NewsFeedItem{},
+		&model.NewsAiVisibilityObservation{},
 	))
 	sqlDB, err := db.DB()
 	require.NoError(t, err)

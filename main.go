@@ -160,6 +160,7 @@ func main() {
 	service.StartSystemTaskRunner()
 	service.StartNewsScoutRunner()
 	service.StartNewsGrowthCollectorRunner()
+	service.StartNewsAutopilotRunner()
 	service.LogExternalAPIConfigSummary(context.Background())
 
 	if os.Getenv("BATCH_UPDATE_ENABLED") == "true" {

@@ -363,6 +363,8 @@ func SetApiRouter(router *gin.Engine) {
 			newsAdminRoute.GET("/growth/overview", controller.AdminGetGrowthOverview)
 			newsAdminRoute.POST("/growth/sync", controller.AdminTriggerGrowthIteration)
 			newsAdminRoute.POST("/distributions/dispatch", controller.AdminDispatchDistributions)
+			newsAdminRoute.GET("/autopilot/status", controller.AdminGetAutopilotStatus)
+			newsAdminRoute.POST("/autopilot/run", controller.AdminTriggerAutopilot)
 		}
 
 		usageRoute := apiRouter.Group("/usage")

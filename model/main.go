@@ -403,6 +403,8 @@ func migrateDB() error {
 		&NewsDailyGrowthReview{},
 		&NewsUrlInspection{},
 		&NewsSeoExperiment{},
+		&NewsFeedItem{},
+		&NewsAiVisibilityObservation{},
 	)
 	if err != nil {
 		return err

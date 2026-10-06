@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/QuantumNous/new-api/common"
 	"gorm.io/gorm"
@@ -64,6 +65,11 @@ type NewsSource struct {
 	Enabled                bool   `json:"enabled" gorm:"default:true;index"`
 	PollingIntervalMinutes int    `json:"polling_interval_minutes" gorm:"default:30"`
 	LastFetchedAt          int64  `json:"last_fetched_at" gorm:"bigint;default:0"`
+	LastSuccessAt          int64  `json:"last_success_at" gorm:"bigint;default:0"`
+	LastHttpStatus         int    `json:"last_http_status" gorm:"default:0"`
+	ParseStatus            string `json:"parse_status" gorm:"type:varchar(32);default:'ok'"`
+	LatestItemDate         int64  `json:"latest_item_date" gorm:"bigint;default:0"`
+	ConsecutiveFailures    int    `json:"consecutive_failures" gorm:"default:0"`
 	FetchErrorCount        int    `json:"fetch_error_count" gorm:"default:0"`
 	LastError              string `json:"last_error" gorm:"type:varchar(512);default:''"`
 	Tags                   string `json:"tags" gorm:"type:varchar(255);default:''"` // Comma-separated
@@ -81,6 +87,90 @@ func (s *NewsSource) BeforeCreate(tx *gorm.DB) error {
 func (s *NewsSource) BeforeUpdate(tx *gorm.DB) error {
 	s.UpdatedAt = common.GetTimestamp()
 	return nil
+}
+
+// NewsFeedItem tracks discovered source items for strict deduplication (Section 3).
+type NewsFeedItem struct {
+	Id          int    `json:"id" gorm:"primaryKey;autoIncrement"`
+	SourceId    int    `json:"source_id" gorm:"index;not null"`
+	Guid        string `json:"guid" gorm:"type:varchar(512);index;not null"`
+	Url         string `json:"url" gorm:"type:varchar(512);index;not null"`
+	Title       string `json:"title" gorm:"type:varchar(512);not null"`
+	PublishedAt int64  `json:"published_at" gorm:"bigint;index"`
+	ClusterId   int    `json:"cluster_id" gorm:"index;default:0"`
+	Status      string `json:"status" gorm:"type:varchar(32);default:'discovered';index"`
+	CreatedAt   int64  `json:"created_at" gorm:"bigint"`
+}
+
+func (f *NewsFeedItem) BeforeCreate(tx *gorm.DB) error {
+	if f.CreatedAt == 0 {
+		f.CreatedAt = common.GetTimestamp()
+	}
+	return nil
+}
+
+func IsFeedItemProcessed(guid, url string) bool {
+	if DB == nil {
+		return false
+	}
+	var count int64
+	if guid != "" && url != "" {
+		DB.Model(&NewsFeedItem{}).Where("guid = ? OR url = ?", guid, url).Count(&count)
+	} else if guid != "" {
+		DB.Model(&NewsFeedItem{}).Where("guid = ?", guid).Count(&count)
+	} else if url != "" {
+		DB.Model(&NewsFeedItem{}).Where("url = ?", url).Count(&count)
+	}
+	return count > 0
+}
+
+func RecordFeedItem(item *NewsFeedItem) error {
+	if DB == nil || item == nil {
+		return nil
+	}
+	return DB.Create(item).Error
+}
+
+// NewsAiVisibilityObservation tracks AI search discovery, crawler visits, and citations (Section 22).
+type NewsAiVisibilityObservation struct {
+	Id              int    `json:"id" gorm:"primaryKey;autoIncrement"`
+	Provider        string `json:"provider" gorm:"type:varchar(64);index;not null"` // "openai", "perplexity", "claude", "gemini"
+	ObservationType string `json:"observation_type" gorm:"type:varchar(32);index;not null"` // "citation", "referral", "crawler"
+	Query           string `json:"query" gorm:"type:varchar(512)"`
+	ToraCited       bool   `json:"tora_cited" gorm:"index"`
+	CitedUrl        string `json:"cited_url" gorm:"type:varchar(512)"`
+	CheckedAt       int64  `json:"checked_at" gorm:"bigint;index"`
+	Details         string `json:"details" gorm:"type:text"`
+	CreatedAt       int64  `json:"created_at" gorm:"bigint"`
+}
+
+func (o *NewsAiVisibilityObservation) BeforeCreate(tx *gorm.DB) error {
+	if o.CreatedAt == 0 {
+		o.CreatedAt = common.GetTimestamp()
+	}
+	if o.CheckedAt == 0 {
+		o.CheckedAt = common.GetTimestamp()
+	}
+	return nil
+}
+
+func CreateAiVisibilityObservation(obs *NewsAiVisibilityObservation) error {
+	if DB == nil || obs == nil {
+		return nil
+	}
+	return DB.Create(obs).Error
+}
+
+func GetRecentAiVisibilityObservations(limit int) ([]*NewsAiVisibilityObservation, error) {
+	if DB == nil {
+		return nil, nil
+	}
+	if limit <= 0 {
+		limit = 50
+	}
+	var list []*NewsAiVisibilityObservation
+	err := DB.Model(&NewsAiVisibilityObservation{}).Order("checked_at DESC").Limit(limit).Find(&list).Error
+	return list, err
 }
 
 // StoryCluster groups deduplicated stories from one or more sources covering the same technical event.
@@ -339,6 +429,55 @@ func GetNewsPostById(id int) (*NewsPost, error) {
 	return &post, nil
 }
 
+// GetBangkokDateRange returns UTC unix timestamps for 00:00:00 and 24:00:00 in Asia/Bangkok (UTC+7)
+func GetBangkokDateRange(t time.Time) (int64, int64, string) {
+	loc := time.FixedZone("Asia/Bangkok", 7*3600)
+	local := t.In(loc)
+	startOfDay := time.Date(local.Year(), local.Month(), local.Day(), 0, 0, 0, 0, loc)
+	dateStr := startOfDay.Format("2006-01-02")
+	return startOfDay.Unix(), startOfDay.Unix() + 86400, dateStr
+}
+
+// GetPublishedCountToday counts posts published during today in Asia/Bangkok time (Section 6)
+func GetPublishedCountToday() (int, error) {
+	if DB == nil {
+		return 0, nil
+	}
+	start, end, _ := GetBangkokDateRange(time.Now())
+	var count int64
+	err := DB.Model(&NewsPost{}).
+		Where("status = ? AND published_at >= ? AND published_at < ?", NewsStatusPublished, start, end).
+		Count(&count).Error
+	return int(count), err
+}
+
+// GetPublishedCountBySourceToday counts posts from a given source published today in Asia/Bangkok time (Section 6)
+func GetPublishedCountBySourceToday(sourceId int) (int, error) {
+	if DB == nil {
+		return 0, nil
+	}
+	start, end, _ := GetBangkokDateRange(time.Now())
+	var count int64
+	err := DB.Model(&NewsPost{}).
+		Where("source_id = ? AND status = ? AND published_at >= ? AND published_at < ?", sourceId, NewsStatusPublished, start, end).
+		Count(&count).Error
+	return int(count), err
+}
+
+// GetTodayPublishedPosts returns all posts published today in Asia/Bangkok time
+func GetTodayPublishedPosts() ([]*NewsPost, error) {
+	if DB == nil {
+		return nil, nil
+	}
+	start, end, _ := GetBangkokDateRange(time.Now())
+	var posts []*NewsPost
+	err := DB.Model(&NewsPost{}).
+		Where("status = ? AND published_at >= ? AND published_at < ?", NewsStatusPublished, start, end).
+		Order("published_at DESC").
+		Find(&posts).Error
+	return posts, err
+}
+
 func CreateNewsPost(post *NewsPost) error {
 	if err := DB.Create(post).Error; err != nil {
 		return err
@@ -421,7 +560,7 @@ func DeleteNewsSource(id int) error {
 	return DB.Delete(&NewsSource{}, id).Error
 }
 
-// InitDefaultNewsSources seeds authoritative primary technical news sources
+// InitDefaultNewsSources seeds authoritative primary technical news sources (Section 2)
 func InitDefaultNewsSources() error {
 	defaults := []NewsSource{
 		{
@@ -436,17 +575,6 @@ func InitDefaultNewsSources() error {
 			Tags:                   "openai,gpt,chatgpt,api",
 		},
 		{
-			Name:                   "Anthropic Research & News",
-			Slug:                   "anthropic-official",
-			FeedUrl:                "https://www.anthropic.com/feed.xml",
-			SiteUrl:                "https://www.anthropic.com/news",
-			SourceType:             "atom",
-			TrustTier:              "tier_1_official",
-			Enabled:                true,
-			PollingIntervalMinutes: 30,
-			Tags:                   "anthropic,claude,api",
-		},
-		{
 			Name:                   "Google AI Blog",
 			Slug:                   "google-ai-official",
 			FeedUrl:                "https://blog.google/technology/ai/rss/",
@@ -456,6 +584,215 @@ func InitDefaultNewsSources() error {
 			Enabled:                true,
 			PollingIntervalMinutes: 60,
 			Tags:                   "google,gemini,gemma,deepmind",
+		},
+		{
+			Name:                   "Google DeepMind",
+			Slug:                   "google-deepmind",
+			FeedUrl:                "https://deepmind.google/blog/rss.xml",
+			SiteUrl:                "https://deepmind.google/discover/blog/",
+			SourceType:             "rss",
+			TrustTier:              "tier_1_official",
+			Enabled:                true,
+			PollingIntervalMinutes: 60,
+			Tags:                   "deepmind,alphafold,gemini,research",
+		},
+		{
+			Name:                   "Google Research",
+			Slug:                   "google-research",
+			FeedUrl:                "https://research.google/blog/rss/",
+			SiteUrl:                "https://research.google/blog/",
+			SourceType:             "rss",
+			TrustTier:              "tier_1_official",
+			Enabled:                true,
+			PollingIntervalMinutes: 60,
+			Tags:                   "google,research,ml,algorithms",
+		},
+		{
+			Name:                   "Google Developers Blog",
+			Slug:                   "google-developers",
+			FeedUrl:                "https://developers.googleblog.com/feeds/posts/default",
+			SiteUrl:                "https://developers.googleblog.com/",
+			SourceType:             "atom",
+			TrustTier:              "tier_1_official",
+			Enabled:                true,
+			PollingIntervalMinutes: 60,
+			Tags:                   "google,android,web,cloud,developer",
+		},
+		{
+			Name:                   "AWS Machine Learning Blog",
+			Slug:                   "aws-ml-official",
+			FeedUrl:                "https://aws.amazon.com/blogs/machine-learning/feed/",
+			SiteUrl:                "https://aws.amazon.com/blogs/machine-learning/",
+			SourceType:             "rss",
+			TrustTier:              "tier_1_official",
+			Enabled:                true,
+			PollingIntervalMinutes: 60,
+			Tags:                   "aws,bedrock,sagemaker,cloud",
+		},
+		{
+			Name:                   "NVIDIA Technical Blog",
+			Slug:                   "nvidia-developer",
+			FeedUrl:                "https://developer.nvidia.com/blog/feed",
+			SiteUrl:                "https://developer.nvidia.com/blog",
+			SourceType:             "atom",
+			TrustTier:              "tier_1_official",
+			Enabled:                true,
+			PollingIntervalMinutes: 60,
+			Tags:                   "nvidia,gpu,cuda,nim,inference",
+		},
+		{
+			Name:                   "Apple Machine Learning Research",
+			Slug:                   "apple-ml-research",
+			FeedUrl:                "https://machinelearning.apple.com/rss.xml",
+			SiteUrl:                "https://machinelearning.apple.com/research",
+			SourceType:             "rss",
+			TrustTier:              "tier_1_official",
+			Enabled:                true,
+			PollingIntervalMinutes: 60,
+			Tags:                   "apple,coreml,apple-intelligence,research",
+		},
+		{
+			Name:                   "Microsoft Official Blog - AI",
+			Slug:                   "microsoft-official",
+			FeedUrl:                "https://blogs.microsoft.com/feed/",
+			SiteUrl:                "https://blogs.microsoft.com/",
+			SourceType:             "rss",
+			TrustTier:              "tier_1_official",
+			Enabled:                true,
+			PollingIntervalMinutes: 60,
+			Tags:                   "microsoft,azure,copilot,openai",
+		},
+		{
+			Name:                   "Hugging Face Blog",
+			Slug:                   "hugging-face-blog",
+			FeedUrl:                "https://huggingface.co/blog/feed.xml",
+			SiteUrl:                "https://huggingface.co/blog",
+			SourceType:             "atom",
+			TrustTier:              "tier_1_official",
+			Enabled:                true,
+			PollingIntervalMinutes: 60,
+			Tags:                   "huggingface,transformers,open-source,models",
+		},
+		{
+			Name:                   "MIT News - Artificial Intelligence",
+			Slug:                   "mit-news-ai",
+			FeedUrl:                "https://news.mit.edu/topic/mitartificial-intelligence2-rss.xml",
+			SiteUrl:                "https://news.mit.edu/topic/artificial-intelligence2",
+			SourceType:             "rss",
+			TrustTier:              "tier_1_official",
+			Enabled:                true,
+			PollingIntervalMinutes: 120,
+			Tags:                   "mit,research,academia,breakthroughs",
+		},
+		{
+			Name:                   "Berkeley AI Research (BAIR)",
+			Slug:                   "bair-blog",
+			FeedUrl:                "https://bair.berkeley.edu/blog/feed.xml",
+			SiteUrl:                "https://bair.berkeley.edu/blog/",
+			SourceType:             "rss",
+			TrustTier:              "tier_1_official",
+			Enabled:                true,
+			PollingIntervalMinutes: 120,
+			Tags:                   "berkeley,bair,robotics,rl,llm",
+		},
+		{
+			Name:                   "GitHub Blog",
+			Slug:                   "github-blog",
+			FeedUrl:                "https://github.blog/feed/",
+			SiteUrl:                "https://github.blog/",
+			SourceType:             "rss",
+			TrustTier:              "tier_1_official",
+			Enabled:                true,
+			PollingIntervalMinutes: 60,
+			Tags:                   "github,engineering,git,devops",
+		},
+		{
+			Name:                   "GitHub Changelog",
+			Slug:                   "github-changelog",
+			FeedUrl:                "https://github.blog/changelog/feed/",
+			SiteUrl:                "https://github.blog/changelog/",
+			SourceType:             "rss",
+			TrustTier:              "tier_1_official",
+			Enabled:                true,
+			PollingIntervalMinutes: 60,
+			Tags:                   "github,changelog,features,releases",
+		},
+		{
+			Name:                   "GitHub Copilot Changelog",
+			Slug:                   "github-copilot-changelog",
+			FeedUrl:                "https://github.blog/tag/github-copilot/feed/",
+			SiteUrl:                "https://github.blog/tag/github-copilot/",
+			SourceType:             "rss",
+			TrustTier:              "tier_1_official",
+			Enabled:                true,
+			PollingIntervalMinutes: 60,
+			Tags:                   "copilot,ai-coding,agents,github",
+		},
+		{
+			Name:                   "Cloudflare Blog",
+			Slug:                   "cloudflare-blog",
+			FeedUrl:                "https://blog.cloudflare.com/rss/",
+			SiteUrl:                "https://blog.cloudflare.com/",
+			SourceType:             "rss",
+			TrustTier:              "tier_1_official",
+			Enabled:                true,
+			PollingIntervalMinutes: 60,
+			Tags:                   "cloudflare,workers,workers-ai,edge,cdn",
+		},
+		{
+			Name:                   "Cohere Blog",
+			Slug:                   "cohere-blog",
+			FeedUrl:                "https://txt.cohere.com/rss/",
+			SiteUrl:                "https://cohere.com/blog",
+			SourceType:             "rss",
+			TrustTier:              "tier_1_official",
+			Enabled:                true,
+			PollingIntervalMinutes: 60,
+			Tags:                   "cohere,command,rerank,embeddings",
+		},
+		{
+			Name:                   "Replicate Blog",
+			Slug:                   "replicate-blog",
+			FeedUrl:                "https://replicate.com/blog/rss",
+			SiteUrl:                "https://replicate.com/blog",
+			SourceType:             "rss",
+			TrustTier:              "tier_1_official",
+			Enabled:                true,
+			PollingIntervalMinutes: 60,
+			Tags:                   "replicate,diffusion,open-source,inference",
+		},
+		{
+			Name:                   "Amazon Science",
+			Slug:                   "amazon-science",
+			FeedUrl:                "https://www.amazon.science/index.rss",
+			SiteUrl:                "https://www.amazon.science/",
+			SourceType:             "rss",
+			TrustTier:              "tier_1_official",
+			Enabled:                true,
+			PollingIntervalMinutes: 120,
+			Tags:                   "amazon,science,deep-learning,nlp",
+		},
+		{
+			Name:                   "Carnegie Mellon ML Blog",
+			Slug:                   "cmu-ml-blog",
+			FeedUrl:                "https://blog.ml.cmu.edu/feed/",
+			SiteUrl:                "https://blog.ml.cmu.edu/",
+			SourceType:             "rss",
+			TrustTier:              "tier_1_official",
+			Enabled:                true,
+			PollingIntervalMinutes: 120,
+			Tags:                   "cmu,machine-learning,research,academia",
+		},
+		{
+			Name:                   "Anthropic Research & News",
+			Slug:                   "anthropic-official",
+			FeedUrl:                "https://www.anthropic.com/news",
+			SiteUrl:                "https://www.anthropic.com/news",
+			SourceType:             "html_watch",
+			TrustTier:              "tier_1_official",
+			Enabled:                true,
+			PollingIntervalMinutes: 30,
+			Tags:                   "anthropic,claude,api,safety",
 		},
 		{
 			Name:                   "DeepSeek Releases",
@@ -501,6 +838,13 @@ func InitDefaultNewsSources() error {
 				return err
 			}
 			common.SysLog(fmt.Sprintf("seeded authoritative news source: %s", src.Name))
+		} else if err == nil {
+			// Ensure FeedUrl and SourceType are updated if changed
+			if existing.FeedUrl != src.FeedUrl || existing.SourceType != src.SourceType {
+				existing.FeedUrl = src.FeedUrl
+				existing.SourceType = src.SourceType
+				_ = DB.Save(&existing)
+			}
 		}
 	}
 	return nil
@@ -924,7 +1268,7 @@ func GetConversionFunnelSummary(postId int) (map[string]int64, error) {
 	return summary, nil
 }
 
-// NewsDailyGrowthReview persists daily recurring growth and SEO review reports.
+// NewsDailyGrowthReview persists daily recurring growth and SEO review reports (Section 23).
 type NewsDailyGrowthReview struct {
 	Id                     int     `json:"id" gorm:"primaryKey;autoIncrement"`
 	ReviewDate             string  `json:"review_date" gorm:"type:varchar(32);uniqueIndex;not null"` // YYYY-MM-DD
@@ -944,6 +1288,25 @@ type NewsDailyGrowthReview struct {
 	ConversionsAttributed  int     `json:"conversions_attributed" gorm:"default:0"`
 	PipelineHealthStatus   string  `json:"pipeline_health_status" gorm:"type:varchar(32);default:'healthy'"`
 	ReviewNotes            string  `json:"review_notes" gorm:"type:text"`
+
+	// Section 23: Newsroom Autopilot Report metrics
+	SourcesChecked          int    `json:"sources_checked" gorm:"default:0"`
+	SourceFailures          int    `json:"source_failures" gorm:"default:0"`
+	CandidateStories        int    `json:"candidate_stories" gorm:"default:0"`
+	ClustersCreated         int    `json:"clusters_created" gorm:"default:0"`
+	DuplicatesRemoved       int    `json:"duplicates_removed" gorm:"default:0"`
+	DraftsRequiringReview   int    `json:"drafts_requiring_review" gorm:"default:0"`
+	RejectedStoriesCount    int    `json:"rejected_stories_count" gorm:"default:0"`
+	RejectedReasonsJSON     string `json:"rejected_reasons_json" gorm:"type:text"`
+	CategorySourceBreakdown string `json:"category_source_breakdown" gorm:"type:text"`
+	MainSitemapStatus       string `json:"main_sitemap_status" gorm:"type:varchar(64);default:'ok'"`
+	NewsSitemapStatus       string `json:"news_sitemap_status" gorm:"type:varchar(64);default:'ok'"`
+	IndexNowStatus          string `json:"indexnow_status" gorm:"type:varchar(64);default:'idle'"`
+	DevToStatus             string `json:"devto_status" gorm:"type:varchar(64);default:'active'"`
+	AiVisibilitySummary     string `json:"ai_visibility_summary" gorm:"type:text"`
+	TopOpportunitiesTomorrow string `json:"top_opportunities_tomorrow" gorm:"type:text"`
+	NewsroomRunStatus       string `json:"newsroom_run_status" gorm:"type:varchar(64);default:'NEWSROOM RUN COMPLETE'"`
+
 	CreatedAt              int64   `json:"created_at" gorm:"bigint"`
 }
 

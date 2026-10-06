@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"regexp"
 	"strings"
 	"time"
 
@@ -82,6 +83,133 @@ var scoutHttpClient = &http.Client{
 	Timeout: 15 * time.Second,
 }
 
+var (
+	anthropicNewsRegex = regexp.MustCompile(`/news/([a-z0-9\-]+)`)
+	nvidiaBlogRegex    = regexp.MustCompile(`href="(https://developer\.nvidia\.com/blog/([a-z0-9\-]+)/?)"`)
+)
+
+func fetchAnthropicNews(ctx context.Context, src *model.NewsSource) ([]*RawStoryItem, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://www.anthropic.com/news", nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+	resp, err := scoutHttpClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("HTTP %d from Anthropic news page", resp.StatusCode)
+	}
+
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 5*1024*1024))
+	if err != nil {
+		return nil, err
+	}
+
+	slugs := anthropicNewsRegex.FindAllStringSubmatch(string(body), -1)
+	seen := make(map[string]bool)
+	var items []*RawStoryItem
+
+	for _, m := range slugs {
+		if len(m) < 2 {
+			continue
+		}
+		slug := m[1]
+		if seen[slug] || slug == "news" {
+			continue
+		}
+		seen[slug] = true
+
+		url := fmt.Sprintf("https://www.anthropic.com/news/%s", slug)
+		titleWords := strings.Split(slug, "-")
+		for i, w := range titleWords {
+			if len(w) > 0 {
+				titleWords[i] = strings.ToUpper(w[:1]) + w[1:]
+			}
+		}
+		title := strings.Join(titleWords, " ")
+		summary := fmt.Sprintf("Anthropic official news and research release: %s", title)
+
+		items = append(items, &RawStoryItem{
+			Title:       title,
+			URL:         url,
+			Summary:     summary,
+			Author:      "Anthropic",
+			PublishedAt: time.Now(),
+			GUID:        url,
+			SourceName:  src.Name,
+			SourceId:    src.Id,
+			TrustTier:   src.TrustTier,
+		})
+	}
+	return items, nil
+}
+
+func fetchNvidiaBlogFallback(ctx context.Context, src *model.NewsSource) ([]*RawStoryItem, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://developer.nvidia.com/blog", nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("User-Agent", "ToraNewsScout/1.0 (+https://www.toraapi.com)")
+	resp, err := scoutHttpClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("HTTP %d from NVIDIA blog page", resp.StatusCode)
+	}
+
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 5*1024*1024))
+	if err != nil {
+		return nil, err
+	}
+
+	matches := nvidiaBlogRegex.FindAllStringSubmatch(string(body), -1)
+	seen := make(map[string]bool)
+	var items []*RawStoryItem
+
+	for _, m := range matches {
+		if len(m) < 3 {
+			continue
+		}
+		url := m[1]
+		slug := m[2]
+		if seen[url] || slug == "category" || slug == "tag" || slug == "author" || slug == "wp-atom" {
+			continue
+		}
+		seen[url] = true
+
+		titleWords := strings.Split(slug, "-")
+		for i, w := range titleWords {
+			if len(w) > 0 {
+				titleWords[i] = strings.ToUpper(w[:1]) + w[1:]
+			}
+		}
+		title := strings.Join(titleWords, " ")
+		summary := fmt.Sprintf("NVIDIA Developer Technical Blog: %s", title)
+
+		items = append(items, &RawStoryItem{
+			Title:       title,
+			URL:         url,
+			Summary:     summary,
+			Author:      "NVIDIA Developer",
+			PublishedAt: time.Now(),
+			GUID:        url,
+			SourceName:  src.Name,
+			SourceId:    src.Id,
+			TrustTier:   src.TrustTier,
+		})
+	}
+
+	src.ParseStatus = "degraded"
+	return items, nil
+}
+
 // ParseFeedXML parses raw XML bytes into normalized RawStoryItems, detecting RSS or Atom automatically
 func ParseFeedXML(data []byte, src *model.NewsSource) ([]*RawStoryItem, error) {
 	if len(data) == 0 {
@@ -95,6 +223,20 @@ func ParseFeedXML(data []byte, src *model.NewsSource) ([]*RawStoryItem, error) {
 		for _, it := range rss.Channel.Items {
 			title := strings.TrimSpace(it.Title)
 			link := strings.TrimSpace(it.Link)
+			guid := strings.TrimSpace(it.GUID)
+
+			// Quirk: Hugging Face fallback to GUID if link is missing (Section 2)
+			if link == "" && guid != "" {
+				link = guid
+			}
+			if src != nil && strings.Contains(src.Slug, "hugging-face") && !strings.HasPrefix(link, "http") && link != "" {
+				if strings.HasPrefix(link, "/") {
+					link = "https://huggingface.co" + link
+				} else {
+					link = "https://huggingface.co/" + link
+				}
+			}
+
 			if title == "" || link == "" {
 				continue
 			}
@@ -103,7 +245,6 @@ func ParseFeedXML(data []byte, src *model.NewsSource) ([]*RawStoryItem, error) {
 				author = strings.TrimSpace(it.Author)
 			}
 			pubTime := parseFlexDate(it.PubDate)
-			guid := strings.TrimSpace(it.GUID)
 			if guid == "" {
 				guid = link
 			}
@@ -136,6 +277,20 @@ func ParseFeedXML(data []byte, src *model.NewsSource) ([]*RawStoryItem, error) {
 					break
 				}
 			}
+			guid := strings.TrimSpace(entry.ID)
+
+			// Quirk: Hugging Face fallback to GUID if link is missing (Section 2)
+			if link == "" && guid != "" {
+				link = guid
+			}
+			if src != nil && strings.Contains(src.Slug, "hugging-face") && !strings.HasPrefix(link, "http") && link != "" {
+				if strings.HasPrefix(link, "/") {
+					link = "https://huggingface.co" + link
+				} else {
+					link = "https://huggingface.co/" + link
+				}
+			}
+
 			if title == "" || link == "" {
 				continue
 			}
@@ -148,7 +303,6 @@ func ParseFeedXML(data []byte, src *model.NewsSource) ([]*RawStoryItem, error) {
 				dateStr = entry.Updated
 			}
 			pubTime := parseFlexDate(dateStr)
-			guid := strings.TrimSpace(entry.ID)
 			if guid == "" {
 				guid = link
 			}
@@ -171,14 +325,55 @@ func ParseFeedXML(data []byte, src *model.NewsSource) ([]*RawStoryItem, error) {
 	return nil, errors.New("unrecognized feed format (neither RSS 2.0 nor Atom)")
 }
 
-// FetchSourceFeed downloads and parses the feed for a given NewsSource
+// FetchSourceFeed downloads and parses the feed for a given NewsSource with health tracking (Section 2 & 3)
 func FetchSourceFeed(ctx context.Context, src *model.NewsSource) ([]*RawStoryItem, error) {
-	if src == nil || src.FeedUrl == "" {
+	if src == nil {
 		return nil, errors.New("invalid news source")
+	}
+
+	now := common.GetTimestamp()
+	src.LastFetchedAt = now
+
+	// Quirk: Anthropic HTML-watch (Section 2)
+	if src.SourceType == "html_watch" || strings.Contains(src.Slug, "anthropic") {
+		items, err := fetchAnthropicNews(ctx, src)
+		if err != nil {
+			src.LastHttpStatus = 500
+			src.FetchErrorCount++
+			src.ConsecutiveFailures++
+			src.LastError = err.Error()
+			src.ParseStatus = "error"
+			_ = model.UpdateNewsSource(src)
+			return nil, err
+		}
+		src.LastHttpStatus = 200
+		src.LastSuccessAt = now
+		src.FetchErrorCount = 0
+		src.ConsecutiveFailures = 0
+		src.LastError = ""
+		src.ParseStatus = "ok"
+		if len(items) > 0 {
+			src.LatestItemDate = now
+		}
+		_ = model.UpdateNewsSource(src)
+		for _, it := range items {
+			it.Category = classifyCategory(it.Title, it.Summary)
+			it.Tags = extractTags(it.Title, it.Summary)
+		}
+		return items, nil
+	}
+
+	if src.FeedUrl == "" {
+		src.ParseStatus = "config_error"
+		_ = model.UpdateNewsSource(src)
+		return nil, errors.New("empty feed URL")
 	}
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, src.FeedUrl, nil)
 	if err != nil {
+		src.ParseStatus = "req_error"
+		src.LastError = err.Error()
+		_ = model.UpdateNewsSource(src)
 		return nil, err
 	}
 	req.Header.Set("User-Agent", "ToraNewsScout/1.0 (+https://www.toraapi.com)")
@@ -186,17 +381,39 @@ func FetchSourceFeed(ctx context.Context, src *model.NewsSource) ([]*RawStoryIte
 
 	resp, err := scoutHttpClient.Do(req)
 	if err != nil {
+		src.LastHttpStatus = 0
 		src.FetchErrorCount++
+		src.ConsecutiveFailures++
 		src.LastError = err.Error()
+		src.ParseStatus = "error"
 		_ = model.UpdateNewsSource(src)
 		return nil, err
 	}
 	defer resp.Body.Close()
 
+	src.LastHttpStatus = resp.StatusCode
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		errStr := fmt.Sprintf("HTTP %d from feed URL", resp.StatusCode)
 		src.FetchErrorCount++
+		src.ConsecutiveFailures++
 		src.LastError = errStr
+		src.ParseStatus = "http_error"
+
+		// Quirk: NVIDIA empty/failed feed fallback (Section 2)
+		if strings.Contains(src.Slug, "nvidia") {
+			fbItems, fbErr := fetchNvidiaBlogFallback(ctx, src)
+			if fbErr == nil && len(fbItems) > 0 {
+				src.LastSuccessAt = now
+				src.LastError = ""
+				_ = model.UpdateNewsSource(src)
+				for _, it := range fbItems {
+					it.Category = classifyCategory(it.Title, it.Summary)
+					it.Tags = extractTags(it.Title, it.Summary)
+				}
+				return fbItems, nil
+			}
+		}
+
 		_ = model.UpdateNewsSource(src)
 		return nil, errors.New(errStr)
 	}
@@ -206,23 +423,69 @@ func FetchSourceFeed(ctx context.Context, src *model.NewsSource) ([]*RawStoryIte
 	bodyBytes, err := io.ReadAll(limitReader)
 	if err != nil {
 		src.FetchErrorCount++
+		src.ConsecutiveFailures++
 		src.LastError = err.Error()
+		src.ParseStatus = "error"
 		_ = model.UpdateNewsSource(src)
 		return nil, err
 	}
 
+	// Quirk: NVIDIA empty body fallback (Section 2)
+	if len(bodyBytes) == 0 && strings.Contains(src.Slug, "nvidia") {
+		fbItems, fbErr := fetchNvidiaBlogFallback(ctx, src)
+		if fbErr == nil && len(fbItems) > 0 {
+			src.LastSuccessAt = now
+			src.LastError = ""
+			_ = model.UpdateNewsSource(src)
+			for _, it := range fbItems {
+				it.Category = classifyCategory(it.Title, it.Summary)
+				it.Tags = extractTags(it.Title, it.Summary)
+			}
+			return fbItems, nil
+		}
+	}
+
 	items, err := ParseFeedXML(bodyBytes, src)
 	if err != nil {
+		// Quirk check for NVIDIA
+		if strings.Contains(src.Slug, "nvidia") {
+			fbItems, fbErr := fetchNvidiaBlogFallback(ctx, src)
+			if fbErr == nil && len(fbItems) > 0 {
+				src.LastSuccessAt = now
+				src.LastError = ""
+				_ = model.UpdateNewsSource(src)
+				for _, it := range fbItems {
+					it.Category = classifyCategory(it.Title, it.Summary)
+					it.Tags = extractTags(it.Title, it.Summary)
+				}
+				return fbItems, nil
+			}
+		}
 		src.FetchErrorCount++
+		src.ConsecutiveFailures++
 		src.LastError = err.Error()
+		src.ParseStatus = "parse_error"
 		_ = model.UpdateNewsSource(src)
 		return nil, err
 	}
 
 	// Update source telemetry on success
-	src.LastFetchedAt = common.GetTimestamp()
+	src.LastSuccessAt = now
 	src.FetchErrorCount = 0
+	src.ConsecutiveFailures = 0
 	src.LastError = ""
+	if src.ParseStatus != "degraded" {
+		src.ParseStatus = "ok"
+	}
+	var maxPub int64
+	for _, it := range items {
+		if it.PublishedAt.Unix() > maxPub {
+			maxPub = it.PublishedAt.Unix()
+		}
+	}
+	if maxPub > 0 {
+		src.LatestItemDate = maxPub
+	}
 	_ = model.UpdateNewsSource(src)
 
 	// Enrich scoring
