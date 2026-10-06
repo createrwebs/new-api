@@ -28,12 +28,12 @@ var (
 
 // ValidateMagicBytes verifies actual file header against expected image/video formats (Section 30).
 func ValidateMagicBytes(header []byte) (string, error) {
-	if len(header) < 12 {
+	if len(header) < 4 {
 		return "", ErrInvalidFileType
 	}
 
 	// JPEG: FF D8 FF
-	if header[0] == 0xFF && header[1] == 0xD8 && header[2] == 0xFF {
+	if len(header) >= 3 && header[0] == 0xFF && header[1] == 0xD8 && header[2] == 0xFF {
 		return "image/jpeg", nil
 	}
 
@@ -44,12 +44,12 @@ func ValidateMagicBytes(header []byte) (string, error) {
 	}
 
 	// WebP: RIFF .... WEBP
-	if string(header[0:4]) == "RIFF" && string(header[8:12]) == "WEBP" {
+	if len(header) >= 12 && string(header[0:4]) == "RIFF" && string(header[8:12]) == "WEBP" {
 		return "image/webp", nil
 	}
 
 	// GIF: GIF87a or GIF89a
-	if string(header[0:6]) == "GIF87a" || string(header[0:6]) == "GIF89a" {
+	if len(header) >= 6 && (string(header[0:6]) == "GIF87a" || string(header[0:6]) == "GIF89a") {
 		return "image/gif", nil
 	}
 

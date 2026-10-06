@@ -184,9 +184,20 @@ func StudioWebhook(c *gin.Context) {
 	var payload struct {
 		RequestId     string `json:"request_id"`
 		ProviderJobId string `json:"provider_job_id"`
-		Status        string `json:"status"` // "COMPLETED", "FAILED"
+		Status        string `json:"status"` // "COMPLETED", "FAILED", "OK", "ERROR"
 		OutputURL     string `json:"output_url"`
 		Error         string `json:"error"`
+		Payload       struct {
+			Image struct {
+				URL string `json:"url"`
+			} `json:"image"`
+			Images []struct {
+				URL string `json:"url"`
+			} `json:"images"`
+			Video struct {
+				URL string `json:"video"`
+			} `json:"video"`
+		} `json:"payload"`
 		Image         struct {
 			URL string `json:"url"`
 		} `json:"image"`
@@ -194,7 +205,7 @@ func StudioWebhook(c *gin.Context) {
 			URL string `json:"url"`
 		} `json:"images"`
 		Video struct {
-			URL string `json:"url"`
+			URL string `json:"video"`
 		} `json:"video"`
 	}
 
@@ -214,7 +225,13 @@ func StudioWebhook(c *gin.Context) {
 
 	outputURL := payload.OutputURL
 	if outputURL == "" {
-		if len(payload.Images) > 0 && payload.Images[0].URL != "" {
+		if len(payload.Payload.Images) > 0 && payload.Payload.Images[0].URL != "" {
+			outputURL = payload.Payload.Images[0].URL
+		} else if payload.Payload.Image.URL != "" {
+			outputURL = payload.Payload.Image.URL
+		} else if payload.Payload.Video.URL != "" {
+			outputURL = payload.Payload.Video.URL
+		} else if len(payload.Images) > 0 && payload.Images[0].URL != "" {
 			outputURL = payload.Images[0].URL
 		} else if payload.Image.URL != "" {
 			outputURL = payload.Image.URL

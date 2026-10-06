@@ -412,7 +412,7 @@ func (s *StudioService) HandleWebhook(ctx context.Context, providerName string, 
 	normalizedStatus := strings.ToLower(status)
 	oldStatus := job.Status
 
-	if normalizedStatus == "completed" || normalizedStatus == "succeeded" {
+	if normalizedStatus == "completed" || normalizedStatus == "succeeded" || normalizedStatus == "ok" {
 		// Atomic check-and-settle: only settle if not already settled
 		if job.ReservedQuota > 0 && job.SettledQuota == 0 {
 			if err := model.SettleUserWalletPreConsume(job.RequestId); err != nil {
@@ -430,7 +430,7 @@ func (s *StudioService) HandleWebhook(ctx context.Context, providerName string, 
 			s.recordCostSnapshot(model.DB, job, toolDef, providerName)
 			_ = model.DB.Save(job)
 		}
-	} else if normalizedStatus == "failed" {
+	} else if normalizedStatus == "failed" || normalizedStatus == "error" {
 		if job.ReservedQuota > 0 && job.SettledQuota == 0 {
 			_ = model.RefundUserWalletPreConsume(job.RequestId)
 		}

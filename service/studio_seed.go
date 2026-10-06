@@ -59,7 +59,7 @@ func SeedStudioCatalog(db *gorm.DB) error {
 			PrimaryProvider:  "fal",
 			PrimaryModel:     "fal-ai/clarity-upscaler",
 			MarginPercent:    70.0,
-			Status:           model.StudioToolStateActive,
+			Status:           model.StudioToolStateBeta,
 		},
 		{
 			Id:               "background-remove",
@@ -81,7 +81,7 @@ func SeedStudioCatalog(db *gorm.DB) error {
 			PrimaryProvider:  "fal",
 			PrimaryModel:     "fal-ai/birefnet",
 			MarginPercent:    75.0,
-			Status:           model.StudioToolStateActive,
+			Status:           model.StudioToolStateBeta,
 		},
 		{
 			Id:               "product-photo",

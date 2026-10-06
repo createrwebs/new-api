@@ -43,15 +43,15 @@ func NewFalProvider() *FalProvider {
 		baseURL: FalDefaultBaseURL,
 		apiKey:  apiKey,
 		costLedger: map[string]float64{
-			"fal-ai/flux/schnell":          0.003,
-			"fal-ai/flux/dev":              0.025,
-			"fal-ai/birefnet":              0.005,
-			"fal-ai/clarity-upscaler":      0.015,
-			"fal-ai/product-photography":   0.035,
-			"fal-ai/flux-fill":             0.025,
-			"fal-ai/flux/dev/inpainting":   0.020,
-			"wan-video/wan-2.2":            0.080,
-			"fal-ai/ltx-video":             0.030,
+			"fal-ai/flux/schnell":        0.003,
+			"fal-ai/flux/dev":            0.025,
+			"fal-ai/birefnet":            0.005,
+			"fal-ai/clarity-upscaler":    0.015,
+			"fal-ai/product-photography": 0.035,
+			"fal-ai/flux-fill":           0.025,
+			"fal-ai/flux/dev/inpainting": 0.020,
+			"wan-video/wan-2.2":          0.080,
+			"fal-ai/ltx-video":           0.030,
 		},
 	}
 }
@@ -147,18 +147,23 @@ func (f *FalProvider) Submit(ctx context.Context, job *model.StudioToolJob) (*Pr
 	}
 
 	var parsed struct {
-		RequestID string `json:"request_id"`
-		Status    string `json:"status"`
+		RequestID   string `json:"request_id"`
+		Status      string `json:"status"`
+		StatusURL   string `json:"status_url"`
+		ResponseURL string `json:"response_url"`
+		CancelURL   string `json:"cancel_url"`
 	}
 	_ = json.Unmarshal(respBody, &parsed)
 
 	providerJobId := parsed.RequestID
-	if providerJobId == "" {
+	if providerJobId != "" {
+		providerJobId = fmt.Sprintf("%s:%s", endpoint, parsed.RequestID)
+	} else {
 		providerJobId = fmt.Sprintf("fal_%d", time.Now().UnixNano())
 	}
 
 	status := "queued"
-	if parsed.Status == "COMPLETED" {
+	if parsed.Status == "COMPLETED" || parsed.Status == "OK" {
 		status = "completed"
 	}
 
@@ -174,8 +179,16 @@ func (f *FalProvider) Poll(ctx context.Context, providerJobId string) (*Provider
 		return nil, err
 	}
 
-	// Status endpoint: GET https://queue.fal.run/requests/{request_id}/status
-	statusURL := fmt.Sprintf("%s/requests/%s/status", f.baseURL, providerJobId)
+	modelId := "fal-ai/birefnet"
+	reqId := providerJobId
+	if strings.Contains(providerJobId, ":") {
+		parts := strings.SplitN(providerJobId, ":", 2)
+		modelId = parts[0]
+		reqId = parts[1]
+	}
+
+	// Status endpoint: GET https://queue.fal.run/{model_id}/requests/{request_id}/status
+	statusURL := fmt.Sprintf("%s/%s/requests/%s/status", f.baseURL, modelId, reqId)
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, statusURL, nil)
 	if err != nil {
@@ -198,15 +211,16 @@ func (f *FalProvider) Poll(ctx context.Context, providerJobId string) (*Provider
 	}
 
 	var statusResp struct {
-		Status    string `json:"status"` // IN_QUEUE, IN_PROGRESS, COMPLETED
+		Status      string `json:"status"` // IN_QUEUE, IN_PROGRESS, COMPLETED, OK
 		ResponseURL string `json:"response_url"`
-		Error     string `json:"error"`
+		Error       string `json:"error"`
 	}
 	_ = json.Unmarshal(respBody, &statusResp)
 
-	switch statusResp.Status {
-	case "COMPLETED":
-		outputURL := f.fetchOutputURL(ctx, statusResp.ResponseURL, providerJobId)
+	normalizedStatus := strings.ToUpper(statusResp.Status)
+	switch normalizedStatus {
+	case "COMPLETED", "OK":
+		outputURL := f.fetchOutputURL(ctx, statusResp.ResponseURL, modelId, reqId)
 		return &ProviderPollResult{
 			Status:    "completed",
 			Progress:  100,
@@ -239,9 +253,9 @@ func (f *FalProvider) Poll(ctx context.Context, providerJobId string) (*Provider
 	}
 }
 
-func (f *FalProvider) fetchOutputURL(ctx context.Context, responseURL string, providerJobId string) string {
+func (f *FalProvider) fetchOutputURL(ctx context.Context, responseURL string, modelId string, reqId string) string {
 	if responseURL == "" {
-		responseURL = fmt.Sprintf("%s/requests/%s", f.baseURL, providerJobId)
+		responseURL = fmt.Sprintf("%s/%s/requests/%s", f.baseURL, modelId, reqId)
 	}
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, responseURL, nil)
@@ -266,11 +280,31 @@ func (f *FalProvider) fetchOutputURL(ctx context.Context, responseURL string, pr
 			URL string `json:"url"`
 		} `json:"image"`
 		Video struct {
-			URL string `json:"url"`
+			URL string `json:"video"`
 		} `json:"video"`
+		Payload struct {
+			Image struct {
+				URL string `json:"url"`
+			} `json:"image"`
+			Images []struct {
+				URL string `json:"url"`
+			} `json:"images"`
+			Video struct {
+				URL string `json:"video"`
+			} `json:"video"`
+		} `json:"payload"`
 	}
 	_ = json.Unmarshal(body, &out)
 
+	if len(out.Payload.Images) > 0 && out.Payload.Images[0].URL != "" {
+		return out.Payload.Images[0].URL
+	}
+	if out.Payload.Image.URL != "" {
+		return out.Payload.Image.URL
+	}
+	if out.Payload.Video.URL != "" {
+		return out.Payload.Video.URL
+	}
 	if len(out.Images) > 0 && out.Images[0].URL != "" {
 		return out.Images[0].URL
 	}
@@ -289,8 +323,16 @@ func (f *FalProvider) Cancel(ctx context.Context, providerJobId string) error {
 		return err
 	}
 
-	cancelURL := fmt.Sprintf("%s/requests/%s/cancel", f.baseURL, providerJobId)
-	req, err := http.NewRequestWithContext(ctx, http.MethodPut, cancelURL, nil)
+	modelId := "fal-ai/birefnet"
+	reqId := providerJobId
+	if strings.Contains(providerJobId, ":") {
+		parts := strings.SplitN(providerJobId, ":", 2)
+		modelId = parts[0]
+		reqId = parts[1]
+	}
+
+	cancelURL := fmt.Sprintf("%s/%s/requests/%s/cancel", f.baseURL, modelId, reqId)
+	req, err := http.NewRequestWithContext(ctx, http.MethodDelete, cancelURL, nil)
 	if err != nil {
 		return err
 	}

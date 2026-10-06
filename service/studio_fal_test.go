@@ -57,17 +57,17 @@ func TestFalProvider_SubmitAndPoll_MockServer(t *testing.T) {
 			w.WriteHeader(http.StatusOK)
 			_, _ = w.Write([]byte(`{"request_id": "req_fal_mock_123", "status": "IN_QUEUE"}`))
 
-		case "/requests/req_fal_mock_123/status":
+		case "/fal-ai/birefnet/requests/req_fal_mock_123/status":
 			// Poll response: completed
 			w.WriteHeader(http.StatusOK)
 			_, _ = w.Write([]byte(`{"status": "COMPLETED", "response_url": ""}`))
 
-		case "/requests/req_fal_mock_123":
+		case "/fal-ai/birefnet/requests/req_fal_mock_123":
 			// Fetch result
 			w.WriteHeader(http.StatusOK)
 			_, _ = w.Write([]byte(`{"image": {"url": "https://fal.media/files/lion/transparent.png"}}`))
 
-		case "/requests/req_fal_mock_123/cancel":
+		case "/fal-ai/birefnet/requests/req_fal_mock_123/cancel":
 			w.WriteHeader(http.StatusOK)
 
 		default:
@@ -90,7 +90,7 @@ func TestFalProvider_SubmitAndPoll_MockServer(t *testing.T) {
 	}
 	submitRes, err := provider.Submit(context.Background(), job)
 	require.NoError(t, err)
-	assert.Equal(t, "req_fal_mock_123", submitRes.ProviderJobId)
+	assert.Equal(t, "fal-ai/birefnet:req_fal_mock_123", submitRes.ProviderJobId)
 	assert.Equal(t, "queued", submitRes.Status)
 
 	// 2. Poll

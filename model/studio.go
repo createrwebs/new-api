@@ -372,7 +372,7 @@ func GetStudioJobByProviderJobId(providerJobId string) (*StudioToolJob, error) {
 		return nil, errors.New("database not initialized")
 	}
 	var job StudioToolJob
-	err := DB.Where("provider_job_id = ?", providerJobId).First(&job).Error
+	err := DB.Where("provider_job_id = ? OR provider_job_id LIKE ?", providerJobId, "%:"+providerJobId).First(&job).Error
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, ErrStudioJobNotFound

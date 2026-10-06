@@ -249,6 +249,11 @@ func (e *PricingEngine) CalculatePriceWithInputs(
 		costBasis = "per_image"
 		chargedCredits = baseCredits * numOutputs
 
+	case "background-remove":
+		costUSD = 0.005 * float64(numOutputs)
+		costBasis = "per_image"
+		chargedCredits = baseCredits * numOutputs
+
 	case "image-extend":
 		costUSD = 0.025
 		costBasis = "per_image"
