@@ -104,8 +104,10 @@ try:
     print(f"  Schedule Cycles:         {len(status_data.get('schedule_cycles', []))} slots configured")
 
     assert status_data.get("max_daily_cap") == 20, f"Expected 20, got {status_data.get('max_daily_cap')}"
+    assert status_data.get("today_published_count") <= status_data.get("max_daily_cap"), f"INVARIANT VIOLATION: {status_data.get('today_published_count')} > {status_data.get('max_daily_cap')}"
     assert len(status_data.get("schedule_cycles", [])) == 9
     print("  [PASS] Autopilot status reflects Bangkok UTC+7 schedule and 20 max daily cap")
+    print(f"  [PASS] INVARIANT UPHELD: Today Published ({status_data.get('today_published_count')}) <= Daily Cap ({status_data.get('max_daily_cap')})")
 
     # 5. On-Demand Scout Cycle Execution (Section 3 & 4)
     print("\n--- 5. ON-DEMAND SCOUT CYCLE EXECUTION (SECTION 3 & 4) ---")
