@@ -587,10 +587,7 @@ func cleanSnippet(raw string) string {
 		}
 	}
 	clean := strings.Join(strings.Fields(buf.String()), " ")
-	if len(clean) > 300 {
-		return clean[:297] + "..."
-	}
-	return clean
+	return common.TruncateRunesWithEllipsis(clean, 300)
 }
 
 func classifyCategory(title, summary string) string {

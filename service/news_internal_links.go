@@ -71,10 +71,7 @@ func RecommendInternalLinks(postId int) ([]InternalLinkRecommendation, error) {
 			if targetURL == "" {
 				targetURL = fmt.Sprintf("%s/news/%s", baseURL, p.Slug)
 			}
-			anchor := p.Title
-			if len(anchor) > 50 {
-				anchor = anchor[:50] + "..."
-			}
+			anchor := common.TruncateRunesWithEllipsis(p.Title, 50)
 			recs = append(recs, InternalLinkRecommendation{
 				SourcePostID: postId,
 				TargetPostID: p.Id,

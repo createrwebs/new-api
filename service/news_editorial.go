@@ -56,9 +56,7 @@ func GenerateSlug(title string) string {
 		}
 	}
 	slug := strings.Trim(b.String(), "-")
-	if len(slug) > 120 {
-		slug = slug[:120]
-	}
+	slug = common.TruncateRunes(slug, 120)
 	if slug == "" {
 		slug = fmt.Sprintf("story-%d", common.GetTimestamp())
 	}
@@ -138,14 +136,11 @@ func GenerateEditorialPost(cluster *model.StoryCluster, src *model.NewsSource) *
 	htmlContent := RenderMarkdownToSafeHTML(markdownContent)
 
 	seoTitle := fmt.Sprintf("%s | Tora AI News", cluster.Title)
-	if len(seoTitle) > 70 {
-		seoTitle = cluster.Title
+	if len([]rune(seoTitle)) > 70 {
+		seoTitle = common.TruncateRunes(cluster.Title, 70)
 	}
 
-	seoDesc := cluster.Summary
-	if len(seoDesc) > 155 {
-		seoDesc = seoDesc[:152] + "..."
-	}
+	seoDesc := common.TruncateRunesWithEllipsis(cluster.Summary, 155)
 
 	now := common.GetTimestamp()
 	post := &model.NewsPost{

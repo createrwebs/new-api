@@ -742,8 +742,8 @@ func InitDefaultNewsSources() error {
 		{
 			Name:                   "Cohere Blog",
 			Slug:                   "cohere-blog",
-			FeedUrl:                "https://txt.cohere.com/rss/",
-			SiteUrl:                "https://cohere.com/blog",
+			FeedUrl:                "https://docs.cohere.com/changelog.rss",
+			SiteUrl:                "https://docs.cohere.com/changelog",
 			SourceType:             "rss",
 			TrustTier:              "tier_1_official",
 			Enabled:                true,
@@ -808,8 +808,8 @@ func InitDefaultNewsSources() error {
 		{
 			Name:                   "OpenRouter Announcements",
 			Slug:                   "openrouter-official",
-			FeedUrl:                "https://openrouter.ai/announcements.rss",
-			SiteUrl:                "https://openrouter.ai",
+			FeedUrl:                "https://openrouter.ai/docs/changelog/rss.xml",
+			SiteUrl:                "https://openrouter.ai/docs/changelog",
 			SourceType:             "rss",
 			TrustTier:              "tier_1_official",
 			Enabled:                true,

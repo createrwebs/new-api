@@ -13,6 +13,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
 	"golang.org/x/image/font"
 	"golang.org/x/image/font/basicfont"
@@ -66,10 +67,7 @@ func getThaiFace(size float64) (font.Face, error) {
 
 // GenerateOGCardSVG creates a 1200x630 branded SVG social preview card
 func GenerateOGCardSVG(post *model.NewsPost) string {
-	title := post.Title
-	if len(title) > 90 {
-		title = title[:87] + "..."
-	}
+	title := common.TruncateRunesWithEllipsis(post.Title, 90)
 
 	dateStr := time.Unix(post.PublishedAt, 0).Format("02 Jan 2006")
 	category := "TECH & AI"
@@ -208,9 +206,7 @@ func GenerateOGCardPNG(post *model.NewsPost) ([]byte, error) {
 			break
 		}
 	}
-	if len(title) > 85 {
-		title = title[:82] + "..."
-	}
+	title = common.TruncateRunesWithEllipsis(title, 85)
 
 	titleColor := color.RGBA{R: 248, G: 250, B: 252, A: 255}
 	if !isAscii {

@@ -138,3 +138,24 @@ func MaskEmail(email string) string {
 func MaskSensitiveInfo(str string) string {
 	return kitutil.MaskSensitiveInfo(str)
 }
+
+// TruncateRunes safely truncates a string to at most maxRunes, avoiding cutting multi-byte UTF-8 sequences.
+func TruncateRunes(s string, maxRunes int) string {
+	r := []rune(s)
+	if len(r) <= maxRunes {
+		return s
+	}
+	return string(r[:maxRunes])
+}
+
+// TruncateRunesWithEllipsis safely truncates a string and adds "..." if it exceeds maxRunes.
+func TruncateRunesWithEllipsis(s string, maxRunes int) string {
+	r := []rune(s)
+	if len(r) <= maxRunes {
+		return s
+	}
+	if maxRunes <= 3 {
+		return string(r[:maxRunes])
+	}
+	return string(r[:maxRunes-3]) + "..."
+}
