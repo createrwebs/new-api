@@ -74,8 +74,8 @@ type DefaultGA4Client struct {
 }
 
 func NewDefaultGA4Client() *DefaultGA4Client {
-	propID := strings.TrimSpace(os.Getenv("GA4_PROPERTY_ID"))
-	measID := strings.TrimSpace(os.Getenv("GA4_MEASUREMENT_ID"))
+	propID := common.GetGA4PropertyID()
+	measID := common.GetGA4MeasurementID()
 	credsFile := strings.TrimSpace(os.Getenv("GA4_CREDENTIALS_FILE"))
 	credsJSON := strings.TrimSpace(os.Getenv("GA4_CREDENTIALS_JSON"))
 

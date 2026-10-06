@@ -69,6 +69,10 @@ func GetGA4MeasurementID() string {
 
 // GetGA4PropertyID returns the GA4 numeric Property ID (e.g. 123456789 or properties/123456789)
 func GetGA4PropertyID() string {
-	return strings.TrimSpace(os.Getenv("GA4_PROPERTY_ID"))
+	val := strings.TrimSpace(os.Getenv("GA4_PROPERTY_ID"))
+	if val == "" {
+		val = "555052590"
+	}
+	return val
 }
 
