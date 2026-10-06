@@ -1,0 +1,26 @@
+common/str.go
+  h_f97827f62b0fea 141-161
+model/news.go
+  h_f97827f62b0fea 745-746,811-812
+scripts/test_prod_newsroom_autopilot.py
+  h_f97827f62b0fea 1-156
+service/news_creative.go
+  h_f97827f62b0fea 16,70,209
+service/news_editorial.go
+  h_f97827f62b0fea 59,139-140,143
+service/news_internal_links.go
+  h_f97827f62b0fea 74
+service/news_scout.go
+  h_f97827f62b0fea 590
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.3",
+  "base_commit_sha": "484c06053e55196e12989a57812a32a095d262fa",
+  "prompts": {},
+  "humans": {
+    "h_f97827f62b0fea": {
+      "author": "NOPPANAN THEERACHARTE <noppanan.the@axonstech.com>"
+    }
+  }
+}
