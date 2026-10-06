@@ -1,0 +1,50 @@
+common/canonical.go
+  h_f97827f62b0fea 57-71
+controller/misc.go
+  h_f97827f62b0fea 104-106
+controller/news.go
+  h_f97827f62b0fea 77,91,96,208-209,230,320,332,387-388,397,876-980
+docs/ai/CURRENT_STATE.md
+  h_f97827f62b0fea 204,216,229,237-244
+docs/ai/GA4_GROWTH_ATTRIBUTION_RUNBOOK.md
+  h_f97827f62b0fea 1-141
+main.go
+  h_f97827f62b0fea 281-282,284,287-294,296-298
+service/news_canary_test.go
+  h_f97827f62b0fea 581-583,590,593,596-633
+service/news_growth_worker.go
+  h_f97827f62b0fea 27,98-113
+service/news_review.go
+  h_f97827f62b0fea 7,116-141,165-166,265-375,398-399
+web/src/features/auth/sign-in/components/user-auth-form.tsx
+  h_f97827f62b0fea 57,187
+web/src/features/auth/sign-up/components/sign-up-form.tsx
+  h_f97827f62b0fea 53,175
+web/src/features/news/index.tsx
+  h_f97827f62b0fea 559,563,568,573-621
+web/src/features/news/types.ts
+  h_f97827f62b0fea 122-145,150,154-162,166-167
+web/src/features/playground/hooks/use-chat-handler.ts
+  h_f97827f62b0fea 23,211,255,298,315
+web/src/features/pricing/index.tsx
+  h_f97827f62b0fea 19,24,46-49
+web/src/features/subscriptions/components/dialogs/subscription-purchase-dialog.tsx
+  h_f97827f62b0fea 33,109,128,149,175,219
+web/src/features/wallet/hooks/use-payment.ts
+  h_f97827f62b0fea 24,116
+web/src/lib/analytics.ts
+  h_f97827f62b0fea 1-278
+web/src/routes/__root.tsx
+  h_f97827f62b0fea 26,39-40,52,54-99
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.3",
+  "base_commit_sha": "5845d219b8cf985027d0b5b573638f6a973eba52",
+  "prompts": {},
+  "humans": {
+    "h_f97827f62b0fea": {
+      "author": "NOPPANAN THEERACHARTE <noppanan.the@axonstech.com>"
+    }
+  }
+}
