@@ -515,9 +515,32 @@ Status: **COMPLETED** (Canaries Partially Verified — Operator Credentials Requ
   - React Admin News dashboard updated to display Backlog Safety Invariant, GA4 & Autopilot Policy card, and multi-channel distribution state.
 
 
+## R12 — 30-Day Organic Growth Autopilot (News → Search Demand → Evergreen → Authority → Measurement → Optimize)
 
+Status: **ACTIVE — PRODUCTION EXECUTION**
 
-
-
+- **Objective**: Transition Tora AI from a pure Newsroom into an authoritative, multi-tier Organic Growth Engine operating across 30 full Asia/Bangkok calendar days.
+- **Three Overlapping Loops**:
+  - **Daily Loop**: Continuous 24-source scouting, atomic row-lock publication (max 20/day, max 5/batch, max 3/source/day), technical Thai editorial validation, IndexNow push, GSC selective inspection, daily executive reporting.
+  - **Weekly Loop**: Source scorecard classification (`HIGH_VALUE`, `USEFUL`, `NOISY`, `LOW_VALUE`), topic priority adjustment across 11 verticals, evergreen candidate promotion, backlink vetting.
+  - **30-Day Loop**: Topical authority consolidation, indexation funnel monitoring, legacy post cannibalization audits, multi-engine AI citation verification.
+- **Search Demand Map**:
+  - Formulated and maintaining 24 high-intent technical clusters in `docs/ai/SEARCH_DEMAND_MAP.md`.
+  - Content mix targeted at: 40% Evergreen, 25% Model/Reference, 20% News, 10% Developer Resources, 5% Technical Analysis.
+- **Pillar + Cluster Model & Initial Deployments**:
+  - Published Pillar 1: `/news/ai-api-gateway-architecture-guide` (*คู่มือสถาปัตยกรรม AI API Gateway: เชื่อมต่อหลายโมเดลด้วยมาตรฐาน OpenAI-Compatible และระบบ BYOK*).
+  - Published Pillar 2: `/news/llm-routing-and-fallback-architecture` (*คู่มือการออกแบบ LLM Routing & Dynamic Fallback: ป้องกัน API ล่ม ลดต้นทุน และเพิ่ม Uptime 99.9%*).
+  - Both deployed live on production with Schema.org `TechArticle` structured data, 1200x630 OG social cards, internal cross-linking, and IndexNow broadcast (HTTP 202).
+- **Search Discovery & Funnel Instrumentation**:
+  - Full indexing funnel tracking from `PUBLISHED` -> `IN_SITEMAP` -> `INDEXNOW_SENT` -> `GSC_INSPECTED` -> `DISCOVERED` -> `CRAWLED` -> `INDEXED`.
+  - Truthful GSC reporting: `NO_DATA_YET` maintained during fresh domain crawl maturation.
+- **Documentation Suite (Section 70)**:
+  - `docs/ai/ORGANIC_GROWTH_30_DAY_REPORT.md`
+  - `docs/ai/ORGANIC_SOURCE_SCORECARD.md`
+  - `docs/ai/ORGANIC_TOPIC_SCORECARD.md`
+  - `docs/ai/ORGANIC_INDEXING_FUNNEL.md`
+  - `docs/ai/AI_VISIBILITY_SCORECARD.md`
+  - `docs/ai/LEGACY_CONTENT_DECISION.md`
+  - `docs/ai/SEARCH_DEMAND_MAP.md`
 
 

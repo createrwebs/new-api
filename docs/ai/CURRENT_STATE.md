@@ -4,9 +4,14 @@
 
 ## Overall Status
 
-**AUTONOMOUS WORK EXHAUSTED — WAITING FOR OPERATOR**
+**30-DAY ORGANIC GROWTH AUTOPILOT ACTIVE — PRODUCTION EXECUTION**
 
-All executable engineering, integration, testing, build, security verification, and release gate tasks across mobile and backend are 100% complete. The project is fully operational in mock/isolated environments, release APK and AAB build artifacts are verified, and the codebase is completely prepped for live store deployment. Progress is now paused exclusively on external operator actions in Apple App Store Connect and Google Play Console (Roadmap item R5).
+The Tora AI production system at `https://www.toraapi.com` is actively executing the 30-Day Organic Growth Autopilot under strict server-side PostgreSQL invariants (`MAX_PUBLISHED_PER_DAY=20`, `MAX_PER_BATCH=5`, `MAX_PER_SOURCE_PER_DAY=3`). Production build `tora-api:r11-db0c36bf8` is live and healthy on AWS EC2 (`51.20.174.90`). The system has transitioned from a news factory to an integrated Search Demand & Topical Authority Engine:
+- **Newsroom Engine**: 24/24 authoritative global tech/AI sources healthy, atomic row-lock quota verified, zero-cliché technical Thai editorial quality verified.
+- **Evergreen Pillar Engine**: Initial authoritative pillars published (`ai-api-gateway-architecture-guide`, `llm-routing-and-fallback-architecture`) with Schema.org `TechArticle` structured data, 1200x630 OG cards, and IndexNow push.
+- **Search Discovery Pipeline**: Sitemaps operational (`/sitemap.xml` with 26 canonical URLs, `/news-sitemap.xml` strictly isolating fresh news $\le 48$h). GSC connected, URL inspection active, IndexNow pushing real-time pings (HTTP 202). GSC Search Analytics truthfully reporting `NO_DATA_YET` during domain maturation.
+- **Legacy Isolation**: 1,203 legacy posts safely partitioned in `UNKNOWN_LEGACY`, audited (average 1,242 chars, zero thin content $<500$ chars), excluded from Google News sitemap.
+- **AI Visibility**: Stable 6-category benchmark established with zero fabricated citations.
 
 ## Completed Major Work
 
