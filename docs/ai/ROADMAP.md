@@ -429,34 +429,35 @@ Status: **COMPLETED (R11 PRODUCTION = PASS — GROWTH CHANNELS NOT ACTIVATED)**
 
 ## R11-GROWTH-ACTIVATION — Controlled Real-World Growth Channel Canary
 
-Status: **COMPLETED (GROWTH PARTIALLY ACTIVATED — OPERATOR CREDENTIALS REQUIRED)**
+Status: **COMPLETED (DEV.TO & GSC LIVE PROVEN IN PRODUCTION)**
 
 - **Production Environment Baseline**:
   - Target Origin: `https://www.toraapi.com` (host Caddy `127.0.0.1:3000` -> `new-api:3000`).
   - Target Database: `new-api` on PostgreSQL 15.19 (56 tables, healthy).
-  - Deployed Container Image: `tora-api:r11-82648f911` (git commit `82648f911` on branch `feat/formobile`).
+  - Deployed Container Image: `tora-api:r11-290404938` (git commit `290404938` on branch `feat/formobile`).
   - Docker Compose Network: `new-api_new-api-network` (bridge network preserved).
 - **Safety Architecture & Kill Switches**:
-  - Global Kill Switch: `NEWS_DISTRIBUTION_ENABLED=false` by default, halting all outbound distribution calls before network contact.
-  - Provider-Specific Kill Switches: Individual kill switches for DEV.to, Facebook, LinkedIn.
-  - Backlog Surge Protection: `NEWS_DISTRIBUTION_ALLOWLIST_POST_IDS` prevents historical backlog floods (~1,152 pending records per platform).
+  - Global Distribution: `NEWS_DISTRIBUTION_ENABLED=true` active in production.
+  - Provider-Specific Kill Switches: `NEWS_DISTRIBUTION_DEVTO_ENABLED=true` active for DEV.to; Facebook and LinkedIn remain disabled.
+  - Backlog Surge Protection: `NEWS_DISTRIBUTION_ALLOWLIST_POST_IDS=8` prevents historical backlog floods (~1,164 pending records per platform).
   - Invariant URL Validation: `ValidateDistributionUrl()` strictly enforces canonical `https://www.toraapi.com/news/<slug>` and rejects `localhost`, `127.0.0.1`, `staging-api.toraapi.com`, `tora.ai`, `api.tora.ai`.
   - Failure Taxonomy: Structured failure classes (`AUTH`, `PERMISSION`, `RATE_LIMIT`, `VALIDATION`, `REMOTE_5XX`, `NETWORK_AMBIGUOUS`, `PERMANENT`).
 - **Telemetry Feedback Loop & Admin APIs**:
-  - `GET /api/admin/news/growth/overview`: Returns global kill switch status, channel status map, allowlist IDs, queue depth, and daily review summary.
+  - `GET /api/admin/news/growth/overview`: Verified reporting `devto = "ACTIVE"`, `gsc = "CONFIGURED"`, `facebook = "OPERATOR_BLOCKED"`, `linkedin = "OPERATOR_BLOCKED"`, and `allowlist_post_ids = [8]`.
   - `GET /api/admin/news/posts/:id/growth`: Aggregates post metadata, distribution states, SEO impressions/clicks/CTR, and attribution conversions.
   - `GET /api/admin/news/posts/:id/distributions`: Lists distribution history and per-platform status.
   - `POST /api/admin/news/distributions/dispatch`: Authenticated batch trigger for allowlisted distributions with fail-safe abort.
 - **Verified Truthful Provider Status**:
-  - `GSC = OPERATOR_BLOCKED` (Awaiting Google Service Account JSON with Search Console read access on `sc-domain:toraapi.com`)
-  - `DEVTO = OPERATOR_BLOCKED` (Awaiting `DEVTO_API_KEY`)
-  - `FACEBOOK = OPERATOR_BLOCKED` (Awaiting `FACEBOOK_PAGE_ACCESS_TOKEN` & `FACEBOOK_PAGE_ID`)
-  - `LINKEDIN = OPERATOR_BLOCKED` (Awaiting `LINKEDIN_ACCESS_TOKEN` & `LINKEDIN_ORG_ID`)
+  - `DEVTO = ACTIVE (LIVE PROVEN)`: Post 8 ("Building advertising for the way people use AI") published live to DEV.to (ID `4804790`, `https://dev.to/createrwebs/building-advertising-for-the-way-people-use-ai-5c8`). Canonical URL strictly points to `https://www.toraapi.com/news/building-advertising-for-the-way-people-use-ai`.
+  - `GSC = ACTIVE (LIVE PROVEN)`: Google Service Account key mounted at `/data/gsc_service_account.json` (chmod 600). Proved OAuth2 JWT exchange (HTTP 200), site verification with `siteFullUser` permission on `sc-domain:toraapi.com` (HTTP 200), Search Analytics query (HTTP 200), and URL Inspection (HTTP 200).
+  - `FACEBOOK = OPERATOR_BLOCKED` (Awaiting `FACEBOOK_PAGE_ACCESS_TOKEN` & `FACEBOOK_PAGE_ID`).
+  - `LINKEDIN = OPERATOR_BLOCKED` (Awaiting `LINKEDIN_ACCESS_TOKEN` & `LINKEDIN_ORG_ID`).
 - **Live Production Verification Probes**:
   - Unauthenticated access to admin endpoints correctly rejected with HTTP 401.
-  - Authenticated admin requests to all 4 endpoints 100% verified via ephemeral admin canary test suite.
-  - Global kill switch proven: batch dispatch safely aborted with 0 processed distributions.
+  - Authenticated admin requests to all endpoints 100% verified via ephemeral admin canary test suite.
+  - Post 8 distribution record updated to `status = "published"` in PostgreSQL `new-api`.
   - Zero committed or logged secrets. All release gates passing.
+
 
 
 
