@@ -1,0 +1,34 @@
+controller/news.go
+  h_f97827f62b0fea 582-584,590-603,640-661
+model/main.go
+  h_f97827f62b0fea 408-409,414-416
+model/news.go
+  h_f97827f62b0fea 14,26-41,251-257,267-273,286-308,480,485,487,490-504,506-573,575,578-583,588,590-591,596-767
+model/news_seed.go
+  h_f97827f62b0fea 360-365,371-372,375
+model/news_test.go
+  h_f97827f62b0fea 7,30-31,33,239-502
+service/news_autopilot.go
+  h_f97827f62b0fea 7-8,31-34,37-76,89,94-95,103-118,181,186-188,190-194,196,198-199,202-205,209-217,240-241,253,256-257,259,286-303,308-309,325-326,331,368-374,402,409-415,419-423,432-433,442-445,455-456,458-471
+service/news_canary_test.go
+  h_f97827f62b0fea 60-67
+service/news_editorial.go
+  h_f97827f62b0fea 157-160
+service/news_seo.go
+  h_f97827f62b0fea 159
+service/news_task.go
+  h_f97827f62b0fea 55,61-63
+service/news_test.go
+  h_f97827f62b0fea 44-45,47,330-336
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.3",
+  "base_commit_sha": "668a8a9545b5f64b243c724c8b1f4857c06cc699",
+  "prompts": {},
+  "humans": {
+    "h_f97827f62b0fea": {
+      "author": "NOPPANAN THEERACHARTE <noppanan.the@axonstech.com>"
+    }
+  }
+}
