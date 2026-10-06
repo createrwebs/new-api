@@ -427,6 +427,37 @@ Status: **COMPLETED (R11 PRODUCTION = PASS — GROWTH CHANNELS NOT ACTIVATED)**
   - CPU: 0.00%, Memory: ~59 MiB (3.21%).
   - Social distribution channels: strictly `DISABLED` (0 requests to Facebook, LinkedIn, DEV.to, GSC).
 
+## R11-GROWTH-ACTIVATION — Controlled Real-World Growth Channel Canary
+
+Status: **COMPLETED (GROWTH PARTIALLY ACTIVATED — OPERATOR CREDENTIALS REQUIRED)**
+
+- **Production Environment Baseline**:
+  - Target Origin: `https://www.toraapi.com` (host Caddy `127.0.0.1:3000` -> `new-api:3000`).
+  - Target Database: `new-api` on PostgreSQL 15.19 (56 tables, healthy).
+  - Deployed Container Image: `tora-api:r11-82648f911` (git commit `82648f911` on branch `feat/formobile`).
+  - Docker Compose Network: `new-api_new-api-network` (bridge network preserved).
+- **Safety Architecture & Kill Switches**:
+  - Global Kill Switch: `NEWS_DISTRIBUTION_ENABLED=false` by default, halting all outbound distribution calls before network contact.
+  - Provider-Specific Kill Switches: Individual kill switches for DEV.to, Facebook, LinkedIn.
+  - Backlog Surge Protection: `NEWS_DISTRIBUTION_ALLOWLIST_POST_IDS` prevents historical backlog floods (~1,152 pending records per platform).
+  - Invariant URL Validation: `ValidateDistributionUrl()` strictly enforces canonical `https://www.toraapi.com/news/<slug>` and rejects `localhost`, `127.0.0.1`, `staging-api.toraapi.com`, `tora.ai`, `api.tora.ai`.
+  - Failure Taxonomy: Structured failure classes (`AUTH`, `PERMISSION`, `RATE_LIMIT`, `VALIDATION`, `REMOTE_5XX`, `NETWORK_AMBIGUOUS`, `PERMANENT`).
+- **Telemetry Feedback Loop & Admin APIs**:
+  - `GET /api/admin/news/growth/overview`: Returns global kill switch status, channel status map, allowlist IDs, queue depth, and daily review summary.
+  - `GET /api/admin/news/posts/:id/growth`: Aggregates post metadata, distribution states, SEO impressions/clicks/CTR, and attribution conversions.
+  - `GET /api/admin/news/posts/:id/distributions`: Lists distribution history and per-platform status.
+  - `POST /api/admin/news/distributions/dispatch`: Authenticated batch trigger for allowlisted distributions with fail-safe abort.
+- **Verified Truthful Provider Status**:
+  - `GSC = OPERATOR_BLOCKED` (Awaiting Google Service Account JSON with Search Console read access on `sc-domain:toraapi.com`)
+  - `DEVTO = OPERATOR_BLOCKED` (Awaiting `DEVTO_API_KEY`)
+  - `FACEBOOK = OPERATOR_BLOCKED` (Awaiting `FACEBOOK_PAGE_ACCESS_TOKEN` & `FACEBOOK_PAGE_ID`)
+  - `LINKEDIN = OPERATOR_BLOCKED` (Awaiting `LINKEDIN_ACCESS_TOKEN` & `LINKEDIN_ORG_ID`)
+- **Live Production Verification Probes**:
+  - Unauthenticated access to admin endpoints correctly rejected with HTTP 401.
+  - Authenticated admin requests to all 4 endpoints 100% verified via ephemeral admin canary test suite.
+  - Global kill switch proven: batch dispatch safely aborted with 0 processed distributions.
+  - Zero committed or logged secrets. All release gates passing.
+
 
 
 

@@ -172,6 +172,7 @@ When an item is blocked by operator-dependent external access (such as Apple Sto
 | **R11-PROD-PREFLIGHT Same-Origin Prod Release Gate** | `COMPLETED (PRODUCTION READY)` | Unified https://www.toraapi.com same-origin architecture verified, stale domain references eradicated, GSC property architecture defined, robots.txt Disallow /news-admin, HEAD support, rollback runbook corrected, read-only new-api DB preflight passed (16 additive tables, 0 destructive changes). |
 | **R11-PROD-DEPLOY-SAFETY Production Deployment Hardening** | `COMPLETED` | Docker Compose bridge network preserved, --network host rejected, rollback tag tora-api:rollback-pre-r11-20261006 preserved, fresh backup created. |
 | **R11-PROD-DEPLOY Controlled Production Deployment & Canary** | `COMPLETED (R11 PRODUCTION = PASS)` | PostgreSQL 15.19 production database new-api migrated additively from 40 to 56 tables. Immutable image tora-api:r11-b43005f89 deployed behind Caddy on https://www.toraapi.com. All 14 news/core HTTP gates, desktop/mobile real browser canary, admin auth & write lifecycle canary passed. Growth channels remain DISABLED. |
+| **R11-GROWTH-ACTIVATION Controlled Real-World Growth Channel Canary** | `COMPLETED (GROWTH PARTIALLY ACTIVATED — OPERATOR CREDENTIALS REQUIRED)` | Global kill switch active (NEWS_DISTRIBUTION_ENABLED=false), provider kill switches active, allowlist surge protection (NEWS_DISTRIBUTION_ALLOWLIST_POST_IDS) active, failure taxonomy implemented, distribution URL validation invariant enforced (rejects localhost/staging/tora.ai). Production image tora-api:r11-82648f911 deployed and verified. GET /api/admin/news/growth/overview, GET /api/admin/news/posts/:id/growth, GET /api/admin/news/posts/:id/distributions, POST /api/admin/news/distributions/dispatch all 100% verified on production instance. All 4 external providers (GSC, DEV.to, Facebook, LinkedIn) truthfully verified as OPERATOR_BLOCKED due to unconfigured API credentials. Zero historical backlog flood risk. |
 
 ## External / Operator Blockers
 
@@ -197,19 +198,19 @@ Real release readiness still requires:
 - real test purchase
 - restore/reconciliation validation
 
-### Growth Channels (`NOT ACTIVATED / OPERATOR_BLOCKED`)
+### Growth Channels (`OPERATOR_BLOCKED`)
 
-- Google Search Console: `GSC_CREDENTIALS_FILE` or `GSC_CREDENTIALS_JSON` service account with Search Console read access
-- Meta Facebook: `FACEBOOK_PAGE_ACCESS_TOKEN` & `FACEBOOK_PAGE_ID`
-- LinkedIn: `LINKEDIN_ACCESS_TOKEN` & `LINKEDIN_ORG_ID` (`w_organization_social` scope)
-- DEV Community: `DEVTO_API_KEY`
+- Google Search Console (`GSC = OPERATOR_BLOCKED`): `GSC_CREDENTIALS_FILE` or `GSC_CREDENTIALS_JSON` service account with Search Console read access on `sc-domain:toraapi.com`
+- DEV Community (`DEVTO = OPERATOR_BLOCKED`): `DEVTO_API_KEY` for technical cross-posting
+- Meta Facebook (`FACEBOOK = OPERATOR_BLOCKED`): `FACEBOOK_PAGE_ACCESS_TOKEN` & `FACEBOOK_PAGE_ID` (Graph API v26.0)
+- LinkedIn (`LINKEDIN = OPERATOR_BLOCKED`): `LINKEDIN_ACCESS_TOKEN` & `LINKEDIN_ORG_ID` (`w_organization_social` scope, REST Posts API 202609)
 
 ## Active Engineering Direction
 
 Core product & growth engineering complete:
 
 ```text
-[R1-R4 COMPLETED] -> [R6-R7 COMPLETED] -> [R10 COMPLETED] -> [R11 COMPLETED] -> [R11-M COMPLETED] -> [R11-LIVE COMPLETED] -> [R11-PG COMPLETED] -> [R11-STAGING COMPLETED] -> [R11-PROD-PREFLIGHT COMPLETED] -> [R11-PROD-DEPLOY-SAFETY COMPLETED] -> [R11-PROD-DEPLOY COMPLETED (R11 PRODUCTION = PASS)] -> [R5 OPERATOR_BLOCKED] -> [R8 OPERATOR_BLOCKED] -> [R9 BLOCKED]
+[R1-R4 COMPLETED] -> [R6-R7 COMPLETED] -> [R10 COMPLETED] -> [R11 COMPLETED] -> [R11-M COMPLETED] -> [R11-LIVE COMPLETED] -> [R11-PG COMPLETED] -> [R11-STAGING COMPLETED] -> [R11-PROD-PREFLIGHT COMPLETED] -> [R11-PROD-DEPLOY-SAFETY COMPLETED] -> [R11-PROD-DEPLOY COMPLETED (R11 PRODUCTION = PASS)] -> [R11-GROWTH-ACTIVATION COMPLETED (GROWTH PARTIALLY ACTIVATED — OPERATOR CREDENTIALS REQUIRED)] -> [R5 OPERATOR_BLOCKED] -> [R8 OPERATOR_BLOCKED] -> [R9 BLOCKED]
 ```
 
 ## Truthful Verification State
@@ -219,11 +220,15 @@ Core product & growth engineering complete:
 - `R11 PROD PREFLIGHT = PASS`
 - `R11 PROD DEPLOY SAFETY = PASS`
 - `R11 PRODUCTION = PASS`
-- `GROWTH CHANNELS = NOT ACTIVATED`
+- `GSC = OPERATOR_BLOCKED`
+- `DEVTO = OPERATOR_BLOCKED`
+- `FACEBOOK = OPERATOR_BLOCKED`
+- `LINKEDIN = OPERATOR_BLOCKED`
 
 ## Currently Executing Task
 
-**FINAL STATUS: R11 PRODUCTION DEPLOYED & VERIFIED — READY FOR GROWTH ACTIVATION**:
-Production deployment executed and verified under operator authorization. Target origin: `https://www.toraapi.com`. Target database: `new-api` on PostgreSQL 15.19. Production table count migrated additively from 40 to 56 tables (100% match with staging, 0 dropped tables/columns). Immutable image `tora-api:r11-b43005f89` running in Docker Compose with bridge network `new-api_new-api-network`. All core APIs and SPA pages verified. Public News SSR, Thai TrueType OG PNG (1200x630), XML sitemaps, robots.txt crawlable. Real browser canary (desktop & mobile 390x844) confirmed 0 overflow and 0 console errors. Section 16 Admin authorization gates (unauthenticated 401, non-admin 403, admin 200) and Section 17 Write Canary (create draft -> DB verify -> public 404 verify -> edit -> delete -> 0 rows remaining) 100% passed. Observation window >20 minutes: 0 restarts, 0 errors, CPU 0.00%, RAM 59 MiB (3.21%). Social distribution channels remain strictly DISABLED. Project is fully operational and ready for growth activation.
+**FINAL STATUS: GROWTH PARTIALLY ACTIVATED — OPERATOR CREDENTIALS REQUIRED**:
+Growth channel canary architecture executed and verified on production (`https://www.toraapi.com`) with database `new-api`. Production container upgraded to immutable image `tora-api:r11-82648f911` with default global kill switch active (`NEWS_DISTRIBUTION_ENABLED=false`). Invariant distribution URL validation prevents all invalid/staging host leaks. Backlog surge protection safely gates the 1,152 historical pending distribution records using explicit canary allowlists (`NEWS_DISTRIBUTION_ALLOWLIST_POST_IDS`). Telemetry feedback loop and Admin Growth APIs (`GET /api/admin/news/growth/overview`, `GET /api/admin/news/posts/:id/growth`, `GET /api/admin/news/posts/:id/distributions`, `POST /api/admin/news/distributions/dispatch`) verified 100% via authenticated ephemeral admin canary test suite. All 4 external providers (Google Search Console, DEV.to, Facebook Page, LinkedIn Organization) are truthfully verified as `OPERATOR_BLOCKED` pending operator credentials. Zero secrets logged. All 10 unified release gates remain 100% passing.
+
 
 
