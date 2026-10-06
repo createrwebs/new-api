@@ -2,6 +2,7 @@ package service
 
 import (
 	"fmt"
+	"os"
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
@@ -99,4 +100,166 @@ func GenerateDailyGrowthReview(targetDate string) (*model.NewsDailyGrowthReview,
 	}
 
 	return review, nil
+}
+
+// PostGrowthRecord provides an unified growth and distribution record for a post (Section 19)
+type PostGrowthRecord struct {
+	PostId           int                         `json:"post_id"`
+	Slug             string                      `json:"slug"`
+	Title            string                      `json:"title"`
+	ContentType      string                      `json:"content_type"`
+	Status           string                      `json:"status"`
+	PublishedAt      int64                       `json:"published_at"`
+	CanonicalUrl     string                      `json:"canonical_url"`
+	Distributions    []*model.NewsDistribution   `json:"distributions"`
+	SeoMetrics       []*model.NewsSeoMetric      `json:"seo_metrics"`
+	TotalImpressions int                         `json:"total_impressions"`
+	TotalClicks      int                         `json:"total_clicks"`
+	AverageCTR       float64                     `json:"average_ctr"`
+	Opportunities    []*model.NewsSeoOpportunity `json:"opportunities"`
+	SignupsCount     int                         `json:"signups_count"`
+	ConversionsCount int                         `json:"conversions_count"`
+}
+
+// GetPostGrowthRecord compiles all growth telemetry associated with a single news post
+func GetPostGrowthRecord(postId int) (*PostGrowthRecord, error) {
+	post, err := model.GetNewsPostById(postId)
+	if err != nil || post == nil {
+		return nil, fmt.Errorf("post %d not found", postId)
+	}
+
+	dists, _ := model.GetDistributionsByPostId(postId)
+	metrics, _ := model.GetNewsSeoMetricsByPostId(postId, 50)
+	opps, _ := model.GetSeoOpportunitiesByPost(postId)
+
+	totalImp := 0
+	totalClicks := 0
+	for _, m := range metrics {
+		totalImp += m.Impressions
+		totalClicks += m.Clicks
+	}
+	avgCTR := 0.0
+	if totalImp > 0 {
+		avgCTR = (float64(totalClicks) / float64(totalImp)) * 100.0
+	}
+
+	contentIdStr := fmt.Sprintf("%d", postId)
+	var signups int64
+	var conversions int64
+	model.DB.Model(&model.NewsConversionEvent{}).Where("content_id = ? AND event_type = ?", contentIdStr, ConversionSignup).Count(&signups)
+	model.DB.Model(&model.NewsConversionEvent{}).Where("content_id = ? AND event_type IN ?", contentIdStr, []string{ConversionTopup, ConversionSubscription}).Count(&conversions)
+
+	return &PostGrowthRecord{
+		PostId:           post.Id,
+		Slug:             post.Slug,
+		Title:            post.Title,
+		ContentType:      post.ContentType,
+		Status:           post.Status,
+		PublishedAt:      post.PublishedAt,
+		CanonicalUrl:     post.CanonicalUrl,
+		Distributions:    dists,
+		SeoMetrics:       metrics,
+		TotalImpressions: totalImp,
+		TotalClicks:      totalClicks,
+		AverageCTR:       avgCTR,
+		Opportunities:    opps,
+		SignupsCount:     int(signups),
+		ConversionsCount: int(conversions),
+	}, nil
+}
+
+// GlobalGrowthOverview provides an operational snapshot of the growth engine (Section 19 & 21)
+type GlobalGrowthOverview struct {
+	GlobalKillSwitchActive bool                         `json:"global_kill_switch_active"`
+	DistributionEnabled    bool                         `json:"distribution_enabled"`
+	ChannelStatuses        map[string]string            `json:"channel_statuses"`
+	AllowlistPostIDs       []int                        `json:"allowlist_post_ids"`
+	PendingQueueDepth      map[string]int64             `json:"pending_queue_depth"`
+	LatestDailyReview      *model.NewsDailyGrowthReview `json:"latest_daily_review"`
+}
+
+// GetGlobalGrowthOverview evaluates runtime growth state across all channels
+func GetGlobalGrowthOverview() (*GlobalGrowthOverview, error) {
+	distEnabled := IsGlobalDistributionEnabled()
+	killSwitchActive := !distEnabled
+
+	channelStatuses := make(map[string]string)
+
+	// GSC
+	if os.Getenv("GSC_CREDENTIALS_FILE") != "" || os.Getenv("GSC_CREDENTIALS_JSON") != "" || os.Getenv("GOOGLE_APPLICATION_CREDENTIALS") != "" {
+		channelStatuses["gsc"] = "CONFIGURED"
+	} else {
+		channelStatuses["gsc"] = "OPERATOR_BLOCKED"
+	}
+
+	// DEV.to
+	if os.Getenv("DEVTO_API_KEY") != "" {
+		if !IsPlatformDistributionEnabled(model.DistPlatformDevTo) {
+			channelStatuses["devto"] = "DISABLED_BY_CONFIG"
+		} else {
+			channelStatuses["devto"] = "ACTIVE"
+		}
+	} else {
+		channelStatuses["devto"] = "OPERATOR_BLOCKED"
+	}
+
+	// Facebook
+	if os.Getenv("FACEBOOK_PAGE_ACCESS_TOKEN") != "" && os.Getenv("FACEBOOK_PAGE_ID") != "" {
+		if !IsPlatformDistributionEnabled(model.DistPlatformFacebook) {
+			channelStatuses["facebook"] = "DISABLED_BY_CONFIG"
+		} else {
+			channelStatuses["facebook"] = "ACTIVE"
+		}
+	} else {
+		channelStatuses["facebook"] = "OPERATOR_BLOCKED"
+	}
+
+	// LinkedIn
+	if os.Getenv("LINKEDIN_ACCESS_TOKEN") != "" && os.Getenv("LINKEDIN_ORG_ID") != "" {
+		if !IsPlatformDistributionEnabled(model.DistPlatformLinkedIn) {
+			channelStatuses["linkedin"] = "DISABLED_BY_CONFIG"
+		} else {
+			channelStatuses["linkedin"] = "ACTIVE"
+		}
+	} else {
+		channelStatuses["linkedin"] = "OPERATOR_BLOCKED"
+	}
+
+	// Allowlist post IDs
+	allowlistMap := GetDistributionAllowlistPostIDs()
+	var allowlistIDs []int
+	for id := range allowlistMap {
+		allowlistIDs = append(allowlistIDs, id)
+	}
+
+	// Queue depth
+	queueDepth := make(map[string]int64)
+	type QueueRow struct {
+		Platform string
+		Count    int64
+	}
+	var rows []QueueRow
+	_ = model.DB.Model(&model.NewsDistribution{}).
+		Select("platform, count(*) as count").
+		Where("status = ?", "pending").
+		Group("platform").
+		Scan(&rows)
+	for _, r := range rows {
+		queueDepth[r.Platform] = r.Count
+	}
+
+	recentReviews, _ := model.GetRecentDailyGrowthReviews(1)
+	var latestReview *model.NewsDailyGrowthReview
+	if len(recentReviews) > 0 {
+		latestReview = recentReviews[0]
+	}
+
+	return &GlobalGrowthOverview{
+		GlobalKillSwitchActive: killSwitchActive,
+		DistributionEnabled:    distEnabled,
+		ChannelStatuses:        channelStatuses,
+		AllowlistPostIDs:       allowlistIDs,
+		PendingQueueDepth:      queueDepth,
+		LatestDailyReview:      latestReview,
+	}, nil
 }

@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -468,5 +469,126 @@ func TestBrowserSecurity_MarkdownXSSSanitization(t *testing.T) {
 	assert.Contains(t, renderedHTML, "Safe Link")
 	assert.Contains(t, renderedHTML, "strong", "Markdown bold must render as strong tag")
 }
+
+func TestNewsDistribution_SafetyAndKillSwitch(t *testing.T) {
+	setupServiceNewsTestDB(t)
+
+	// 1. URL Safety Invariants (Section 2)
+	assert.NoError(t, ValidateDistributionUrl("https://www.toraapi.com/news/sample-slug"))
+	assert.Error(t, ValidateDistributionUrl("http://localhost:3000/news/sample-slug"), "Localhost must be rejected")
+	assert.Error(t, ValidateDistributionUrl("http://127.0.0.1:3000/news/sample-slug"), "127.0.0.1 must be rejected")
+	assert.Error(t, ValidateDistributionUrl("https://staging-api.toraapi.com/news/sample-slug"), "Staging host must be rejected")
+	assert.Error(t, ValidateDistributionUrl("https://tora.ai/news/sample-slug"), "Deprecated tora.ai must be rejected")
+	assert.Error(t, ValidateDistributionUrl("https://api.tora.ai/news/sample-slug"), "Deprecated api.tora.ai must be rejected")
+	assert.Error(t, ValidateDistributionUrl("https://www.toraapi.com/docs"), "Non-news path must be rejected")
+
+	// 2. Global Kill Switch (Section 21)
+	origKill := os.Getenv("NEWS_DISTRIBUTION_ENABLED")
+	defer func() { _ = os.Setenv("NEWS_DISTRIBUTION_ENABLED", origKill) }()
+
+	_ = os.Setenv("NEWS_DISTRIBUTION_ENABLED", "false")
+	assert.False(t, IsGlobalDistributionEnabled())
+	processed, err := ProcessPendingDistributions(context.Background(), 10)
+	assert.NoError(t, err)
+	assert.Equal(t, 0, processed, "Zero distributions must process when kill switch is active")
+
+	_ = os.Setenv("NEWS_DISTRIBUTION_ENABLED", "true")
+	assert.True(t, IsGlobalDistributionEnabled())
+
+	// 3. Platform Enablement Switches
+	_ = os.Setenv("DEVTO_DISTRIBUTION_ENABLED", "false")
+	assert.False(t, IsPlatformDistributionEnabled(model.DistPlatformDevTo))
+	assert.True(t, IsPlatformDistributionEnabled(model.DistPlatformFacebook))
+	_ = os.Unsetenv("DEVTO_DISTRIBUTION_ENABLED")
+}
+
+func TestNewsDistribution_FailureClassification(t *testing.T) {
+	// Section 16: Failure classification
+	assert.Equal(t, DistFailureAuth, ClassifyDistributionFailure(errors.New("OPERATOR_BLOCKED: token missing"), 0))
+	assert.Equal(t, DistFailureAuth, ClassifyDistributionFailure(errors.New("unauthorized"), 401))
+	assert.Equal(t, DistFailurePermission, ClassifyDistributionFailure(errors.New("forbidden scope"), 403))
+	assert.Equal(t, DistFailureRateLimit, ClassifyDistributionFailure(errors.New("quota exceeded"), 429))
+	assert.Equal(t, DistFailureValidation, ClassifyDistributionFailure(errors.New("bad request parameters"), 400))
+	assert.Equal(t, DistFailureRemote5xx, ClassifyDistributionFailure(errors.New("internal server error"), 500))
+	assert.Equal(t, DistFailureNetworkAmbiguous, ClassifyDistributionFailure(errors.New("context deadline exceeded (timeout)"), 0))
+	assert.Equal(t, DistFailurePermanent, ClassifyDistributionFailure(errors.New("unknown permanent error"), 0))
+}
+
+func TestNewsDistribution_AllowlistBacklogProtection(t *testing.T) {
+	setupServiceNewsTestDB(t)
+
+	origAllow := os.Getenv("NEWS_DISTRIBUTION_ALLOWLIST_POST_IDS")
+	origKill := os.Getenv("NEWS_DISTRIBUTION_ENABLED")
+	defer func() {
+		_ = os.Setenv("NEWS_DISTRIBUTION_ALLOWLIST_POST_IDS", origAllow)
+		_ = os.Setenv("NEWS_DISTRIBUTION_ENABLED", origKill)
+	}()
+
+	_ = os.Setenv("NEWS_DISTRIBUTION_ENABLED", "true")
+
+	// Create 2 posts: post 1 (backlog) and post 2 (canary target)
+	post1 := &model.NewsPost{Id: 101, Slug: "backlog-1", Title: "Backlog 1", Status: model.NewsStatusPublished}
+	post2 := &model.NewsPost{Id: 102, Slug: "canary-2", Title: "Canary 2", Status: model.NewsStatusPublished}
+	require.NoError(t, model.CreateNewsPost(post1))
+	require.NoError(t, model.CreateNewsPost(post2))
+
+	// Queue pending distributions for both
+	require.NoError(t, model.CreateNewsDistribution(&model.NewsDistribution{PostId: 101, Platform: model.DistPlatformDevTo, Status: "pending", ContentPayload: "backlog"}))
+	require.NoError(t, model.CreateNewsDistribution(&model.NewsDistribution{PostId: 102, Platform: model.DistPlatformDevTo, Status: "pending", ContentPayload: "canary", RemotePostId: "reconciled_99"}))
+
+	// Allowlist ONLY post 102
+	_ = os.Setenv("NEWS_DISTRIBUTION_ALLOWLIST_POST_IDS", "102")
+
+	// Process: ONLY post 102 should be processed (reconciled), post 101 MUST remain untouched in pending!
+	processed, err := ProcessPendingDistributions(context.Background(), 10)
+	require.NoError(t, err)
+	assert.Equal(t, 1, processed)
+
+	d101, err := model.GetDistributionsByPostId(101)
+	require.NoError(t, err)
+	require.Len(t, d101, 1)
+	assert.Equal(t, "pending", d101[0].Status, "Backlog post not in allowlist must remain pending without dispatch surge")
+
+	d102, err := model.GetDistributionsByPostId(102)
+	require.NoError(t, err)
+	require.Len(t, d102, 1)
+	assert.Equal(t, "published", d102[0].Status, "Allowlisted post should process safely")
+}
+
+func TestNewsGrowth_PostRecordAndOverview(t *testing.T) {
+	setupServiceNewsTestDB(t)
+
+	post := &model.NewsPost{
+		Id:           201,
+		Slug:         "growth-record-post",
+		Title:        "Growth Record Post",
+		ContentType:  model.ContentTypeNews,
+		Status:       model.NewsStatusPublished,
+		CanonicalUrl: common.GetCanonicalBaseURL() + "/news/growth-record-post",
+		PublishedAt:  common.GetTimestamp(),
+	}
+	require.NoError(t, model.CreateNewsPost(post))
+
+	// Record an attribution event
+	require.NoError(t, RecordConversion(ConversionSignup, "201", "devto", "referral", "launch", "1.2.3.4", "agent", 1, 0, ""))
+
+	// Fetch growth record
+	record, err := GetPostGrowthRecord(201)
+	require.NoError(t, err)
+	assert.Equal(t, 201, record.PostId)
+	assert.Equal(t, "growth-record-post", record.Slug)
+	assert.Equal(t, 1, record.SignupsCount)
+
+	// Fetch global overview
+	overview, err := GetGlobalGrowthOverview()
+	require.NoError(t, err)
+	assert.NotNil(t, overview)
+	assert.Contains(t, overview.ChannelStatuses, "gsc")
+	assert.Contains(t, overview.ChannelStatuses, "devto")
+	assert.Contains(t, overview.ChannelStatuses, "facebook")
+	assert.Contains(t, overview.ChannelStatuses, "linkedin")
+	assert.Equal(t, "OPERATOR_BLOCKED", overview.ChannelStatuses["gsc"])
+}
+
 
 

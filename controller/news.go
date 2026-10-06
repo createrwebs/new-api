@@ -792,3 +792,60 @@ func AdminTriggerNewsScout(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"success": true, "data": result})
 }
 
+// AdminGetPostDistributions returns distribution statuses for a specific post
+func AdminGetPostDistributions(c *gin.Context) {
+	postId, _ := strconv.Atoi(c.Param("id"))
+	dists, err := model.GetDistributionsByPostId(postId)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": dists})
+}
+
+// AdminGetPostGrowthRecord returns the full growth record for a specific post
+func AdminGetPostGrowthRecord(c *gin.Context) {
+	postId, _ := strconv.Atoi(c.Param("id"))
+	record, err := service.GetPostGrowthRecord(postId)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"success": false, "message": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": record})
+}
+
+// AdminGetGrowthOverview returns the operational snapshot of the growth pipeline
+func AdminGetGrowthOverview(c *gin.Context) {
+	overview, err := service.GetGlobalGrowthOverview()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": overview})
+}
+
+// AdminDispatchDistributions triggers a controlled distribution pass
+func AdminDispatchDistributions(c *gin.Context) {
+	var req struct {
+		MaxBatch int `json:"max_batch"`
+	}
+	_ = c.ShouldBindJSON(&req)
+	batch := req.MaxBatch
+	if batch <= 0 {
+		batch = 1
+	}
+	processed, err := service.ProcessPendingDistributions(c.Request.Context(), batch)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"data": gin.H{
+			"processed":                   processed,
+			"global_distribution_enabled": service.IsGlobalDistributionEnabled(),
+		},
+	})
+}
+
+

@@ -357,6 +357,10 @@ func SetApiRouter(router *gin.Engine) {
 			newsAdminRoute.POST("/seo/remediate/:id", controller.AdminRemediateSeoOpportunity)
 			newsAdminRoute.GET("/reviews/daily", controller.AdminGetDailyGrowthReviews)
 			newsAdminRoute.POST("/scout/trigger", controller.AdminTriggerNewsScout)
+			newsAdminRoute.GET("/posts/:id/distributions", controller.AdminGetPostDistributions)
+			newsAdminRoute.GET("/posts/:id/growth", controller.AdminGetPostGrowthRecord)
+			newsAdminRoute.GET("/growth/overview", controller.AdminGetGrowthOverview)
+			newsAdminRoute.POST("/distributions/dispatch", controller.AdminDispatchDistributions)
 		}
 
 		usageRoute := apiRouter.Group("/usage")

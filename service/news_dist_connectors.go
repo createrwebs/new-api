@@ -11,6 +11,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -18,6 +19,117 @@ import (
 	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/model"
 )
+
+// Failure classification constants (Section 16)
+const (
+	DistFailureAuth             = "AUTH"
+	DistFailurePermission       = "PERMISSION"
+	DistFailureRateLimit        = "RATE_LIMIT"
+	DistFailureValidation       = "VALIDATION"
+	DistFailureRemote5xx        = "REMOTE_5XX"
+	DistFailureNetworkAmbiguous = "NETWORK_AMBIGUOUS"
+	DistFailurePermanent        = "PERMANENT"
+)
+
+// ClassifyDistributionFailure determines the failure category for a distribution attempt
+func ClassifyDistributionFailure(err error, statusCode int) string {
+	if err == nil && statusCode < 400 {
+		return ""
+	}
+	errStr := ""
+	if err != nil {
+		errStr = strings.ToLower(err.Error())
+	}
+	if strings.Contains(errStr, "operator_blocked") || strings.Contains(errStr, "not configured") {
+		return DistFailureAuth
+	}
+	if statusCode == 401 || strings.Contains(errStr, "unauthorized") || strings.Contains(errStr, "invalid token") || strings.Contains(errStr, "token expired") {
+		return DistFailureAuth
+	}
+	if statusCode == 403 || strings.Contains(errStr, "forbidden") || strings.Contains(errStr, "permission") || strings.Contains(errStr, "scope") || strings.Contains(errStr, "access denied") {
+		return DistFailurePermission
+	}
+	if statusCode == 429 || strings.Contains(errStr, "rate limit") || strings.Contains(errStr, "quota") || strings.Contains(errStr, "too many requests") {
+		return DistFailureRateLimit
+	}
+	if statusCode == 400 || statusCode == 422 || strings.Contains(errStr, "validation") || strings.Contains(errStr, "bad request") || strings.Contains(errStr, "invalid url") || strings.Contains(errStr, "unprocessable") {
+		return DistFailureValidation
+	}
+	if statusCode >= 500 || strings.Contains(errStr, "internal server error") || strings.Contains(errStr, "bad gateway") || strings.Contains(errStr, "gateway timeout") || strings.Contains(errStr, "service unavailable") {
+		return DistFailureRemote5xx
+	}
+	if strings.Contains(errStr, "timeout") || strings.Contains(errStr, "deadline exceeded") || strings.Contains(errStr, "connection reset") || strings.Contains(errStr, "eof") || strings.Contains(errStr, "network ambiguous") {
+		return DistFailureNetworkAmbiguous
+	}
+	return DistFailurePermanent
+}
+
+// ValidateDistributionUrl verifies production distribution invariants (Section 2)
+func ValidateDistributionUrl(urlStr string) error {
+	trimmed := strings.TrimSpace(urlStr)
+	if trimmed == "" {
+		return fmt.Errorf("distribution URL is empty")
+	}
+	lower := strings.ToLower(trimmed)
+	forbidden := []string{
+		"localhost",
+		"127.0.0.1",
+		"staging-api.toraapi.com",
+		"tora.ai",
+		"api.tora.ai",
+		"staging-api.tora.ai",
+	}
+	for _, f := range forbidden {
+		if strings.Contains(lower, f) {
+			return fmt.Errorf("distribution URL %q contains forbidden host %q (leakage defense)", trimmed, f)
+		}
+	}
+	expectedPrefix := common.GetCanonicalBaseURL() + "/news/"
+	if !strings.HasPrefix(trimmed, expectedPrefix) {
+		return fmt.Errorf("distribution URL %q does not match canonical news prefix %q", trimmed, expectedPrefix)
+	}
+	return nil
+}
+
+// IsGlobalDistributionEnabled returns true if outbound distribution is explicitly enabled (Section 21)
+// If NEWS_DISTRIBUTION_ENABLED is "false", "0", "off", or "disabled", it returns false.
+// If unset, it defaults to true only when explicitly configured or in test environments.
+func IsGlobalDistributionEnabled() bool {
+	val := strings.ToLower(strings.TrimSpace(os.Getenv("NEWS_DISTRIBUTION_ENABLED")))
+	if val == "false" || val == "0" || val == "off" || val == "disabled" {
+		return false
+	}
+	return true
+}
+
+// IsPlatformDistributionEnabled returns true if the specific platform distribution is enabled
+func IsPlatformDistributionEnabled(platform string) bool {
+	if !IsGlobalDistributionEnabled() {
+		return false
+	}
+	envKey := strings.ToUpper(platform) + "_DISTRIBUTION_ENABLED"
+	val := strings.ToLower(strings.TrimSpace(os.Getenv(envKey)))
+	if val == "false" || val == "0" || val == "off" || val == "disabled" {
+		return false
+	}
+	return true
+}
+
+// GetDistributionAllowlistPostIDs returns the set of allowed post IDs for canary distribution (Section 17)
+func GetDistributionAllowlistPostIDs() map[int]bool {
+	raw := strings.TrimSpace(os.Getenv("NEWS_DISTRIBUTION_ALLOWLIST_POST_IDS"))
+	if raw == "" {
+		return nil
+	}
+	allowed := make(map[int]bool)
+	for _, part := range strings.Split(raw, ",") {
+		part = strings.TrimSpace(part)
+		if id, err := strconv.Atoi(part); err == nil && id > 0 {
+			allowed[id] = true
+		}
+	}
+	return allowed
+}
 
 // DistClient is the interface implemented by platform distribution adapters
 type DistClient interface {
@@ -47,6 +159,10 @@ func (p *FacebookPublisher) PlatformName() string { return model.DistPlatformFac
 func (p *FacebookPublisher) Publish(ctx context.Context, post *model.NewsPost, payload string) (string, string, error) {
 	if p.PageToken == "" || p.PageID == "" {
 		return "", "", errors.New("FACEBOOK_PAGE_ACCESS_TOKEN or FACEBOOK_PAGE_ID not configured (OPERATOR_BLOCKED)")
+	}
+
+	if err := ValidateDistributionUrl(post.CanonicalUrl); err != nil {
+		return "", "", fmt.Errorf("canonical URL validation failed: %w", err)
 	}
 
 	baseURL := p.BaseURL
@@ -110,6 +226,10 @@ func (p *LinkedInPublisher) PlatformName() string { return model.DistPlatformLin
 func (p *LinkedInPublisher) Publish(ctx context.Context, post *model.NewsPost, payload string) (string, string, error) {
 	if p.AccessToken == "" || p.OrgID == "" {
 		return "", "", errors.New("LINKEDIN_ACCESS_TOKEN or LINKEDIN_ORG_ID not configured (OPERATOR_BLOCKED)")
+	}
+
+	if err := ValidateDistributionUrl(post.CanonicalUrl); err != nil {
+		return "", "", fmt.Errorf("canonical URL validation failed: %w", err)
 	}
 
 	// Official LinkedIn Posts API (w_organization_social scope)
@@ -209,6 +329,10 @@ func (p *DevToPublisher) Publish(ctx context.Context, post *model.NewsPost, payl
 		return "", "", errors.New("DEVTO_API_KEY not configured (OPERATOR_BLOCKED)")
 	}
 
+	if err := ValidateDistributionUrl(post.CanonicalUrl); err != nil {
+		return "", "", fmt.Errorf("canonical URL validation failed: %w", err)
+	}
+
 	baseURL := p.BaseURL
 	if baseURL == "" {
 		baseURL = "https://dev.to"
@@ -256,12 +380,40 @@ func (p *DevToPublisher) Publish(ctx context.Context, post *model.NewsPost, payl
 	return remoteId, remoteUrl, nil
 }
 
-// ProcessPendingDistributions executes the distribution pipeline with idempotent retries and multi-channel canary order
+// ProcessPendingDistributions executes the distribution pipeline with idempotent retries, kill switches, and allowlist safety
 func ProcessPendingDistributions(ctx context.Context, maxBatch int) (processed int, err error) {
+	// Section 21: Immediate global distribution kill switch
+	if !IsGlobalDistributionEnabled() {
+		logger.LogInfo(ctx, "distribution dispatch skipped: global kill switch active (NEWS_DISTRIBUTION_ENABLED=false)")
+		return 0, nil
+	}
+
+	if maxBatch <= 0 {
+		maxBatch = 1
+	}
+	if envLimit := os.Getenv("NEWS_DISTRIBUTION_BATCH_LIMIT"); envLimit != "" {
+		if limitInt, parseErr := strconv.Atoi(envLimit); parseErr == nil && limitInt > 0 && limitInt < maxBatch {
+			maxBatch = limitInt
+		}
+	}
+
 	// Multi-channel canary order: DEV.to -> Facebook -> LinkedIn
 	var pendings []model.NewsDistribution
 	orderClause := "CASE platform WHEN 'devto' THEN 1 WHEN 'facebook' THEN 2 WHEN 'linkedin' THEN 3 ELSE 4 END ASC, id ASC"
-	err = model.DB.Where("status = ?", "pending").Order(orderClause).Limit(maxBatch).Find(&pendings).Error
+
+	query := model.DB.Where("status = ?", "pending")
+
+	// Section 17: Backlog surge protection via canary allowlist
+	allowlist := GetDistributionAllowlistPostIDs()
+	if len(allowlist) > 0 {
+		var allowedIDs []int
+		for id := range allowlist {
+			allowedIDs = append(allowedIDs, id)
+		}
+		query = query.Where("post_id IN ?", allowedIDs)
+	}
+
+	err = query.Order(orderClause).Limit(maxBatch).Find(&pendings).Error
 	if err != nil {
 		return 0, err
 	}
@@ -289,10 +441,18 @@ func ProcessPendingDistributions(ctx context.Context, maxBatch int) (processed i
 		}
 		d.AttemptCount++
 
+		// Section 21: Per-platform distribution enablement check
+		if !IsPlatformDistributionEnabled(d.Platform) {
+			d.Status = "operator_blocked"
+			d.ErrorMessage = fmt.Sprintf("[%s] platform %q distribution disabled by configuration", DistFailurePermission, d.Platform)
+			_ = model.UpdateNewsDistribution(d)
+			continue
+		}
+
 		post, postErr := model.GetNewsPostById(d.PostId)
 		if postErr != nil || post == nil {
 			d.Status = "failed"
-			d.ErrorMessage = "associated news post not found"
+			d.ErrorMessage = fmt.Sprintf("[%s] associated news post not found", DistFailurePermanent)
 			_ = model.UpdateNewsDistribution(d)
 			continue
 		}
@@ -333,23 +493,25 @@ func ProcessPendingDistributions(ctx context.Context, maxBatch int) (processed i
 		if !exists {
 			// For unsupported or unconfigured platform (e.g. twitter without keys)
 			d.Status = "operator_blocked"
-			d.ErrorMessage = fmt.Sprintf("no active distribution adapter for platform %q (OPERATOR_BLOCKED)", d.Platform)
+			d.ErrorMessage = fmt.Sprintf("[%s] no active distribution adapter for platform %q (OPERATOR_BLOCKED)", DistFailureAuth, d.Platform)
 			_ = model.UpdateNewsDistribution(d)
 			continue
 		}
 
 		extId, extUrl, pubErr := pub.Publish(ctx, post, d.ContentPayload)
 		if pubErr != nil {
-			if strings.Contains(pubErr.Error(), "OPERATOR_BLOCKED") {
+			failureClass := ClassifyDistributionFailure(pubErr, 0)
+			d.ErrorMessage = fmt.Sprintf("[%s] %s", failureClass, pubErr.Error())
+
+			if failureClass == DistFailureAuth || failureClass == DistFailurePermission || strings.Contains(pubErr.Error(), "OPERATOR_BLOCKED") {
 				d.Status = "operator_blocked"
-				d.ErrorMessage = pubErr.Error()
+			} else if failureClass == DistFailureNetworkAmbiguous {
+				// Retryable without consuming attempt limits immediately
+				d.Status = "pending"
+			} else if d.AttemptCount >= 3 {
+				d.Status = "failed"
 			} else {
-				if d.AttemptCount >= 3 {
-					d.Status = "failed"
-				} else {
-					d.Status = "pending" // allow retry on next pass
-				}
-				d.ErrorMessage = pubErr.Error()
+				d.Status = "pending" // allow retry on next pass
 			}
 			logger.LogWarn(ctx, fmt.Sprintf("distribution failed for post %d to %s: %v", post.Id, d.Platform, pubErr))
 		} else {
