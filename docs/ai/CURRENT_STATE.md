@@ -147,7 +147,7 @@ When an item is blocked by operator-dependent external access (such as Apple Sto
 | `SEO_CLOSED_LOOP` | `SEO_ENGINEERING_VERIFIED` | 8-class opportunity classifier, striking-distance heuristics, autonomous remediation, 7-day cooldown safety lock verified. |
 | `FACEBOOK_DISTRIBUTION` | `DISTRIBUTION_READY (OPERATOR_BLOCKED)` | Adapter complete with Graph API v19.0; awaiting `FACEBOOK_PAGE_ACCESS_TOKEN` & `FACEBOOK_PAGE_ID`. |
 | `LINKEDIN_DISTRIBUTION` | `DISTRIBUTION_READY (OPERATOR_BLOCKED)` | Official REST Posts API (`/rest/posts`) connector verified via contract test with `LinkedIn-Version: 202401`; awaiting `LINKEDIN_ACCESS_TOKEN` & `LINKEDIN_ORG_ID`. |
-| `DEV_DISTRIBUTION` | `DISTRIBUTION_READY (OPERATOR_BLOCKED)` | Adapter complete with frontmatter and canonical URLs; awaiting `DEVTO_API_KEY`. |
+| `DEV_DISTRIBUTION` | `ACTIVE (LIVE PROVEN IN PRODUCTION)` | Real DEV.to article published (ID 4804790, https://dev.to/createrwebs/building-advertising-for-the-way-people-use-ai-5c8) via live Tora AI backend with canonical URL back to https://www.toraapi.com. |
 | `CONVERSION_ATTRIBUTION`| `VERIFIED` | UTM builder, keyed HMAC-SHA256 (`ATTRIBUTION_HASH_KEY`) visitor pseudonyms with zero raw IPs stored, 7-stage funnel logging, and `NewsDailyGrowthReview`. |
 
 ## Roadmap Status Classification
@@ -220,15 +220,12 @@ Core product & growth engineering complete:
 - `R11 PROD PREFLIGHT = PASS`
 - `R11 PROD DEPLOY SAFETY = PASS`
 - `R11 PRODUCTION = PASS`
+- `DEVTO = ACTIVE (LIVE PROVEN IN PRODUCTION — ARTICLE 4804790)`
 - `GSC = OPERATOR_BLOCKED`
-- `DEVTO = OPERATOR_BLOCKED`
 - `FACEBOOK = OPERATOR_BLOCKED`
 - `LINKEDIN = OPERATOR_BLOCKED`
 
 ## Currently Executing Task
 
-**FINAL STATUS: GROWTH PARTIALLY ACTIVATED — OPERATOR CREDENTIALS REQUIRED**:
-Growth channel canary architecture executed and verified on production (`https://www.toraapi.com`) with database `new-api`. Production container upgraded to immutable image `tora-api:r11-82648f911` with default global kill switch active (`NEWS_DISTRIBUTION_ENABLED=false`). Invariant distribution URL validation prevents all invalid/staging host leaks. Backlog surge protection safely gates the 1,152 historical pending distribution records using explicit canary allowlists (`NEWS_DISTRIBUTION_ALLOWLIST_POST_IDS`). Telemetry feedback loop and Admin Growth APIs (`GET /api/admin/news/growth/overview`, `GET /api/admin/news/posts/:id/growth`, `GET /api/admin/news/posts/:id/distributions`, `POST /api/admin/news/distributions/dispatch`) verified 100% via authenticated ephemeral admin canary test suite. All 4 external providers (Google Search Console, DEV.to, Facebook Page, LinkedIn Organization) are truthfully verified as `OPERATOR_BLOCKED` pending operator credentials. Zero secrets logged. All 10 unified release gates remain 100% passing.
-
-
-
+**FINAL STATUS: DEV.TO GROWTH CHANNEL ACTIVATED & PROVEN IN PRODUCTION**:
+DEV.to API credentials supplied by operator and verified live. Production container `new-api` running `tora-api:r11-82648f911` with `NEWS_DISTRIBUTION_ENABLED=true`, `NEWS_DISTRIBUTION_DEVTO_ENABLED=true`, and strict backlog surge protection `NEWS_DISTRIBUTION_ALLOWLIST_POST_IDS=8`. Dispatched real technical article Post 8 ("Building advertising for the way people use AI") to DEV.to via live backend Go connector. Successfully published live article on DEV.to: ID `4804790`, URL `https://dev.to/createrwebs/building-advertising-for-the-way-people-use-ai-5c8`, canonical URL strictly attributed to `https://www.toraapi.com/news/building-advertising-for-the-way-people-use-ai`. Database distribution record updated to `published` at timestamp `1791266592`. Live endpoint `GET /api/admin/news/posts/8/growth` verified reporting live published DEV.to state. All other 1,151 pending articles remain safely protected from backlog surge. GSC, Facebook, and LinkedIn remain `OPERATOR_BLOCKED`.
