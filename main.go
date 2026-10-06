@@ -161,6 +161,8 @@ func main() {
 	service.StartNewsScoutRunner()
 	service.StartNewsGrowthCollectorRunner()
 	service.StartNewsAutopilotRunner()
+	_ = service.InitStudio(model.DB)
+	service.LogStudioStatus(context.Background())
 	service.LogExternalAPIConfigSummary(context.Background())
 
 	if os.Getenv("BATCH_UPDATE_ENABLED") == "true" {

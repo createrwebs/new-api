@@ -18,7 +18,8 @@ var (
 
 // StudioService orchestrates job submission, quota reservation, provider execution, and atomic settlement.
 type StudioService struct {
-	providers map[string]StudioProvider
+	providers     map[string]StudioProvider
+	pricingEngine *PricingEngine
 }
 
 func NewStudioService(providers ...StudioProvider) *StudioService {
@@ -27,7 +28,8 @@ func NewStudioService(providers ...StudioProvider) *StudioService {
 		pMap[p.Name()] = p
 	}
 	return &StudioService{
-		providers: pMap,
+		providers:     pMap,
+		pricingEngine: NewPricingEngine(),
 	}
 }
 
@@ -45,20 +47,39 @@ func (s *StudioService) GetProvider(name string) StudioProvider {
 	return s.providers[name]
 }
 
+// recordEvent persists an audit event for state transitions.
+func (s *StudioService) recordEvent(db *gorm.DB, jobId string, eventType string, oldStatus model.StudioJobStatus, newStatus model.StudioJobStatus, payload string) {
+	if db == nil {
+		return
+	}
+	event := model.StudioJobEvent{
+		JobId:     jobId,
+		EventType: eventType,
+		OldStatus: oldStatus,
+		NewStatus: newStatus,
+		Payload:   payload,
+		CreatedAt: common.GetTimestamp(),
+	}
+	_ = db.Create(&event)
+}
+
 // SubmitJob handles the end-to-end atomic reservation, provider dispatch, and outcome reconciliation.
 func (s *StudioService) SubmitJob(
 	ctx context.Context,
 	userId int,
 	toolId string,
+	templateId string,
 	idempotencyKey string,
 	providerName string,
 	inputParams map[string]interface{},
+	planMultiplier float64,
+	clientIP string,
 ) (*model.StudioToolJob, error) {
 	if strings.TrimSpace(idempotencyKey) == "" {
 		return nil, errors.New("idempotency_key is required")
 	}
 
-	// 1. Check idempotency: Return existing job if duplicate submission
+	// 1. Check idempotency: Return existing job if duplicate submission (Section 16)
 	existingJob, err := model.GetStudioJobByIdempotency(userId, idempotencyKey)
 	if err != nil {
 		return nil, fmt.Errorf("failed checking idempotency: %w", err)
@@ -67,7 +88,7 @@ func (s *StudioService) SubmitJob(
 		return existingJob, nil
 	}
 
-	// 2. Lookup Tool Definition to determine quota price
+	// 2. Lookup Tool Definition to determine quota price (Section 7)
 	toolDef, err := model.GetStudioToolDefinition(toolId)
 	if err != nil {
 		return nil, fmt.Errorf("invalid tool requested: %w", err)
@@ -75,20 +96,31 @@ func (s *StudioService) SubmitJob(
 
 	// 3. Select Provider
 	if providerName == "" {
+		providerName = toolDef.PrimaryProvider
+	}
+	if providerName == "" {
 		providerName = "mock"
 	}
+
 	provider := s.GetProvider(providerName)
 	if provider == nil {
-		return nil, fmt.Errorf("provider %s is not registered or unavailable", providerName)
+		// Fallback to mock if provider is unavailable or not registered
+		provider = s.GetProvider("mock")
+		if provider == nil {
+			return nil, fmt.Errorf("provider %s is not registered or unavailable", providerName)
+		}
+		providerName = "mock"
 	}
 
-	// 4. Generate durable request ID and job ID
+	// 4. Calculate final quota cost based on plan multiplier
+	_, quotaToReserve := s.pricingEngine.EstimateToolCost(toolDef, planMultiplier)
+
+	// 5. Generate durable request ID and job ID
 	jobId := fmt.Sprintf("job_%d_%s", common.GetTimestamp(), common.GetUUID()[:8])
 	requestId := fmt.Sprintf("req_studio_%s", jobId)
 	inputParamsJSON, _ := json.Marshal(inputParams)
 
-	// 5. Pre-Consume / Reserve Quota in single Tora Wallet atomically
-	quotaToReserve := toolDef.QuotaCost
+	// 6. Pre-Consume / Reserve Quota in single Tora Wallet atomically (Section 14)
 	if quotaToReserve > 0 {
 		err := model.PreConsumeUserWallet(requestId, userId, quotaToReserve)
 		if err != nil {
@@ -99,17 +131,20 @@ func (s *StudioService) SubmitJob(
 		}
 	}
 
-	// 6. Record Job in Reserved State
+	// 7. Record Job in RESERVED State
 	job := &model.StudioToolJob{
 		Id:             jobId,
 		UserId:         userId,
 		ToolId:         toolId,
+		TemplateId:     templateId,
 		RequestId:      requestId,
 		IdempotencyKey: idempotencyKey,
 		ProviderName:   providerName,
 		Status:         model.StudioJobStatusReserved,
 		ReservedQuota:  quotaToReserve,
 		InputParams:    string(inputParamsJSON),
+		RiskClass:      toolDef.RiskClass,
+		ClientIP:       clientIP,
 		CreatedAt:      common.GetTimestamp(),
 		UpdatedAt:      common.GetTimestamp(),
 	}
@@ -122,17 +157,20 @@ func (s *StudioService) SubmitJob(
 			}
 			return nil, fmt.Errorf("failed persisting studio job: %w", err)
 		}
+		s.recordEvent(model.DB, jobId, "WALLET_RESERVED", model.StudioJobStatusCreated, model.StudioJobStatusReserved, "")
 	}
 
-	// 7. Dispatch to External Provider
+	// 8. Dispatch to External Provider (transition to SUBMITTING)
+	job.Status = model.StudioJobStatusSubmitting
 	submitResult, err := provider.Submit(ctx, job)
 	if err != nil {
 		if errors.Is(err, ErrProviderAmbiguous) {
-			// Ambiguous timeout: do not refund yet, require background reconciliation
-			job.Status = model.StudioJobStatusReconciling
+			// Section 15: Ambiguous timeout: do NOT refund yet, mark AMBIGUOUS_SUBMISSION
+			job.Status = model.StudioJobStatusAmbiguousSubmission
 			job.ErrorMessage = "Provider submission timed out; pending background reconciliation"
 			if model.DB != nil {
 				_ = model.DB.Save(job)
+				s.recordEvent(model.DB, jobId, "SUBMISSION_AMBIGUOUS", model.StudioJobStatusSubmitting, model.StudioJobStatusAmbiguousSubmission, err.Error())
 			}
 			return job, nil
 		}
@@ -145,11 +183,12 @@ func (s *StudioService) SubmitJob(
 		job.ErrorMessage = err.Error()
 		if model.DB != nil {
 			_ = model.DB.Save(job)
+			s.recordEvent(model.DB, jobId, "WALLET_REFUNDED_FAILURE", model.StudioJobStatusSubmitting, model.StudioJobStatusFailed, err.Error())
 		}
 		return job, err
 	}
 
-	// 8. Handle Provider Submit Result
+	// 9. Handle Provider Submit Result
 	job.ProviderJobId = submitResult.ProviderJobId
 
 	if submitResult.Status == "completed" {
@@ -159,13 +198,21 @@ func (s *StudioService) SubmitJob(
 				common.SysError(fmt.Sprintf("failed settling wallet pre-consume for job %s: %v", jobId, err))
 			}
 		}
-		job.Status = model.StudioJobStatusCompleted
+		job.Status = model.StudioJobStatusSucceeded
 		job.SettledQuota = quotaToReserve
 		job.OutputResult = fmt.Sprintf(`{"output_url": "%s"}`, submitResult.OutputURL)
 		job.CompletedAt = common.GetTimestamp()
+
+		if model.DB != nil {
+			s.recordEvent(model.DB, jobId, "JOB_SUCCEEDED", model.StudioJobStatusSubmitting, model.StudioJobStatusSucceeded, submitResult.OutputURL)
+			s.recordCostSnapshot(model.DB, job, toolDef, providerName)
+		}
 	} else {
 		// Asynchronous / queued generation
 		job.Status = model.StudioJobStatusProcessing
+		if model.DB != nil {
+			s.recordEvent(model.DB, jobId, "JOB_PROCESSING", model.StudioJobStatusSubmitting, model.StudioJobStatusProcessing, submitResult.ProviderJobId)
+		}
 	}
 
 	if model.DB != nil {
@@ -175,14 +222,48 @@ func (s *StudioService) SubmitJob(
 	return job, nil
 }
 
+// recordCostSnapshot captures financial telemetry for margin analytics (Section 34, 35).
+func (s *StudioService) recordCostSnapshot(db *gorm.DB, job *model.StudioToolJob, toolDef *model.StudioToolDefinition, providerName string) {
+	if db == nil || toolDef == nil {
+		return
+	}
+
+	costUSD := 0.005
+	if p, ok := s.providers[providerName]; ok {
+		if fal, isFal := p.(*FalProvider); isFal {
+			costUSD = fal.EstimateCost(toolDef.PrimaryModel)
+		}
+	}
+
+	revenueUSD := float64(job.SettledQuota) / common.QuotaPerUnit
+	marginUSD := revenueUSD - costUSD
+	marginPercent := 0.0
+	if revenueUSD > 0 {
+		marginPercent = (marginUSD / revenueUSD) * 100.0
+	}
+
+	snapshot := model.StudioCostSnapshot{
+		JobId:         job.Id,
+		ToolId:        job.ToolId,
+		ProviderName:  providerName,
+		ProviderJobId: job.ProviderJobId,
+		CostUSD:       costUSD,
+		QuotaCost:     job.SettledQuota,
+		MarginUSD:     marginUSD,
+		MarginPercent: marginPercent,
+		SnapshotAt:    common.GetTimestamp(),
+	}
+	_ = db.Create(&snapshot)
+}
+
 // PollJob inspects background job progress and settles/refunds upon terminal state.
-func (s *StudioService) PollJob(ctx context.Context, jobId string) (*model.StudioToolJob, error) {
-	job, err := model.GetStudioJobById(jobId)
+func (s *StudioService) PollJob(ctx context.Context, jobId string, userId int, isAdmin bool) (*model.StudioToolJob, error) {
+	job, err := model.GetStudioJobById(jobId, userId, isAdmin)
 	if err != nil {
 		return nil, err
 	}
 
-	if job.Status == model.StudioJobStatusCompleted ||
+	if job.Status == model.StudioJobStatusSucceeded ||
 		job.Status == model.StudioJobStatusFailed ||
 		job.Status == model.StudioJobStatusCancelled {
 		return job, nil
@@ -198,15 +279,22 @@ func (s *StudioService) PollJob(ctx context.Context, jobId string) (*model.Studi
 		return job, err
 	}
 
+	oldStatus := job.Status
 	switch pollResult.Status {
 	case "completed":
 		if job.ReservedQuota > 0 && job.SettledQuota == 0 {
 			_ = model.SettleUserWalletPreConsume(job.RequestId)
 			job.SettledQuota = job.ReservedQuota
 		}
-		job.Status = model.StudioJobStatusCompleted
+		job.Status = model.StudioJobStatusSucceeded
 		job.OutputResult = fmt.Sprintf(`{"output_url": "%s"}`, pollResult.OutputURL)
 		job.CompletedAt = common.GetTimestamp()
+
+		if model.DB != nil {
+			s.recordEvent(model.DB, jobId, "JOB_SUCCEEDED_POLL", oldStatus, model.StudioJobStatusSucceeded, pollResult.OutputURL)
+			toolDef, _ := model.GetStudioToolDefinition(job.ToolId)
+			s.recordCostSnapshot(model.DB, job, toolDef, job.ProviderName)
+		}
 
 	case "failed":
 		if job.ReservedQuota > 0 && job.SettledQuota == 0 {
@@ -214,6 +302,10 @@ func (s *StudioService) PollJob(ctx context.Context, jobId string) (*model.Studi
 		}
 		job.Status = model.StudioJobStatusFailed
 		job.ErrorMessage = pollResult.ErrorMessage
+
+		if model.DB != nil {
+			s.recordEvent(model.DB, jobId, "JOB_FAILED_POLL", oldStatus, model.StudioJobStatusFailed, pollResult.ErrorMessage)
+		}
 
 	case "processing", "queued":
 		job.Status = model.StudioJobStatusProcessing
@@ -226,103 +318,34 @@ func (s *StudioService) PollJob(ctx context.Context, jobId string) (*model.Studi
 	return job, nil
 }
 
-// SeedDefaultTools populates the 10 MVP studio tools if not present.
-func SeedDefaultTools(db *gorm.DB) error {
-	if db == nil {
-		return nil
+// CancelJob cancels an active job and refunds reserved quota if applicable.
+func (s *StudioService) CancelJob(ctx context.Context, jobId string, userId int, isAdmin bool) (*model.StudioToolJob, error) {
+	job, err := model.GetStudioJobById(jobId, userId, isAdmin)
+	if err != nil {
+		return nil, err
 	}
 
-	defaultTools := []model.StudioToolDefinition{
-		{
-			Id:           "image_generate_fast",
-			Category:     "image",
-			Name:         "Image Generate (Fast)",
-			DisplayName:  "สร้างภาพแบบรวดเร็ว (Flux Schnell)",
-			Description:  "สร้างภาพด้วยโมเดล Flux.1 Schnell ความเร็วสูง เหมาะสำหรับการดราฟต์ไอเดีย",
-			CreditCost:   5,
-			QuotaCost:    5000,
-			PrimaryModel: "fal-ai/flux/schnell",
-			IsActive:     true,
-		},
-		{
-			Id:           "image_generate_pro",
-			Category:     "image",
-			Name:         "Image Generate (Pro)",
-			DisplayName:  "สร้างภาพคุณภาพสูง (Flux Dev)",
-			Description:  "สร้างภาพความละเอียดสูงด้วย Flux.1 Dev รายละเอียดคมชัด เหมาะสำหรับชิ้นงานจริง",
-			CreditCost:   30,
-			QuotaCost:    30000,
-			PrimaryModel: "fal-ai/flux/dev",
-			IsActive:     true,
-		},
-		{
-			Id:           "background_remove",
-			Category:     "utility",
-			Name:         "Background Remove",
-			DisplayName:  "ลบพื้นหลังอัจฉริยะ (BiRefNet)",
-			Description:  "ลบพื้นหลังตัดขอบคมชัดด้วยอัลกอริทึม BiRefNet รองรับภาพสินค้าความละเอียด 4K",
-			CreditCost:   10,
-			QuotaCost:    10000,
-			PrimaryModel: "fal-ai/birefnet",
-			IsActive:     true,
-		},
-		{
-			Id:           "image_upscale_4k",
-			Category:     "utility",
-			Name:         "Image Upscale (4K)",
-			DisplayName:  "ขยายภาพคมชัด 4K (Clarity Upscaler)",
-			Description:  "เพิ่มความละเอียดภาพขึ้น 4 เท่า พร้อมฟื้นฟูรายละเอียดและ Texture ของวัตถุ",
-			CreditCost:   25,
-			QuotaCost:    25000,
-			PrimaryModel: "fal-ai/clarity-upscaler",
-			IsActive:     true,
-		},
-		{
-			Id:           "product_photo_studio",
-			Category:     "image",
-			Name:         "Product Photo Studio",
-			DisplayName:  "สตูดิโอถ่ายภาพสินค้าโฆษณา",
-			Description:  "วางสินค้าลงบนฉากจัดแสงระดับสตูดิโออัตโนมัติ สำหรับยิงแอด E-commerce",
-			CreditCost:   50,
-			QuotaCost:    50000,
-			PrimaryModel: "fal-ai/product-photography",
-			IsActive:     true,
-		},
-		{
-			Id:           "text_to_video_fast",
-			Category:     "video",
-			Name:         "Text to Video (Fast)",
-			DisplayName:  "สร้างวิดีโอจากข้อความ (LTX-Video)",
-			Description:  "สร้างวิดีโอ 5 วินาทีความเร็วสูงด้วยโมเดล LTX-Video",
-			CreditCost:   50,
-			QuotaCost:    50000,
-			PrimaryModel: "fal-ai/ltx-video",
-			IsActive:     true,
-		},
-		{
-			Id:           "video_generate_pro",
-			Category:     "video",
-			Name:         "Video Generate (Pro)",
-			DisplayName:  "สร้างวิดีโอระดับมืออาชีพ (Wan 2.2)",
-			Description:  "สร้างวิดีโอความละเอียดสูงสมจริงด้วย Wan 2.2 รองรับทั้ง Text-to-Video และ Image-to-Video",
-			CreditCost:   125,
-			QuotaCost:    125000,
-			PrimaryModel: "wan-video/wan-2.2",
-			IsActive:     true,
-		},
+	if job.Status == model.StudioJobStatusSucceeded || job.Status == model.StudioJobStatusFailed || job.Status == model.StudioJobStatusCancelled {
+		return job, nil // Already in terminal state
 	}
 
-	for _, t := range defaultTools {
-		var count int64
-		db.Model(&model.StudioToolDefinition{}).Where("id = ?", t.Id).Count(&count)
-		if count == 0 {
-			now := common.GetTimestamp()
-			t.CreatedAt = now
-			t.UpdatedAt = now
-			if err := db.Create(&t).Error; err != nil {
-				return err
-			}
-		}
+	oldStatus := job.Status
+	if provider := s.GetProvider(job.ProviderName); provider != nil {
+		_ = provider.Cancel(ctx, job.ProviderJobId)
 	}
-	return nil
+
+	// Refund reserved quota upon cancellation
+	if job.ReservedQuota > 0 && job.SettledQuota == 0 {
+		_ = model.RefundUserWalletPreConsume(job.RequestId)
+	}
+
+	job.Status = model.StudioJobStatusCancelled
+	job.UpdatedAt = common.GetTimestamp()
+
+	if model.DB != nil {
+		_ = model.DB.Save(job)
+		s.recordEvent(model.DB, jobId, "JOB_CANCELLED", oldStatus, model.StudioJobStatusCancelled, "")
+	}
+
+	return job, nil
 }

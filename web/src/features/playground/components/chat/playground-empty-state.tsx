@@ -78,6 +78,18 @@ export function PlaygroundEmptyState({
             )
           })}
         </div>
+
+        <div className='pt-2'>
+          <a
+            href='/studio'
+            className='inline-flex items-center gap-1.5 text-xs text-muted-foreground transition-colors hover:text-primary'
+          >
+            <span>{t('ต้องการสร้างรูปภาพ วิดีโอ หรือลบพื้นหลังด้วย AI?')}</span>
+            <span className='font-semibold text-primary underline underline-offset-4'>
+              {t('เปิด Tora Studio →')}
+            </span>
+          </a>
+        </div>
       </div>
     </div>
   )

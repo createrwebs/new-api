@@ -367,6 +367,28 @@ func SetApiRouter(router *gin.Engine) {
 			newsAdminRoute.POST("/autopilot/run", controller.AdminTriggerAutopilot)
 		}
 
+		studioPublicRoute := apiRouter.Group("/studio")
+		{
+			studioPublicRoute.GET("/tools", controller.GetStudioTools)
+			studioPublicRoute.GET("/tools/:slug", controller.GetStudioToolBySlug)
+			studioPublicRoute.GET("/templates", controller.GetStudioTemplates)
+		}
+
+		studioUserRoute := apiRouter.Group("/studio")
+		studioUserRoute.Use(middleware.UserAuth())
+		{
+			studioUserRoute.POST("/jobs", controller.CreateStudioJob)
+			studioUserRoute.GET("/jobs/:id", controller.GetStudioJobDetail)
+			studioUserRoute.GET("/jobs", controller.ListStudioUserJobs)
+			studioUserRoute.POST("/jobs/:id/cancel", controller.CancelStudioJob)
+		}
+
+		studioAdminRoute := apiRouter.Group("/admin/studio")
+		studioAdminRoute.Use(middleware.AdminAuth())
+		{
+			studioAdminRoute.GET("/telemetry", controller.GetStudioAdminTelemetry)
+		}
+
 		usageRoute := apiRouter.Group("/usage")
 		usageRoute.Use(middleware.CORS(), middleware.CriticalRateLimit())
 		{

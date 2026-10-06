@@ -35,6 +35,7 @@ import {
   Settings,
   Share2,
   ShieldCheck,
+  Sparkles,
   Ticket,
   User,
   UserPlus,
@@ -99,6 +100,11 @@ export function useSidebarData(): SidebarData {
             title: t('Data Dashboard'),
             url: '/dashboard/models',
             icon: LayoutDashboard,
+          },
+          {
+            title: t('Tora Studio'),
+            url: '/studio',
+            icon: Sparkles,
           },
           {
             title: t('Image/Video Workbench'),

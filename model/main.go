@@ -407,12 +407,20 @@ func migrateDB() error {
 		&NewsAiVisibilityObservation{},
 		&NewsPublicationEvent{},
 		&NewsAutopilotDailyQuota{},
+		&StudioToolDefinition{},
+		&StudioToolTemplate{},
+		&StudioProviderRoute{},
+		&StudioToolJob{},
+		&StudioJobEvent{},
+		&StudioAsset{},
+		&StudioCostSnapshot{},
 	)
 	if err != nil {
 		return err
 	}
 	// Section 6: Idempotency guarantee - One Post ID can never create duplicate initial publish events
 	_ = DB.Exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_news_pub_events_unique_initial ON news_publication_events (post_id, event_type);")
+	_ = DB.Exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_studio_jobs_user_idemp ON studio_tool_jobs (user_id, idempotency_key);")
 
 	if err := InitializeUserAuthVersions(); err != nil {
 		return err

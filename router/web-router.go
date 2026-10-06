@@ -35,6 +35,7 @@ func SetWebRouter(router *gin.Engine, assets WebAssets, pluginDispatcher gin.Han
 		registerRoute("/sitemap.xml", controller.RenderSitemap)
 		registerRoute("/news-sitemap.xml", controller.RenderNewsSitemap)
 		registerRoute("/robots.txt", controller.RenderRobots)
+		registerRoute("/tools/:slug", controller.RenderStudioToolLandingPage)
 	}
 
 	frontendFS := common.EmbedFolder(assets.BuildFS, "web/dist")
@@ -48,7 +49,7 @@ func SetWebRouter(router *gin.Engine, assets WebAssets, pluginDispatcher gin.Han
 		middleware.Cache(),
 		static.Serve("/", frontendFS),
 		func(c *gin.Context) {
-			if strings.HasPrefix(c.Request.RequestURI, "/v1") || strings.HasPrefix(c.Request.RequestURI, "/api") || strings.HasPrefix(c.Request.RequestURI, "/assets") || c.Request.RequestURI == "/news" || strings.HasPrefix(c.Request.RequestURI, "/news/") {
+			if strings.HasPrefix(c.Request.RequestURI, "/v1") || strings.HasPrefix(c.Request.RequestURI, "/api") || strings.HasPrefix(c.Request.RequestURI, "/assets") || c.Request.RequestURI == "/news" || strings.HasPrefix(c.Request.RequestURI, "/news/") || strings.HasPrefix(c.Request.RequestURI, "/tools/") {
 				controller.RelayNotFound(c)
 				return
 			}
