@@ -154,18 +154,86 @@ func QuoteStudioJob(c *gin.Context) {
 			"tool_name":                   toolDef.DisplayName,
 			"pricing_version":             snapshot.PricingVersion,
 			"provider":                    snapshot.Provider,
+			"provider_route":              snapshot.Provider,
 			"provider_model":              snapshot.ProviderModel,
 			"provider_estimated_cost_usd": snapshot.ProviderEstimatedCostUSD,
 			"provider_cost_basis":         snapshot.ProviderCostBasis,
+			"cost_basis":                  snapshot.ProviderCostBasis,
 			"target_margin":               snapshot.TargetMargin,
 			"calculated_sell_usd":         snapshot.CalculatedSellUSD,
+			"sell_usd_equivalent":         snapshot.CalculatedSellUSD,
 			"calculated_credits":          snapshot.CalculatedCredits,
 			"charged_credits":             snapshot.ChargedCredits,
+			"estimated_credits":           snapshot.ChargedCredits,
 			"charged_quota":               snapshot.ChargedQuota,
 			"plan_multiplier":             snapshot.PlanMultiplier,
 			"quoted_at":                   snapshot.QuotedAt,
 			"expires_at":                  snapshot.ExpiresAt,
 		},
+	})
+}
+
+// StudioWebhook handles provider completion webhooks with dual-resolution safety.
+func StudioWebhook(c *gin.Context) {
+	provider := strings.TrimSpace(c.Param("provider"))
+	if provider == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "missing provider parameter"})
+		return
+	}
+
+	var payload struct {
+		RequestId     string `json:"request_id"`
+		ProviderJobId string `json:"provider_job_id"`
+		Status        string `json:"status"` // "COMPLETED", "FAILED"
+		OutputURL     string `json:"output_url"`
+		Error         string `json:"error"`
+		Image         struct {
+			URL string `json:"url"`
+		} `json:"image"`
+		Images []struct {
+			URL string `json:"url"`
+		} `json:"images"`
+		Video struct {
+			URL string `json:"url"`
+		} `json:"video"`
+	}
+
+	if err := c.ShouldBindJSON(&payload); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "invalid webhook payload: " + err.Error()})
+		return
+	}
+
+	jobId := payload.ProviderJobId
+	if jobId == "" {
+		jobId = payload.RequestId
+	}
+	if jobId == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "missing provider job / request id"})
+		return
+	}
+
+	outputURL := payload.OutputURL
+	if outputURL == "" {
+		if len(payload.Images) > 0 && payload.Images[0].URL != "" {
+			outputURL = payload.Images[0].URL
+		} else if payload.Image.URL != "" {
+			outputURL = payload.Image.URL
+		} else if payload.Video.URL != "" {
+			outputURL = payload.Video.URL
+		}
+	}
+
+	studioSvc := service.GetStudioService()
+	job, err := studioSvc.HandleWebhook(c.Request.Context(), provider, jobId, payload.Status, outputURL, payload.Error)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"message": "webhook processed successfully",
+		"data":    job,
 	})
 }
 

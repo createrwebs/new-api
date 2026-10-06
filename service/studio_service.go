@@ -394,3 +394,93 @@ func (s *StudioService) CancelJob(ctx context.Context, jobId string, userId int,
 
 	return job, nil
 }
+
+// HandleWebhook reconciles an incoming asynchronous webhook callback with atomic settlement.
+func (s *StudioService) HandleWebhook(ctx context.Context, providerName string, providerJobId string, status string, outputURL string, errorMsg string) (*model.StudioToolJob, error) {
+	job, err := model.GetStudioJobByProviderJobId(providerJobId)
+	if err != nil {
+		return nil, fmt.Errorf("job not found for provider_job_id %s: %w", providerJobId, err)
+	}
+
+	// Idempotent short-circuit: if job is already in terminal state, do not re-process
+	if job.Status == model.StudioJobStatusSucceeded ||
+		job.Status == model.StudioJobStatusFailed ||
+		job.Status == model.StudioJobStatusCancelled {
+		return job, nil
+	}
+
+	normalizedStatus := strings.ToLower(status)
+	oldStatus := job.Status
+
+	if normalizedStatus == "completed" || normalizedStatus == "succeeded" {
+		// Atomic check-and-settle: only settle if not already settled
+		if job.ReservedQuota > 0 && job.SettledQuota == 0 {
+			if err := model.SettleUserWalletPreConsume(job.RequestId); err != nil {
+				common.SysError(fmt.Sprintf("failed settling pre-consume on webhook for job %s: %v", job.Id, err))
+			}
+			job.SettledQuota = job.ReservedQuota
+		}
+		job.Status = model.StudioJobStatusSucceeded
+		job.OutputResult = fmt.Sprintf(`{"output_url": "%s"}`, outputURL)
+		job.CompletedAt = common.GetTimestamp()
+
+		if model.DB != nil {
+			s.recordEvent(model.DB, job.Id, "JOB_SUCCEEDED_WEBHOOK", oldStatus, model.StudioJobStatusSucceeded, outputURL)
+			toolDef, _ := model.GetStudioToolDefinition(job.ToolId)
+			s.recordCostSnapshot(model.DB, job, toolDef, providerName)
+			_ = model.DB.Save(job)
+		}
+	} else if normalizedStatus == "failed" {
+		if job.ReservedQuota > 0 && job.SettledQuota == 0 {
+			_ = model.RefundUserWalletPreConsume(job.RequestId)
+		}
+		job.Status = model.StudioJobStatusFailed
+		job.ErrorMessage = errorMsg
+
+		if model.DB != nil {
+			s.recordEvent(model.DB, job.Id, "JOB_FAILED_WEBHOOK", oldStatus, model.StudioJobStatusFailed, errorMsg)
+			_ = model.DB.Save(job)
+		}
+	}
+
+	return job, nil
+}
+
+// ReconcileStaleJobs recovers orphaned jobs after process restarts without double charging or early refunds.
+func (s *StudioService) ReconcileStaleJobs(ctx context.Context, olderThanSeconds int64) (int, error) {
+	if model.DB == nil {
+		return 0, nil
+	}
+
+	reconciled := 0
+
+	// 1. Recover stranded RESERVED jobs: if a job was RESERVED > olderThanSeconds ago and never dispatched (process crashed), refund safely
+	staleReserved, err := model.GetStaleStudioJobs(model.StudioJobStatusReserved, olderThanSeconds)
+	if err == nil {
+		for _, job := range staleReserved {
+			if job.ReservedQuota > 0 && job.SettledQuota == 0 {
+				_ = model.RefundUserWalletPreConsume(job.RequestId)
+			}
+			job.Status = model.StudioJobStatusFailed
+			job.ErrorMessage = "Process crashed prior to provider dispatch; reservation safely refunded"
+			_ = model.DB.Save(job)
+			s.recordEvent(model.DB, job.Id, "RESTART_RECOVERY_REFUND", model.StudioJobStatusReserved, model.StudioJobStatusFailed, "server restarted")
+			reconciled++
+		}
+	}
+
+	// 2. Recover stranded SUBMITTING / PROCESSING jobs: query upstream provider via Poll
+	staleProcessing, err := model.GetStaleStudioJobs(model.StudioJobStatusProcessing, olderThanSeconds)
+	if err == nil {
+		for _, job := range staleProcessing {
+			if job.ProviderJobId != "" {
+				updatedJob, err := s.PollJob(ctx, job.Id, job.UserId, true)
+				if err == nil && (updatedJob.Status == model.StudioJobStatusSucceeded || updatedJob.Status == model.StudioJobStatusFailed) {
+					reconciled++
+				}
+			}
+		}
+	}
+
+	return reconciled, nil
+}

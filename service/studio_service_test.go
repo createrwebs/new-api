@@ -630,3 +630,236 @@ func TestStudioService_ConcurrentSettlement_RaceSafe(t *testing.T) {
 	assert.Equal(t, 95000, bal, "Concurrent settlement must never double-deduct wallet quota")
 }
 
+func TestStudioService_HandleWebhook_SuccessAndIdempotency(t *testing.T) {
+	db := setupTestDBForStudio(t)
+
+	user := model.User{Username: "webhook_user_1", Quota: 60000, Status: common.UserStatusEnabled}
+	require.NoError(t, db.Create(&user).Error)
+
+	mockProvider := NewDeterministicMockProvider(MockModeDelayedSuccess)
+	studioSvc := NewStudioService(mockProvider)
+
+	job, err := studioSvc.SubmitJob(
+		context.Background(),
+		user.Id,
+		"image-generate",
+		"",
+		"idemp_webhook_test_1",
+		"mock",
+		map[string]interface{}{"prompt": "Cyberpunk Bangkok street"},
+		1.0,
+		"127.0.0.1",
+	)
+	require.NoError(t, err)
+	assert.Equal(t, model.StudioJobStatusProcessing, job.Status)
+	assert.Equal(t, 5000, job.ReservedQuota)
+	assert.Equal(t, 0, job.SettledQuota)
+
+	// Trigger incoming webhook with status "completed"
+	webhookOutput := "https://cdn.toraapi.com/outputs/cyberpunk_bangkok.png"
+	updatedJob, err := studioSvc.HandleWebhook(context.Background(), "mock", job.ProviderJobId, "completed", webhookOutput, "")
+	require.NoError(t, err)
+	require.NotNil(t, updatedJob)
+
+	assert.Equal(t, model.StudioJobStatusSucceeded, updatedJob.Status)
+	assert.Equal(t, 5000, updatedJob.SettledQuota)
+	assert.Contains(t, updatedJob.OutputResult, webhookOutput)
+
+	// Check wallet balance
+	bal, err := model.GetUserQuota(user.Id, true)
+	require.NoError(t, err)
+	assert.Equal(t, 55000, bal, "User quota must be permanently deducted on settlement")
+
+	// Call webhook a 2nd time to prove idempotency
+	replayedJob, err := studioSvc.HandleWebhook(context.Background(), "mock", job.ProviderJobId, "completed", webhookOutput, "")
+	require.NoError(t, err)
+	assert.Equal(t, model.StudioJobStatusSucceeded, replayedJob.Status)
+
+	bal2, err := model.GetUserQuota(user.Id, true)
+	require.NoError(t, err)
+	assert.Equal(t, 55000, bal2, "Duplicate webhook must not double-charge")
+}
+
+func TestStudioService_HandleWebhook_FailureRefund(t *testing.T) {
+	db := setupTestDBForStudio(t)
+
+	user := model.User{Username: "webhook_user_fail", Quota: 40000, Status: common.UserStatusEnabled}
+	require.NoError(t, db.Create(&user).Error)
+
+	mockProvider := NewDeterministicMockProvider(MockModeDelayedSuccess)
+	studioSvc := NewStudioService(mockProvider)
+
+	job, err := studioSvc.SubmitJob(
+		context.Background(),
+		user.Id,
+		"image-generate",
+		"",
+		"idemp_webhook_fail_1",
+		"mock",
+		map[string]interface{}{"prompt": "Error trigger"},
+		1.0,
+		"127.0.0.1",
+	)
+	require.NoError(t, err)
+	assert.Equal(t, model.StudioJobStatusProcessing, job.Status)
+
+	// Trigger incoming webhook with status "failed"
+	updatedJob, err := studioSvc.HandleWebhook(context.Background(), "mock", job.ProviderJobId, "failed", "", "Provider GPU out of memory")
+	require.NoError(t, err)
+	require.NotNil(t, updatedJob)
+
+	assert.Equal(t, model.StudioJobStatusFailed, updatedJob.Status)
+	assert.Equal(t, "Provider GPU out of memory", updatedJob.ErrorMessage)
+	assert.Equal(t, 0, updatedJob.SettledQuota)
+
+	// Balance must be fully restored/refunded
+	bal, err := model.GetUserQuota(user.Id, true)
+	require.NoError(t, err)
+	assert.Equal(t, 40000, bal, "Quota must be fully refunded upon provider failure webhook")
+}
+
+func TestStudioService_ReconcileStaleJobs_CrashRecovery(t *testing.T) {
+	db := setupTestDBForStudio(t)
+
+	user := model.User{Username: "stale_recovery_user", Quota: 50000, Status: common.UserStatusEnabled}
+	require.NoError(t, db.Create(&user).Error)
+
+	// 1. Simulate stranded RESERVED job (e.g. server crashed after wallet pre-consume before dispatching)
+	preReqId := fmt.Sprintf("req_crash_%d", time.Now().UnixNano())
+	err := model.PreConsumeUserWallet(preReqId, user.Id, 10000)
+	require.NoError(t, err)
+
+	oldTimestamp := common.GetTimestamp() - 7200 // 2 hours ago
+	strandedJob := model.StudioToolJob{
+		Id:             "job_stranded_reserved_1",
+		UserId:         user.Id,
+		ToolId:         "image-generate",
+		RequestId:      preReqId,
+		IdempotencyKey: "idemp_crash_1",
+		ProviderName:   "mock",
+		Status:         model.StudioJobStatusReserved,
+		ReservedQuota:  10000,
+		SettledQuota:   0,
+		CreatedAt:      oldTimestamp,
+		UpdatedAt:      oldTimestamp,
+	}
+	require.NoError(t, db.Create(&strandedJob).Error)
+
+	mockProvider := NewDeterministicMockProvider(MockModeInstantSuccess)
+	studioSvc := NewStudioService(mockProvider)
+
+	// Run crash recovery for jobs older than 1800s (30m)
+	reconciled, err := studioSvc.ReconcileStaleJobs(context.Background(), 1800)
+	require.NoError(t, err)
+	assert.True(t, reconciled >= 1)
+
+	// Verify stranded job is now FAILED and reservation refunded
+	var recoveredJob model.StudioToolJob
+	require.NoError(t, db.Where("id = ?", strandedJob.Id).First(&recoveredJob).Error)
+	assert.Equal(t, model.StudioJobStatusFailed, recoveredJob.Status)
+	assert.Contains(t, recoveredJob.ErrorMessage, "safely refunded")
+
+	// User quota should be back to 50,000
+	bal, err := model.GetUserQuota(user.Id, true)
+	require.NoError(t, err)
+	assert.Equal(t, 50000, bal, "Quota should be refunded for stranded crash job")
+}
+
+func TestStudioPricing_CalculatePriceWithInputs_MultiVariable(t *testing.T) {
+	engine := NewPricingEngine()
+
+	videoTool := &model.StudioToolDefinition{
+		Id:              "video-generate",
+		PrimaryProvider: "fal",
+		PrimaryModel:    "fal-ai/kling-video/v1/standard/text-to-video",
+		Category:        "video",
+		CreditCost:      100, // 100 credits = $0.20 USD (meets 60% margin over $0.080)
+		MarginPercent:   60.0,
+	}
+
+	// 1. Standard 5s @ 30fps without audio
+	p1, err := engine.CalculatePriceWithInputs(videoTool, map[string]interface{}{
+		"duration": 5,
+		"fps":      30,
+	}, 1.0)
+	require.NoError(t, err)
+	assert.Equal(t, 100, p1.ChargedCredits)
+	assert.True(t, p1.CalculatedSellUSD >= p1.ProviderEstimatedCostUSD)
+
+	// 2. High framerate 60fps with audio synthesis
+	p2, err := engine.CalculatePriceWithInputs(videoTool, map[string]interface{}{
+		"duration": 5,
+		"fps":      60,
+		"audio":    true,
+	}, 1.0)
+	require.NoError(t, err)
+	assert.True(t, p2.ChargedCredits > p1.ChargedCredits, "60fps with audio must cost more than standard 30fps")
+	assert.True(t, p2.ProviderEstimatedCostUSD > p1.ProviderEstimatedCostUSD)
+
+	// Margin must still satisfy >= 60%
+	margin := (p2.CalculatedSellUSD - p2.ProviderEstimatedCostUSD) / p2.CalculatedSellUSD
+	assert.True(t, margin >= 0.60, "Gross margin for multi-variable compute must remain >= 60%")
+
+	// 3. Multi-output image generation
+	imgTool := &model.StudioToolDefinition{
+		Id:              "image-generate",
+		PrimaryProvider: "fal",
+		PrimaryModel:    "fal-ai/flux/schnell",
+		Category:        "image",
+		CreditCost:      5,
+		MarginPercent:   60.0,
+	}
+	pImg, err := engine.CalculatePriceWithInputs(imgTool, map[string]interface{}{
+		"num_outputs": 4,
+		"quality":     "ultra",
+	}, 1.0)
+	require.NoError(t, err)
+	assert.Equal(t, 128, pImg.ChargedCredits, "4 ultra images should cost 32 * 4 = 128 credits")
+	assert.Equal(t, 0.10, pImg.ProviderEstimatedCostUSD, "4 ultra images should cost 4 * $0.025 = $0.10")
+}
+
+func TestStudioAsset_CRUDAndAccessControl(t *testing.T) {
+	_ = setupTestDBForStudio(t)
+
+	asset := &model.StudioAsset{
+		Id:                 "asset_test_user1_pic",
+		UserId:             101,
+		JobId:              "job_xyz_1",
+		AssetType:          "output",
+		MIMEType:           "image/png",
+		FileSize:           2048576,
+		Width:              1024,
+		Height:             1024,
+		AvailabilityStatus: "available",
+		StorageURL:         "https://cdn.toraapi.com/assets/pic.png",
+		ExpiryAt:           common.GetTimestamp() + 86400*30,
+		CreatedAt:          common.GetTimestamp(),
+	}
+
+	err := model.CreateStudioAsset(asset)
+	require.NoError(t, err)
+
+	// Retrieve by owner
+	fetched, err := model.GetStudioAsset(asset.Id, 101, false)
+	require.NoError(t, err)
+	assert.Equal(t, asset.Id, fetched.Id)
+	assert.Equal(t, asset.MIMEType, fetched.MIME)
+	assert.Equal(t, asset.FileSize, fetched.Size)
+
+	// Another user forbidden
+	_, err = model.GetStudioAsset(asset.Id, 102, false)
+	assert.ErrorIs(t, err, model.ErrStudioForbiddenAccess)
+
+	// Admin can access
+	adminFetched, err := model.GetStudioAsset(asset.Id, 999, true)
+	require.NoError(t, err)
+	assert.Equal(t, asset.Id, adminFetched.Id)
+
+	// List user assets
+	assets, total, err := model.ListStudioAssets(101, 1, 10)
+	require.NoError(t, err)
+	assert.Equal(t, int64(1), total)
+	assert.Len(t, assets, 1)
+}
+
+

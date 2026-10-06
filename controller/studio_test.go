@@ -155,3 +155,58 @@ func TestController_CreateStudioJob_RejectsSSRFInParams(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, w.Code)
 	assert.Contains(t, w.Body.String(), "SSRF protection blocked request")
 }
+
+func TestController_StudioWebhook_ProcessesCallback(t *testing.T) {
+	r, db := setupTestRouterForStudio(t)
+	r.POST("/api/studio/webhook/:provider", StudioWebhook)
+
+	user := model.User{
+		Username: "webhook_ctl_user",
+		Quota:    50000,
+		Status:   common.UserStatusEnabled,
+	}
+	require.NoError(t, db.Create(&user).Error)
+
+	// Pre-create a job in PROCESSING state
+	job := model.StudioToolJob{
+		Id:             "job_ctl_webhook_1",
+		UserId:         user.Id,
+		ToolId:         "image-generate",
+		RequestId:      "req_ctl_webhook_1",
+		IdempotencyKey: "idemp_ctl_webhook_1",
+		ProviderName:   "fal",
+		ProviderJobId:  "fal_job_req_9988",
+		Status:         model.StudioJobStatusProcessing,
+		ReservedQuota:  5000,
+		SettledQuota:   0,
+		CreatedAt:      common.GetTimestamp(),
+	}
+	require.NoError(t, db.Create(&job).Error)
+
+	// Send webhook
+	webhookPayload := map[string]interface{}{
+		"request_id": "fal_job_req_9988",
+		"status":     "completed",
+		"output_url": "https://cdn.toraapi.com/fal_out_1.png",
+	}
+	body, _ := json.Marshal(webhookPayload)
+	req := httptest.NewRequest(http.MethodPost, "/api/studio/webhook/fal", bytes.NewBuffer(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+
+	r.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusOK, w.Code)
+
+	var resp struct {
+		Success bool   `json:"success"`
+		Message string `json:"message"`
+	}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+	assert.True(t, resp.Success)
+
+	// Check DB
+	var updated model.StudioToolJob
+	require.NoError(t, db.Where("id = ?", job.Id).First(&updated).Error)
+	assert.Equal(t, model.StudioJobStatusSucceeded, updated.Status)
+	assert.Equal(t, 5000, updated.SettledQuota)
+}

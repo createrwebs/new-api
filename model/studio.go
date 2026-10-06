@@ -2,6 +2,7 @@ package model
 
 import (
 	"errors"
+	"fmt"
 	"strings"
 
 	"github.com/QuantumNous/new-api/common"
@@ -145,15 +146,20 @@ func (j *StudioToolJob) TableName() string {
 
 // StudioPricingSnapshot records complete commercial audit metadata for a studio job (Section 14).
 type StudioPricingSnapshot struct {
+	QuoteID                 string  `json:"quote_id,omitempty"`
 	PricingVersion          string  `json:"pricing_version"`
 	Provider                string  `json:"provider"`
+	ProviderRoute           string  `json:"provider_route,omitempty"`
 	ProviderModel           string  `json:"provider_model"`
 	ProviderEstimatedCostUSD float64 `json:"provider_estimated_cost_usd"`
 	ProviderCostBasis       string  `json:"provider_cost_basis"` // "per_image", "per_second", "flat"
+	CostBasis               string  `json:"cost_basis,omitempty"`
 	TargetMargin            float64 `json:"target_margin"`
 	CalculatedSellUSD       float64 `json:"calculated_sell_usd"`
+	SellUSDEquivalent       float64 `json:"sell_usd_equivalent,omitempty"`
 	CalculatedCredits       float64 `json:"calculated_credits"`
 	ChargedCredits          int     `json:"charged_credits"`
+	EstimatedCredits        int     `json:"estimated_credits,omitempty"`
 	ChargedQuota            int     `json:"charged_quota"`
 	PlanMultiplier          float64 `json:"plan_multiplier"`
 	QuotedAt                int64   `json:"quoted_at"`
@@ -178,17 +184,22 @@ func (e *StudioJobEvent) TableName() string {
 // StudioAsset tracks uploaded input and generated output media assets (Section 21 & 24).
 type StudioAsset struct {
 	Id                 string `json:"id" gorm:"primaryKey;type:varchar(64)"`
+	AssetId            string `json:"asset_id,omitempty" gorm:"-"` // Alias
 	UserId             int    `json:"user_id" gorm:"index;not null"`
 	JobId              string `json:"job_id" gorm:"type:varchar(64);index"`
 	AssetType          string `json:"asset_type" gorm:"type:varchar(32);not null"` // "input", "output"
 	MIMEType           string `json:"mime_type" gorm:"type:varchar(64);not null"`
+	MIME               string `json:"mime,omitempty" gorm:"-"`
 	FileSize           int64  `json:"file_size" gorm:"bigint;not null"`
+	Size               int64  `json:"size,omitempty" gorm:"-"`
 	Width              int    `json:"width" gorm:"type:int;default:0"`
 	Height             int    `json:"height" gorm:"type:int;default:0"`
 	Duration           int    `json:"duration" gorm:"type:int;default:0"`
 	AvailabilityStatus string `json:"availability_status" gorm:"type:varchar(32);default:'available'"`
+	Status             string `json:"status,omitempty" gorm:"-"`
 	StorageURL         string `json:"storage_url" gorm:"type:varchar(512);not null"`
 	ExpiryAt           int64  `json:"expiry_at" gorm:"bigint;index"`
+	ExpiresAt          int64  `json:"expires_at,omitempty" gorm:"-"`
 	CreatedAt          int64  `json:"created_at" gorm:"bigint"`
 }
 
@@ -353,4 +364,102 @@ func ListUserStudioJobs(userId int, page int, pageSize int) ([]StudioToolJob, in
 		Find(&jobs).Error
 
 	return jobs, total, err
+}
+
+// GetStudioJobByProviderJobId retrieves a job by upstream provider job ID.
+func GetStudioJobByProviderJobId(providerJobId string) (*StudioToolJob, error) {
+	if DB == nil {
+		return nil, errors.New("database not initialized")
+	}
+	var job StudioToolJob
+	err := DB.Where("provider_job_id = ?", providerJobId).First(&job).Error
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, ErrStudioJobNotFound
+		}
+		return nil, err
+	}
+	return &job, nil
+}
+
+// GetStaleStudioJobs retrieves jobs in a specific state older than cutoff seconds for crash recovery.
+func GetStaleStudioJobs(status StudioJobStatus, olderThanSeconds int64) ([]*StudioToolJob, error) {
+	if DB == nil {
+		return nil, errors.New("database not initialized")
+	}
+	cutoff := common.GetTimestamp() - olderThanSeconds
+	var jobs []*StudioToolJob
+	err := DB.Where("status = ? AND created_at <= ?", status, cutoff).Find(&jobs).Error
+	return jobs, err
+}
+
+// CreateStudioAsset records a new media asset.
+func CreateStudioAsset(asset *StudioAsset) error {
+	if DB == nil {
+		return errors.New("database not initialized")
+	}
+	if asset.Id == "" {
+		asset.Id = fmt.Sprintf("asset_%d_%s", common.GetTimestamp(), common.GetUUID()[:8])
+	}
+	asset.AssetId = asset.Id
+	asset.MIME = asset.MIMEType
+	asset.Size = asset.FileSize
+	asset.Status = asset.AvailabilityStatus
+	asset.ExpiresAt = asset.ExpiryAt
+	return DB.Create(asset).Error
+}
+
+// GetStudioAsset retrieves an asset by ID with tenant access control.
+func GetStudioAsset(id string, userId int, isAdmin bool) (*StudioAsset, error) {
+	if DB == nil {
+		return nil, errors.New("database not initialized")
+	}
+	var asset StudioAsset
+	err := DB.Where("id = ?", id).First(&asset).Error
+	if err != nil {
+		return nil, err
+	}
+	if !isAdmin && asset.UserId != userId {
+		return nil, ErrStudioForbiddenAccess
+	}
+	asset.AssetId = asset.Id
+	asset.MIME = asset.MIMEType
+	asset.Size = asset.FileSize
+	asset.Status = asset.AvailabilityStatus
+	asset.ExpiresAt = asset.ExpiryAt
+	return &asset, nil
+}
+
+// ListStudioAssets retrieves paginated assets for a user.
+func ListStudioAssets(userId int, page int, pageSize int) ([]*StudioAsset, int64, error) {
+	if DB == nil {
+		return nil, 0, errors.New("database not initialized")
+	}
+	if page < 1 {
+		page = 1
+	}
+	if pageSize < 1 || pageSize > 50 {
+		pageSize = 20
+	}
+	offset := (page - 1) * pageSize
+
+	var total int64
+	DB.Model(&StudioAsset{}).Where("user_id = ?", userId).Count(&total)
+
+	var assets []*StudioAsset
+	err := DB.Where("user_id = ?", userId).
+		Order("created_at DESC").
+		Offset(offset).
+		Limit(pageSize).
+		Find(&assets).Error
+
+	for _, a := range assets {
+		a.AssetId = a.Id
+		a.MIME = a.MIMEType
+		a.Size = a.FileSize
+		a.Status = a.AvailabilityStatus
+		a.ExpiresAt = a.ExpiryAt
+	}
+
+	return assets, total, err
 }

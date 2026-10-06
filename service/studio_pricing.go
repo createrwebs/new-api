@@ -118,28 +118,97 @@ func (e *PricingEngine) CalculatePriceWithInputs(
 	var costBasis string
 	var chargedCredits int
 
+	// 1. Output count dimension
+	numOutputs := 1
+	if n, ok := params["number_of_outputs"].(float64); ok && n > 0 {
+		numOutputs = int(n)
+	} else if n, ok := params["number_of_outputs"].(int); ok && n > 0 {
+		numOutputs = n
+	} else if n, ok := params["num_outputs"].(float64); ok && n > 0 {
+		numOutputs = int(n)
+	} else if n, ok := params["num_outputs"].(int); ok && n > 0 {
+		numOutputs = n
+	} else if n, ok := params["num_images"].(float64); ok && n > 0 {
+		numOutputs = int(n)
+	}
+	if numOutputs < 1 {
+		numOutputs = 1
+	}
+
+	// 2. Duration, FPS & Audio dimensions for Video
+	duration := 5
+	if d, ok := params["duration"].(float64); ok && d > 0 {
+		duration = int(d)
+	} else if d, ok := params["duration"].(int); ok && d > 0 {
+		duration = d
+	} else if d, ok := params["duration_sec"].(float64); ok && d > 0 {
+		duration = int(d)
+	} else if d, ok := params["duration_sec"].(int); ok && d > 0 {
+		duration = d
+	}
+	if duration < 1 {
+		duration = 5
+	}
+
+	fps := 30
+	if f, ok := params["fps"].(float64); ok && f > 0 {
+		fps = int(f)
+	} else if f, ok := params["fps"].(int); ok && f > 0 {
+		fps = f
+	}
+
+	hasAudio := false
+	if a, ok := params["audio"].(bool); ok {
+		hasAudio = a
+	}
+
+	// 3. Resolution, Megapixels & Scale dimensions
+	scale := 4
+	if s, ok := params["scale"].(float64); ok && s > 0 {
+		scale = int(s)
+	} else if s, ok := params["scale"].(int); ok && s > 0 {
+		scale = s
+	} else if s, ok := params["scale_factor"].(float64); ok && s > 0 {
+		scale = int(s)
+	} else if s, ok := params["scale_factor"].(int); ok && s > 0 {
+		scale = s
+	}
+
+	if resStr, ok := params["resolution"].(string); ok {
+		if resStr == "2k" || resStr == "720p" || resStr == "1080p" {
+			if scale > 2 && tool.Id == "image-upscale" {
+				scale = 2
+			}
+		} else if resStr == "4k" || resStr == "ultra" {
+			scale = 4
+		}
+	}
+	if mp, ok := params["megapixels"].(float64); ok && mp < 2.0 && tool.Id == "image-upscale" {
+		scale = 2
+	}
+
+	// 4. Quality & Model override dimensions
+	quality, _ := params["quality"].(string)
+	primaryModel := tool.PrimaryModel
+	if modelOverride, ok := params["model"].(string); ok && modelOverride != "" {
+		primaryModel = modelOverride
+	}
+
 	baseCredits := tool.CreditCost
 	if baseCredits < 1 {
 		baseCredits = 10
 	}
 
 	switch tool.Id {
-	case "image-to-video":
-		duration := 5
-		if d, ok := params["duration"].(float64); ok && d > 0 {
-			duration = int(d)
-		} else if d, ok := params["duration"].(int); ok && d > 0 {
-			duration = d
-		} else if d, ok := params["duration_sec"].(float64); ok && d > 0 {
-			duration = int(d)
-		} else if d, ok := params["duration_sec"].(int); ok && d > 0 {
-			duration = d
-		}
-		if duration < 1 {
-			duration = 5
-		}
+	case "image-to-video", "video-generate", "text-to-video":
 		// $0.016 / second ($0.080 for 5s standard)
 		costUSD = float64(duration) * 0.016
+		if fps >= 60 {
+			costUSD *= 1.25 // 25% higher compute for high framerate
+		}
+		if hasAudio {
+			costUSD += 0.010 // Voice / SFX track synthesis
+		}
 		costBasis = "per_second"
 
 		if duration > 5 {
@@ -147,18 +216,14 @@ func (e *PricingEngine) CalculatePriceWithInputs(
 		} else {
 			chargedCredits = baseCredits
 		}
+		if fps >= 60 {
+			chargedCredits = int(math.Ceil(float64(chargedCredits) * 1.25))
+		}
+		if hasAudio {
+			chargedCredits += 15
+		}
 
 	case "image-upscale":
-		scale := 4
-		if s, ok := params["scale"].(float64); ok && s > 0 {
-			scale = int(s)
-		} else if s, ok := params["scale"].(int); ok && s > 0 {
-			scale = s
-		} else if s, ok := params["scale_factor"].(float64); ok && s > 0 {
-			scale = int(s)
-		} else if s, ok := params["scale_factor"].(int); ok && s > 0 {
-			scale = s
-		}
 		if scale <= 2 {
 			costUSD = 0.010
 			chargedCredits = int(math.Ceil(float64(baseCredits) * 0.72)) // e.g. 18 credits
@@ -169,31 +234,17 @@ func (e *PricingEngine) CalculatePriceWithInputs(
 		costBasis = "per_image"
 
 	case "image-generate":
-		numOutputs := 1
-		if n, ok := params["num_outputs"].(float64); ok && n > 0 {
-			numOutputs = int(n)
-		} else if n, ok := params["num_outputs"].(int); ok && n > 0 {
-			numOutputs = n
-		} else if n, ok := params["num_images"].(float64); ok && n > 0 {
-			numOutputs = int(n)
+		if quality == "ultra" || quality == "hd" {
+			costUSD = 0.025 * float64(numOutputs)
+			chargedCredits = 32 * numOutputs // 32 credits = $0.064 USD -> 60.9% margin over $0.025 COGS
+			primaryModel = "fal-ai/flux/dev"
+		} else {
+			costUSD = 0.003 * float64(numOutputs)
+			chargedCredits = baseCredits * numOutputs
 		}
-		if numOutputs < 1 {
-			numOutputs = 1
-		}
-		costUSD = 0.003 * float64(numOutputs)
 		costBasis = "per_image"
-		chargedCredits = baseCredits * numOutputs
 
 	case "product-photo":
-		numOutputs := 1
-		if n, ok := params["num_outputs"].(float64); ok && n > 0 {
-			numOutputs = int(n)
-		} else if n, ok := params["num_outputs"].(int); ok && n > 0 {
-			numOutputs = n
-		}
-		if numOutputs < 1 {
-			numOutputs = 1
-		}
 		costUSD = 0.035 * float64(numOutputs)
 		costBasis = "per_image"
 		chargedCredits = baseCredits * numOutputs
@@ -210,13 +261,30 @@ func (e *PricingEngine) CalculatePriceWithInputs(
 
 	default:
 		if tool.Category == "video" {
-			costUSD = 0.080
+			costUSD = float64(duration) * 0.016
+			if fps >= 60 {
+				costUSD *= 1.25
+			}
+			if hasAudio {
+				costUSD += 0.010
+			}
 			costBasis = "per_second"
+			if duration > 5 {
+				chargedCredits = int(math.Ceil(float64(baseCredits) * (float64(duration) / 5.0)))
+			} else {
+				chargedCredits = baseCredits
+			}
+			if fps >= 60 {
+				chargedCredits = int(math.Ceil(float64(chargedCredits) * 1.25))
+			}
+			if hasAudio {
+				chargedCredits += 15
+			}
 		} else {
-			costUSD = 0.015
+			costUSD = 0.015 * float64(numOutputs)
 			costBasis = "flat"
+			chargedCredits = baseCredits * numOutputs
 		}
-		chargedCredits = baseCredits
 	}
 
 	if planMultiplier <= 0 {
@@ -225,6 +293,20 @@ func (e *PricingEngine) CalculatePriceWithInputs(
 	if planMultiplier != 1.0 {
 		chargedCredits = e.ceilWithEpsilon(float64(chargedCredits) * planMultiplier)
 	}
+
+	// Strict Margin Floor Guarantee (Queue 1: Margin >= 60%)
+	minMargin := tool.MarginPercent / 100.0
+	if minMargin < 0.60 {
+		minMargin = 0.60
+	}
+	if costUSD > 0 && minMargin < 1.0 {
+		requiredSellUSD := costUSD / (1.0 - minMargin)
+		minCredits := e.ceilWithEpsilon(requiredSellUSD * (common.QuotaPerUnit / float64(QuotaPerCredit)))
+		if chargedCredits < minCredits {
+			chargedCredits = minCredits
+		}
+	}
+
 	if chargedCredits < 1 {
 		chargedCredits = 1
 	}
@@ -243,13 +325,17 @@ func (e *PricingEngine) CalculatePriceWithInputs(
 	snapshot := &model.StudioPricingSnapshot{
 		PricingVersion:          "v1.2",
 		Provider:                tool.PrimaryProvider,
-		ProviderModel:           tool.PrimaryModel,
+		ProviderRoute:           tool.PrimaryProvider,
+		ProviderModel:           primaryModel,
 		ProviderEstimatedCostUSD: costUSD,
 		ProviderCostBasis:       costBasis,
+		CostBasis:               costBasis,
 		TargetMargin:            targetMargin,
 		CalculatedSellUSD:       sellPriceUSD,
+		SellUSDEquivalent:       sellPriceUSD,
 		CalculatedCredits:       calculatedCredits,
 		ChargedCredits:          chargedCredits,
+		EstimatedCredits:        chargedCredits,
 		ChargedQuota:            chargedQuota,
 		PlanMultiplier:          planMultiplier,
 		QuotedAt:                now,
@@ -316,6 +402,8 @@ func (e *PricingEngine) SaveQuote(snapshot *model.StudioPricingSnapshot) string 
 			}
 		}
 	}
+
+	snapshot.QuoteID = quoteId
 
 	e.quoteCache[quoteId] = quoteCacheEntry{
 		snapshot:  *snapshot,
