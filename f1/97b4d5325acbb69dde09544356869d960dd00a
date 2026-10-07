@@ -1,0 +1,16 @@
+docs/ai/TORA_STUDIO_FINAL_ACCEPTANCE_MATRIX.md
+  h_f97827f62b0fea 5,7,18
+docs/ai/TORA_STUDIO_QUEUE_2C_REAL_FAL_REPORT.md
+  h_f97827f62b0fea 1-172
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.3",
+  "base_commit_sha": "f197b4d5325acbb69dde09544356869d960dd00a",
+  "prompts": {},
+  "humans": {
+    "h_f97827f62b0fea": {
+      "author": "NOPPANAN THEERACHARTE <noppanan.the@axonstech.com>"
+    }
+  }
+}
