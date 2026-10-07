@@ -1,0 +1,19 @@
+service/studio_seed.go
+  s_8b4544554b557a::t_d70b70a03f49ee 4-5,615,625-626,630-631,646-647,651-652,690,696,702,711-712,716-717,755-760,763-764,766,772,781-782,786-787,795-815,823,829,835,844-845,849-850,888-889,909-910,914-915,928-933
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.3",
+  "base_commit_sha": "230559f021fa71e5cc44477d951ef58a9b354ca1",
+  "prompts": {},
+  "sessions": {
+    "s_8b4544554b557a": {
+      "agent_id": {
+        "tool": "cline",
+        "id": "conv_1791362568588_5ojyv4f",
+        "model": "unknown"
+      },
+      "human_author": "NOPPANAN THEERACHARTE <noppanan.the@axonstech.com>"
+    }
+  }
+}
