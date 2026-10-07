@@ -210,3 +210,115 @@ func TestController_StudioWebhook_ProcessesCallback(t *testing.T) {
 	assert.Equal(t, model.StudioJobStatusSucceeded, updated.Status)
 	assert.Equal(t, 5000, updated.SettledQuota)
 }
+
+func TestController_TriggerStudioProviderCanary(t *testing.T) {
+	r, db := setupTestRouterForStudio(t)
+
+	// Register admin route
+	adminGroup := r.Group("/api/admin/studio")
+	adminGroup.Use(func(c *gin.Context) {
+		roleHeader := c.GetHeader("X-Role")
+		if roleHeader == "admin" {
+			c.Set("id", 99)
+			c.Set("role", common.RoleAdminUser)
+		} else {
+			c.Set("id", 1)
+			c.Set("role", common.RoleCommonUser)
+		}
+		c.Next()
+	})
+	adminGroup.POST("/provider-canary", TriggerStudioProviderCanary)
+
+	// Create test admin user with wallet balance
+	adminUser := model.User{
+		Id:       99,
+		Username: "canary_admin",
+		Quota:    100000,
+		Status:   common.UserStatusEnabled,
+		Role:     common.RoleAdminUser,
+	}
+	require.NoError(t, db.Create(&adminUser).Error)
+
+	// Test 1: Non-admin rejected
+	payloadNonAdmin := map[string]interface{}{
+		"provider":            "fal",
+		"tool_id":             "background-remove",
+		"confirm_live_charge": true,
+		"max_spend_usd":       0.02,
+		"idempotency_key":     "idemp_canary_ctrl_001",
+	}
+	body, _ := json.Marshal(payloadNonAdmin)
+	req := httptest.NewRequest(http.MethodPost, "/api/admin/studio/provider-canary", bytes.NewBuffer(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusForbidden, w.Code)
+
+	// Test 2: Invalid provider rejected
+	payloadBadProv := map[string]interface{}{
+		"provider":            "unauthorized_provider",
+		"tool_id":             "background-remove",
+		"confirm_live_charge": true,
+		"max_spend_usd":       0.02,
+		"idempotency_key":     "idemp_canary_ctrl_002",
+	}
+	body, _ = json.Marshal(payloadBadProv)
+	req = httptest.NewRequest(http.MethodPost, "/api/admin/studio/provider-canary", bytes.NewBuffer(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Role", "admin")
+	w = httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+	assert.Contains(t, w.Body.String(), "only 'fal' is permitted")
+
+	// Test 3: Missing confirm_live_charge rejected
+	payloadNoConfirm := map[string]interface{}{
+		"provider":            "fal",
+		"tool_id":             "background-remove",
+		"confirm_live_charge": false,
+		"max_spend_usd":       0.02,
+		"idempotency_key":     "idemp_canary_ctrl_003",
+	}
+	body, _ = json.Marshal(payloadNoConfirm)
+	req = httptest.NewRequest(http.MethodPost, "/api/admin/studio/provider-canary", bytes.NewBuffer(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Role", "admin")
+	w = httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+	assert.Contains(t, w.Body.String(), "confirm_live_charge must be true")
+
+	// Test 4: Exceeds hard ceiling ($0.05) rejected
+	payloadOverCeiling := map[string]interface{}{
+		"provider":            "fal",
+		"tool_id":             "background-remove",
+		"confirm_live_charge": true,
+		"max_spend_usd":       0.50, // exceeds $0.05
+		"idempotency_key":     "idemp_canary_ctrl_004",
+	}
+	body, _ = json.Marshal(payloadOverCeiling)
+	req = httptest.NewRequest(http.MethodPost, "/api/admin/studio/provider-canary", bytes.NewBuffer(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Role", "admin")
+	w = httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+	assert.Contains(t, w.Body.String(), "ceiling")
+
+	// Test 5: Missing FAL_KEY returns PreconditionFailed (OPERATOR_BLOCKED)
+	payloadValid := map[string]interface{}{
+		"provider":            "fal",
+		"tool_id":             "background-remove",
+		"confirm_live_charge": true,
+		"max_spend_usd":       0.02,
+		"idempotency_key":     "idemp_canary_ctrl_005",
+	}
+	body, _ = json.Marshal(payloadValid)
+	req = httptest.NewRequest(http.MethodPost, "/api/admin/studio/provider-canary", bytes.NewBuffer(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Role", "admin")
+	w = httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusPreconditionFailed, w.Code)
+	assert.Contains(t, w.Body.String(), "FAL_NOT_CONFIGURED")
+}

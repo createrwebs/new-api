@@ -135,6 +135,7 @@ type StudioToolJob struct {
 	ErrorMessage    string          `json:"error_message" gorm:"type:text"`
 	RiskClass       string          `json:"risk_class" gorm:"type:varchar(32);default:'low'"`
 	ClientIP        string          `json:"client_ip" gorm:"type:varchar(64)"`
+	ExecutionType   string          `json:"execution_type" gorm:"type:varchar(32);default:'REAL_PROVIDER';index"` // "REAL_PROVIDER", "MOCK_PROVIDER", "INTERNAL_TEST"
 	CreatedAt       int64           `json:"created_at" gorm:"bigint;index"`
 	UpdatedAt       int64           `json:"updated_at" gorm:"bigint"`
 	CompletedAt     int64           `json:"completed_at" gorm:"bigint"`

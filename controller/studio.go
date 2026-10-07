@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -546,7 +547,15 @@ func GetStudioAdminTelemetry(c *gin.Context) {
 	var studioUsers int64
 	var refundsCount int64
 
+	var realJobsToday int64
+	var mockJobsToday int64
+	var internalTestJobsToday int64
+
 	model.DB.Model(&model.StudioToolJob{}).Where("created_at >= ?", startOfDay).Count(&jobsToday)
+	model.DB.Model(&model.StudioToolJob{}).Where("created_at >= ? AND (execution_type = ? OR (execution_type = '' AND provider_name != 'mock'))", startOfDay, "REAL_PROVIDER").Count(&realJobsToday)
+	model.DB.Model(&model.StudioToolJob{}).Where("created_at >= ? AND (execution_type = ? OR provider_name = 'mock')", startOfDay, "MOCK_PROVIDER").Count(&mockJobsToday)
+	model.DB.Model(&model.StudioToolJob{}).Where("created_at >= ? AND execution_type = ?", startOfDay, "INTERNAL_TEST").Count(&internalTestJobsToday)
+
 	model.DB.Model(&model.StudioToolJob{}).Where("created_at >= ? AND status = ?", startOfDay, model.StudioJobStatusSucceeded).Count(&succeededToday)
 	model.DB.Model(&model.StudioToolJob{}).Where("created_at >= ? AND status = ?", startOfDay, model.StudioJobStatusFailed).Count(&failedToday)
 
@@ -624,6 +633,9 @@ func GetStudioAdminTelemetry(c *gin.Context) {
 			"studio_users":                 studioUsers,
 			"jobs":                         totalJobs,
 			"jobs_today":                   jobsToday,
+			"real_jobs_today":              realJobsToday,
+			"mock_jobs_today":              mockJobsToday,
+			"internal_test_jobs_today":     internalTestJobsToday,
 			"succeeded_today":              succeededToday,
 			"failed_today":                 failedToday,
 			"succeeded_total":              succeededTotal,
@@ -666,6 +678,249 @@ func boolToStatus(b bool) string {
 
 func osGetEnv(k string) string {
 	return strings.TrimSpace(os.Getenv(k))
+}
+
+// --- Admin Studio Canary Endpoint (Queue 2B) ---
+
+// TriggerStudioProviderCanaryRequest defines the controlled parameters for admin live canary testing.
+type TriggerStudioProviderCanaryRequest struct {
+	Provider          string  `json:"provider"`            // Must be "fal"
+	ToolId            string  `json:"tool_id"`             // Must be "background-remove" or "image-upscale"
+	ImageURL          string  `json:"image_url"`           // Optional custom test image URL (defaults to safe public synthetic sample)
+	ConfirmLiveCharge bool    `json:"confirm_live_charge"`  // Explicit confirmation: must be true
+	MaxSpendUSD       float64 `json:"max_spend_usd"`       // Hard cost ceiling, max allowed $0.05
+	IdempotencyKey    string  `json:"idempotency_key"`     // Idempotency key (can also be supplied via Idempotency-Key header)
+}
+
+// TriggerStudioProviderCanary handles controlled, administrative paid provider verification.
+func TriggerStudioProviderCanary(c *gin.Context) {
+	userId := c.GetInt("id")
+	userRole := c.GetInt("role")
+	if userRole != common.RoleAdminUser && userRole != common.RoleRootUser {
+		c.JSON(http.StatusForbidden, gin.H{
+			"success": false,
+			"message": "admin privilege required for live provider canary execution",
+		})
+		return
+	}
+
+	var req TriggerStudioProviderCanaryRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"success": false,
+			"message": fmt.Sprintf("invalid canary request payload: %v", err),
+		})
+		return
+	}
+
+	// 1. Provider allowlist check: ONLY fal is permitted
+	if strings.ToLower(strings.TrimSpace(req.Provider)) != "fal" {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"success": false,
+			"message": "invalid provider: only 'fal' is permitted for the Queue 2 live canary",
+		})
+		return
+	}
+
+	// 2. Logical tool allowlist check: ONLY background-remove or image-upscale
+	toolId := strings.ToLower(strings.TrimSpace(req.ToolId))
+	if toolId == "" {
+		toolId = "background-remove" // Preferred cheapest canary
+	}
+	if toolId != "background-remove" && toolId != "image-upscale" {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"success": false,
+			"message": "tool not permitted for canary: only 'background-remove' or 'image-upscale' are allowed",
+		})
+		return
+	}
+
+	// 3. Explicit confirmation parameter check
+	if !req.ConfirmLiveCharge {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"success": false,
+			"message": "explicit confirmation required: confirm_live_charge must be true to authorize paid execution",
+		})
+		return
+	}
+
+	// 4. Hard canary spend ceiling check (default $0.05, max $0.05)
+	maxSpend := req.MaxSpendUSD
+	if maxSpend <= 0 {
+		maxSpend = 0.05
+	}
+	if maxSpend > 0.05 {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"success": false,
+			"message": "max_spend_usd exceeds hard platform canary ceiling of $0.05",
+		})
+		return
+	}
+
+	// 5. Idempotency Key check
+	idempKey := strings.TrimSpace(c.GetHeader("Idempotency-Key"))
+	if idempKey == "" {
+		idempKey = strings.TrimSpace(req.IdempotencyKey)
+	}
+	if idempKey == "" {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"success": false,
+			"message": "Idempotency-Key header or idempotency_key body parameter is required",
+		})
+		return
+	}
+
+	// 6. Provider Credential Check
+	falKey := strings.TrimSpace(os.Getenv("FAL_KEY"))
+	if falKey == "" {
+		falKey = strings.TrimSpace(os.Getenv("FAL_API_KEY"))
+	}
+	if falKey == "" {
+		c.JSON(http.StatusPreconditionFailed, gin.H{
+			"success":         false,
+			"provider_status": "FAL_NOT_CONFIGURED",
+			"error_code":      "OPERATOR_BLOCKED",
+			"message":         "FAL_KEY is not configured in the production environment. Provision FAL_KEY via production environment secrets to execute live canary.",
+		})
+		return
+	}
+
+	// 7. Verify Tool Definition & Calculate Authoritative Quote
+	toolDef, err := model.GetStudioToolDefinition(toolId)
+	if err != nil {
+		toolDef, err = model.GetStudioToolDefinitionAnyStatus(toolId)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "tool definition not found"})
+			return
+		}
+	}
+
+	studioSvc := service.GetStudioService()
+	pricingEngine := studioSvc.GetPricingEngine()
+	quote, err := pricingEngine.CalculatePriceWithInputs(toolDef, map[string]interface{}{}, 1.0)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": fmt.Sprintf("failed generating quote: %v", err)})
+		return
+	}
+
+	// Validate against canary spend ceiling
+	if quote.ProviderEstimatedCostUSD > maxSpend {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"success": false,
+			"message": fmt.Sprintf("estimated provider cost ($%.4f) exceeds canary ceiling ($%.4f)", quote.ProviderEstimatedCostUSD, maxSpend),
+		})
+		return
+	}
+
+	// Check test user wallet balance before submission
+	walletBefore, err := model.GetUserQuota(userId, true)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "failed querying wallet balance"})
+		return
+	}
+
+	if walletBefore < quote.ChargedQuota {
+		c.JSON(http.StatusPaymentRequired, gin.H{
+			"success":         false,
+			"error_code":      "INSUFFICIENT_CREDITS",
+			"wallet_before":   walletBefore,
+			"charged_quota":   quote.ChargedQuota,
+			"charged_credits": quote.ChargedCredits,
+			"message":         "insufficient Tora wallet balance for canary execution",
+		})
+		return
+	}
+
+	// Prepare safe test payload (non-sensitive synthetic test asset)
+	imageURL := strings.TrimSpace(req.ImageURL)
+	if imageURL == "" {
+		imageURL = "https://fal.media/files/lion/01_synthetic_canary_sample.png"
+	}
+	if err := service.ValidateExternalURL(imageURL); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": fmt.Sprintf("invalid test image URL: %v", err)})
+		return
+	}
+
+	inputParams := map[string]interface{}{
+		"image_url": imageURL,
+		"quote_id":  quote.QuoteID,
+	}
+
+	// Check for idempotent replay
+	existingJob, _ := model.GetStudioJobByIdempotency(userId, idempKey)
+	isReplay := existingJob != nil
+
+	// 8. Submit Job via StudioService (Quotes, Reserves, Dispatches)
+	job, err := studioSvc.SubmitJob(
+		c.Request.Context(),
+		userId,
+		toolId,
+		"",
+		idempKey,
+		"fal",
+		inputParams,
+		1.0,
+		c.ClientIP(),
+		true, // isAdmin
+	)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"success": false,
+			"message": fmt.Sprintf("canary execution failed: %v", err),
+		})
+		return
+	}
+
+	// 9. If job is processing, poll for completion within bounded timeout (max 15s)
+	if job.Status == model.StudioJobStatusProcessing {
+		pollCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel()
+		ticker := time.NewTicker(2 * time.Second)
+		defer ticker.Stop()
+
+	pollLoop:
+		for {
+			select {
+			case <-pollCtx.Done():
+				break pollLoop
+			case <-ticker.C:
+				polledJob, pollErr := studioSvc.PollJob(pollCtx, job.Id, userId, true)
+				if pollErr == nil && polledJob != nil {
+					job = polledJob
+					if job.Status == model.StudioJobStatusSucceeded || job.Status == model.StudioJobStatusFailed {
+						break pollLoop
+					}
+				}
+			}
+		}
+	}
+
+	// Query wallet after
+	walletAfter, _ := model.GetUserQuota(userId, true)
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"canary": gin.H{
+			"job_id":                  job.Id,
+			"request_id":              job.RequestId,
+			"idempotency_key":         job.IdempotencyKey,
+			"tool_id":                 job.ToolId,
+			"provider":                job.ProviderName,
+			"provider_job_id":         job.ProviderJobId,
+			"status":                  job.Status,
+			"wallet_before":           walletBefore,
+			"quota_reserved":          job.ReservedQuota,
+			"quota_settled":           job.SettledQuota,
+			"wallet_after":            walletAfter,
+			"charged_credits":         quote.ChargedCredits,
+			"provider_estimated_cost": quote.ProviderEstimatedCostUSD,
+			"target_margin":           quote.TargetMargin,
+			"output_result":           job.OutputResult,
+			"error_message":           job.ErrorMessage,
+			"execution_type":          job.ExecutionType,
+			"idempotent_replay":       isReplay,
+		},
+	})
 }
 
 // --- SSR Public Landing Pages (Queue 3 SEO & Content) ---

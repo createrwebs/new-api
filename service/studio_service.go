@@ -325,6 +325,14 @@ func (s *StudioService) SubmitJob(
 		}
 	}
 
+	executionType := "REAL_PROVIDER"
+	if providerName == "mock" {
+		executionType = "MOCK_PROVIDER"
+	}
+	if isTest, ok := inputParams["_internal_test"].(bool); ok && isTest {
+		executionType = "INTERNAL_TEST"
+	}
+
 	// 7. Record Job in RESERVED State
 	job := &model.StudioToolJob{
 		Id:              jobId,
@@ -340,6 +348,7 @@ func (s *StudioService) SubmitJob(
 		PricingSnapshot: string(pricingSnapshotJSON),
 		RiskClass:       toolDef.RiskClass,
 		ClientIP:        clientIP,
+		ExecutionType:   executionType,
 		CreatedAt:       common.GetTimestamp(),
 		UpdatedAt:       common.GetTimestamp(),
 	}

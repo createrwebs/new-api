@@ -399,6 +399,7 @@ func SetApiRouter(router *gin.Engine) {
 		studioAdminRoute.Use(middleware.AdminAuth())
 		{
 			studioAdminRoute.GET("/telemetry", controller.GetStudioAdminTelemetry)
+			studioAdminRoute.POST("/provider-canary", controller.TriggerStudioProviderCanary)
 		}
 
 		usageRoute := apiRouter.Group("/usage")
