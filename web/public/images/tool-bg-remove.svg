@@ -1,0 +1,60 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 340" fill="none">
+  <defs>
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0f172a" />
+      <stop offset="100%" stop-color="#020617" />
+    </linearGradient>
+    <pattern id="checkers" width="20" height="20" patternUnits="userSpaceOnUse">
+      <rect width="10" height="10" fill="#1e293b" />
+      <rect x="10" width="10" height="10" fill="#0f172a" />
+      <rect y="10" width="10" height="10" fill="#0f172a" />
+      <rect x="10" y="10" width="10" height="10" fill="#1e293b" />
+    </pattern>
+    <linearGradient id="laserGlow" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#38bdf8" stop-opacity="0" />
+      <stop offset="50%" stop-color="#38bdf8" stop-opacity="1" />
+      <stop offset="100%" stop-color="#06b6d4" stop-opacity="0" />
+    </linearGradient>
+    <filter id="glow">
+      <feGaussianBlur stdDeviation="6" result="coloredBlur"/>
+      <feMerge>
+        <feMergeNode in="coloredBlur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+
+  <rect width="600" height="340" rx="16" fill="url(#bgGrad)" stroke="#334155" stroke-width="1"/>
+  
+  <!-- Left Side: Cluttered background -->
+  <rect x="20" y="20" width="280" height="300" rx="12" fill="#1e1b4b" opacity="0.6"/>
+  <circle cx="80" cy="80" r="45" fill="#312e81" opacity="0.4"/>
+  <rect x="180" y="60" width="90" height="120" rx="8" fill="#4338ca" opacity="0.3"/>
+  <path d="M40 260 L140 180 L260 280 Z" fill="#3730a3" opacity="0.4"/>
+  
+  <!-- Right Side: Clean Transparent Cutout Checkerboard -->
+  <rect x="300" y="20" width="280" height="300" rx="12" fill="url(#checkers)"/>
+  
+  <!-- Floating Product Object: Sleek Cyber Sneaker -->
+  <g filter="url(#glow)">
+    <!-- Sole -->
+    <path d="M120 220 C180 235 420 235 480 215 C470 245 430 255 360 255 C220 255 140 245 120 220 Z" fill="#38bdf8"/>
+    <!-- Sneaker Body -->
+    <path d="M140 215 C170 160 220 130 290 145 C350 120 400 135 460 195 C475 210 460 220 420 220 C360 220 220 220 140 215 Z" fill="#f8fafc"/>
+    <path d="M220 140 L280 190 L380 185 L320 140 Z" fill="#0284c7" opacity="0.8"/>
+    <!-- Swoosh line -->
+    <path d="M190 200 Q280 215 420 165" stroke="#f43f5e" stroke-width="6" stroke-linecap="round"/>
+  </g>
+
+  <!-- Dividing Laser Cut Line -->
+  <line x1="300" y1="15" x2="300" y2="325" stroke="#38bdf8" stroke-width="3" filter="url(#glow)"/>
+  <circle cx="300" cy="170" r="14" fill="#0284c7" stroke="#ffffff" stroke-width="2" filter="url(#glow)"/>
+  <path d="M296 166 L293 170 L296 174 M304 166 L307 170 L304 174" stroke="#ffffff" stroke-width="2" stroke-linecap="round"/>
+
+  <!-- Badges -->
+  <rect x="35" y="35" width="100" height="26" rx="13" fill="#0f172a" stroke="#475569" stroke-width="1"/>
+  <text x="85" y="52" fill="#94a3b8" font-family="system-ui, sans-serif" font-size="11" font-weight="600" text-anchor="middle">BEFORE (Original)</text>
+
+  <rect x="465" y="35" width="100" height="26" rx="13" fill="#0284c7" fill-opacity="0.2" stroke="#38bdf8" stroke-width="1"/>
+  <text x="515" y="52" fill="#38bdf8" font-family="system-ui, sans-serif" font-size="11" font-weight="700" text-anchor="middle">AFTER (AI Cutout)</text>
+</svg>

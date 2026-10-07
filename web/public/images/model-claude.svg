@@ -1,0 +1,59 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 340" fill="none">
+  <defs>
+    <linearGradient id="claudeBg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#24140c" />
+      <stop offset="100%" stop-color="#0a0503" />
+    </linearGradient>
+    <linearGradient id="terracotta" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#d97706" />
+      <stop offset="100%" stop-color="#ea580c" />
+    </linearGradient>
+    <filter id="amberGlow">
+      <feGaussianBlur stdDeviation="6" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+
+  <rect width="600" height="340" rx="16" fill="url(#claudeBg)" stroke="#451a03" stroke-width="1"/>
+
+  <!-- Neural Network Mesh Pattern -->
+  <g stroke="#78350f" stroke-width="1" opacity="0.4">
+    <line x1="80" y1="90" x2="180" y2="140" />
+    <line x1="80" y1="210" x2="180" y2="140" />
+    <line x1="180" y1="140" x2="300" y2="90" />
+    <line x1="180" y1="140" x2="300" y2="210" />
+    <line x1="300" y1="90" x2="420" y2="150" />
+    <line x1="300" y1="210" x2="420" y2="150" />
+    <line x1="420" y1="150" x2="520" y2="100" />
+    <line x1="420" y1="150" x2="520" y2="220" />
+  </g>
+
+  <!-- Central Reasoning Core Sphere -->
+  <circle cx="300" cy="150" r="60" fill="#431407" stroke="url(#terracotta)" stroke-width="2.5" filter="url(#amberGlow)"/>
+  <circle cx="300" cy="150" r="45" fill="#7c2d12" fill-opacity="0.6"/>
+  <circle cx="300" cy="150" r="28" fill="#ea580c" filter="url(#amberGlow)"/>
+  <circle cx="290" cy="140" r="8" fill="#ffffff" opacity="0.8"/>
+
+  <!-- Code / Reasoning Nodes -->
+  <rect x="50" y="55" width="130" height="32" rx="16" fill="#1c1917" stroke="#44403c" stroke-width="1"/>
+  <text x="115" y="75" fill="#fdba74" font-family="monospace" font-size="11" font-weight="600" text-anchor="middle">&lt;code_interpreter&gt;</text>
+
+  <rect x="420" y="55" width="130" height="32" rx="16" fill="#1c1917" stroke="#44403c" stroke-width="1"/>
+  <text x="485" y="75" fill="#fdba74" font-family="monospace" font-size="11" font-weight="600" text-anchor="middle">200K Tokens</text>
+
+  <rect x="50" y="245" width="130" height="32" rx="16" fill="#1c1917" stroke="#44403c" stroke-width="1"/>
+  <text x="115" y="265" fill="#38bdf8" font-family="monospace" font-size="11" font-weight="600" text-anchor="middle">Thai Nuance: 100%</text>
+
+  <rect x="420" y="245" width="130" height="32" rx="16" fill="#1c1917" stroke="#44403c" stroke-width="1"/>
+  <text x="485" y="265" fill="#4ade80" font-family="monospace" font-size="11" font-weight="600" text-anchor="middle">Reasoning: SOTA</text>
+
+  <text x="300" y="250" fill="#fed7aa" font-family="system-ui, sans-serif" font-size="13" font-weight="700" text-anchor="middle">
+    CLAUDE 3.7 SONNET &amp; DEEPSEEK R1
+  </text>
+  <text x="300" y="272" fill="#a8a29e" font-family="system-ui, sans-serif" font-size="11" text-anchor="middle">
+    Hybrid Reasoning • Autonomous Coding • Multi-turn Architecture
+  </text>
+</svg>
