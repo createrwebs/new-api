@@ -150,28 +150,28 @@ func SeedStudioCatalog(db *gorm.DB) error {
 			Status:           model.StudioToolStateBeta,
 		},
 
-		// Video Tools (Coming Soon / Frozen during Image MVP)
+		// Video Tools (Queue 5: Initial Video Tool Activated)
 		{
 			Id:               "image-to-video",
 			Slug:             "image-to-video",
 			Name:             "Image to Video",
-			DisplayName:      "แปลงภาพนิ่งเป็นวิดีโอ (เร็วๆ นี้)",
-			Description:      "ขยับภาพถ่ายสินค้า ภาพวิว หรือตัวละครให้มีชีวิตชีวาด้วยการเคลื่อนไหวที่เป็นธรรมชาติ สร้างวิดีโอ 5 วินาทีความละเอียดสูง",
+			DisplayName:      "แปลงภาพนิ่งเป็นวิดีโอ (Motion Magic)",
+			Description:      "ขยับภาพถ่ายสินค้า ภาพวิว หรือภาพบุคคลให้มีชีวิตชีวาด้วยการเคลื่อนไหวระดับภาพยนตร์ สร้างคลิปวิดีโอความละเอียดสูง",
 			Category:         "video",
-			InputSchema:      `{"type":"object","required":["image_url"],"properties":{"image_url":{"type":"string"},"motion_prompt":{"type":"string"},"duration":{"type":"integer","enum":[5],"default":5}}}`,
+			InputSchema:      `{"type":"object","required":["image_url"],"properties":{"image_url":{"type":"string"},"motion_prompt":{"type":"string"},"duration":{"type":"integer","enum":[3,5],"default":5},"resolution":{"type":"string","enum":["720p","1080p"],"default":"720p"},"quality":{"type":"string","enum":["standard","high"],"default":"standard"},"audio":{"type":"boolean","default":false}}}`,
 			OutputType:       "video/mp4",
 			AllowedMIMETypes: "image/jpeg,image/png,image/webp",
 			MaxUploadSize:    31457280,
-			IsEnabled:        false,
-			IsPublic:         false,
+			IsEnabled:        true,
+			IsPublic:         true,
 			CreditCost:       125,
 			QuotaCost:        125000,
-			RiskClass:        "low",
+			RiskClass:        "high",
 			DisplayOrder:     7,
 			PrimaryProvider:  "fal",
 			PrimaryModel:     "wan-video/wan-2.2",
 			MarginPercent:    68.0,
-			Status:           model.StudioToolStateComingSoon,
+			Status:           model.StudioToolStateActive,
 		},
 
 		// Disabled / Coming Soon Tools (Section 5)

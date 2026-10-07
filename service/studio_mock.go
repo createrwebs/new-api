@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -89,6 +90,9 @@ func (m *DeterministicMockProvider) Submit(ctx context.Context, job *model.Studi
 
 		outputURLs := make([]string, 0, numVariants)
 		primaryURL := fmt.Sprintf("https://cdn.toraapi.com/mock-assets/%s/output.png", job.Id)
+		if job.ToolId == "image-to-video" || strings.HasSuffix(job.ToolId, "-video") {
+			primaryURL = fmt.Sprintf("https://cdn.toraapi.com/mock-assets/%s/output.mp4", job.Id)
+		}
 		if numVariants > 1 {
 			primaryURL = fmt.Sprintf("https://cdn.toraapi.com/mock-assets/%s/variant_1.png", job.Id)
 			for i := 1; i <= numVariants; i++ {

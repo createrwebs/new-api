@@ -6,7 +6,9 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
@@ -123,12 +125,112 @@ func (s *StudioService) SubmitJob(
 		}
 	}
 
-	// 3. Select Provider & guard mock usage in production
+	// 3. User Role & Admin check
 	userIsAdmin := false
 	if len(isAdmin) > 0 {
 		userIsAdmin = isAdmin[0]
 	}
 
+	isVideoJob := toolDef.Category == "video" || toolId == "image-to-video"
+
+	// Video-specific input & cost guards (Queue 5: Video Foundation)
+	if isVideoJob {
+		// Guard 1: Asset Pipeline - Reject base64 JSON
+		if inputParams != nil {
+			for _, v := range inputParams {
+				if s, ok := v.(string); ok && strings.HasPrefix(s, "data:") {
+					return nil, errors.New("base64 media input is not permitted for video workflows; please upload media to obtain an asset URL")
+				}
+			}
+		}
+
+		// Guard 2: Maximum Duration Guard (Initial video release: max 5s)
+		duration := 5
+		if d, ok := inputParams["duration"].(float64); ok && d > 0 {
+			duration = int(d)
+		} else if d, ok := inputParams["duration"].(int); ok && d > 0 {
+			duration = d
+		} else if d, ok := inputParams["duration_sec"].(float64); ok && d > 0 {
+			duration = int(d)
+		} else if d, ok := inputParams["duration_sec"].(int); ok && d > 0 {
+			duration = d
+		}
+		if duration > 5 {
+			return nil, errors.New("duration exceeds maximum limit: initial video release supports maximum 5 seconds")
+		}
+
+		// Guard 3: Maximum Resolution Guard (Initial video release: 720p or 1080p)
+		if res, ok := inputParams["resolution"].(string); ok && res != "" {
+			lowerRes := strings.ToLower(strings.TrimSpace(res))
+			if lowerRes != "720p" && lowerRes != "1080p" {
+				return nil, errors.New("resolution exceeds maximum limit: allowed resolutions are 720p and 1080p")
+			}
+		}
+
+		// Guard 4: Per-User Concurrent Video Limit Guard (1 for regular user, 2 for admin)
+		maxConcurrentVideo := 1
+		if userIsAdmin {
+			maxConcurrentVideo = 2
+		}
+		if model.DB != nil {
+			var activeCount int64
+			videoToolIds := []string{"image-to-video", "video-generate", "text-to-video", "lip-sync", "talking-avatar", "video-upscale"}
+			model.DB.Model(&model.StudioToolJob{}).
+				Where("user_id = ? AND tool_id IN (?) AND status IN (?)",
+					userId,
+					videoToolIds,
+					[]string{
+						string(model.StudioJobStatusReserved),
+						string(model.StudioJobStatusSubmitting),
+						string(model.StudioJobStatusProcessing),
+					},
+				).Count(&activeCount)
+			if int(activeCount) >= maxConcurrentVideo {
+				return nil, errors.New("concurrent video limit reached: you already have an active video job in progress; please wait for it to complete")
+			}
+
+			// Guard 5: Daily Provider Spend Guard
+			dailyLimitUSD := 50.0 // Default $50/day
+			if customLimitStr := os.Getenv("STUDIO_DAILY_VIDEO_SPEND_LIMIT_USD"); customLimitStr != "" {
+				if parsedLimit, err := strconv.ParseFloat(customLimitStr, 64); err == nil && parsedLimit > 0 {
+					dailyLimitUSD = parsedLimit
+				}
+			}
+			todayStart := time.Now().Truncate(24 * time.Hour).Unix()
+			var currentDailySpend float64
+			var videoJobsToday []model.StudioToolJob
+			model.DB.Model(&model.StudioToolJob{}).
+				Where("tool_id IN (?) AND created_at >= ? AND status != ?",
+					videoToolIds,
+					todayStart,
+					string(model.StudioJobStatusFailed),
+				).Find(&videoJobsToday)
+			for _, vj := range videoJobsToday {
+				if vj.PricingSnapshot != "" {
+					var sn model.StudioPricingSnapshot
+					if json.Unmarshal([]byte(vj.PricingSnapshot), &sn) == nil && sn.ProviderEstimatedCostUSD > 0 {
+						currentDailySpend += sn.ProviderEstimatedCostUSD
+					}
+				}
+			}
+			if currentDailySpend >= dailyLimitUSD {
+				return nil, errors.New("daily video capacity reached: daily provider spend guard threshold has been reached; please try again tomorrow or contact support")
+			}
+		}
+
+		// Guard 6: Quote Expiry Guard (if quote_id provided)
+		if quoteId, ok := inputParams["quote_id"].(string); ok && strings.TrimSpace(quoteId) != "" {
+			quoteSnapshot, err := s.pricingEngine.GetQuote(quoteId)
+			if err != nil {
+				return nil, fmt.Errorf("quote validation failed: %w", err)
+			}
+			if quoteSnapshot.ToolID != "" && quoteSnapshot.ToolID != toolId {
+				return nil, errors.New("quote tool mismatch")
+			}
+		}
+	}
+
+	// 4. Select Provider & guard mock usage in production
 	if providerName == "" {
 		providerName = toolDef.PrimaryProvider
 	}
@@ -259,7 +361,11 @@ func (s *StudioService) SubmitJob(
 		}
 		job.Status = model.StudioJobStatusSucceeded
 		job.SettledQuota = quotaToReserve
-		if len(submitResult.OutputURLs) > 1 {
+		if isVideoJob || strings.HasSuffix(strings.ToLower(submitResult.OutputURL), ".mp4") {
+			posterURL := strings.Replace(submitResult.OutputURL, ".mp4", "_poster.jpg", 1)
+			job.OutputResult = fmt.Sprintf(`{"output_url": "%s", "video_url": "%s", "thumbnail_url": "%s", "poster_url": "%s"}`,
+				submitResult.OutputURL, submitResult.OutputURL, posterURL, posterURL)
+		} else if len(submitResult.OutputURLs) > 1 {
 			urlsJSON, _ := json.Marshal(submitResult.OutputURLs)
 			job.OutputResult = fmt.Sprintf(`{"output_url": "%s", "output_urls": %s, "variants": %s}`, submitResult.OutputURL, string(urlsJSON), string(urlsJSON))
 		} else {
@@ -357,7 +463,11 @@ func (s *StudioService) PollJob(ctx context.Context, jobId string, userId int, i
 			job.SettledQuota = job.ReservedQuota
 		}
 		job.Status = model.StudioJobStatusSucceeded
-		if len(pollResult.OutputURLs) > 1 {
+		if job.ToolId == "image-to-video" || strings.HasSuffix(job.ToolId, "-video") || strings.HasSuffix(strings.ToLower(pollResult.OutputURL), ".mp4") {
+			posterURL := strings.Replace(pollResult.OutputURL, ".mp4", "_poster.jpg", 1)
+			job.OutputResult = fmt.Sprintf(`{"output_url": "%s", "video_url": "%s", "thumbnail_url": "%s", "poster_url": "%s"}`,
+				pollResult.OutputURL, pollResult.OutputURL, posterURL, posterURL)
+		} else if len(pollResult.OutputURLs) > 1 {
 			urlsJSON, _ := json.Marshal(pollResult.OutputURLs)
 			job.OutputResult = fmt.Sprintf(`{"output_url": "%s", "output_urls": %s, "variants": %s}`, pollResult.OutputURL, string(urlsJSON), string(urlsJSON))
 		} else {

@@ -281,8 +281,9 @@ func (f *FalProvider) fetchOutputURLs(ctx context.Context, responseURL string, m
 			URL string `json:"url"`
 		} `json:"image"`
 		Video struct {
-			URL string `json:"video"`
+			URL string `json:"url"`
 		} `json:"video"`
+		VideoURL string `json:"video_url"`
 		Payload struct {
 			Image struct {
 				URL string `json:"url"`
@@ -291,8 +292,9 @@ func (f *FalProvider) fetchOutputURLs(ctx context.Context, responseURL string, m
 				URL string `json:"url"`
 			} `json:"images"`
 			Video struct {
-				URL string `json:"video"`
+				URL string `json:"url"`
 			} `json:"video"`
+			VideoURL string `json:"video_url"`
 		} `json:"payload"`
 	}
 	_ = json.Unmarshal(body, &out)
@@ -319,8 +321,14 @@ func (f *FalProvider) fetchOutputURLs(ctx context.Context, responseURL string, m
 	if len(allURLs) == 0 && out.Payload.Video.URL != "" {
 		allURLs = append(allURLs, out.Payload.Video.URL)
 	}
+	if len(allURLs) == 0 && out.Payload.VideoURL != "" {
+		allURLs = append(allURLs, out.Payload.VideoURL)
+	}
 	if len(allURLs) == 0 && out.Video.URL != "" {
 		allURLs = append(allURLs, out.Video.URL)
+	}
+	if len(allURLs) == 0 && out.VideoURL != "" {
+		allURLs = append(allURLs, out.VideoURL)
 	}
 
 	primary := ""

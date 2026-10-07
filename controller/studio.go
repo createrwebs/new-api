@@ -3,8 +3,10 @@ package controller
 import (
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -713,6 +715,14 @@ var toolSEORegistry = map[string]ToolSEOMetadata{
 		},
 		RelatedSlugs: []string{"image-generator", "image-upscale", "background-remove"},
 	},
+	"image-to-video": {
+		UseCases: []ToolUseCase{
+			{"ขยับภาพสินค้าให้น่าสนใจบน TikTok & Shopee Video", "แปลงภาพนิ่งสินค้าให้มีมูฟเมนต์เป็นธรรมชาติ ช่วยหยุดสายตาลูกค้าและเพิ่มยอดขายอย่างก้าวกระโดด"},
+			{"เปลี่ยนภาพนิ่งโปรโมชันเป็นวิดีโอ 5 วินาทีหยุดสายตา", "สร้างคลิปวิดีโอสั้นระดับภาพยนตร์ด้วยโมเดล Wan 2.2 จากภาพถ่ายเพียงใบเดียว"},
+			{"Motion Graphics สำหรับโฆษณาโซเชียลมีเดีย", "สร้างความน่าตื่นตาตื่นใจให้คอนเทนต์ Facebook, Instagram Reels และ YouTube Shorts ได้อย่างง่ายดาย"},
+		},
+		RelatedSlugs: []string{"product-photo", "image-generate", "image-upscale"},
+	},
 }
 
 // RenderStudioToolLandingPage serves indexable, crawlable HTML pages for high-value tools.
@@ -960,4 +970,102 @@ func RenderStudioToolLandingPage(c *gin.Context) {
 
 	c.Header("Content-Type", "text/html; charset=utf-8")
 	c.String(http.StatusOK, sb.String())
+}
+
+// UploadStudioAsset handles safe media upload for Studio pipelines (Queue 5 Asset Pipeline).
+func UploadStudioAsset(c *gin.Context) {
+	userId := c.GetInt("id")
+	if userId <= 0 {
+		c.JSON(http.StatusUnauthorized, gin.H{"success": false, "message": "unauthorized"})
+		return
+	}
+
+	file, header, err := c.Request.FormFile("file")
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "file is required in multipart form-data: " + err.Error()})
+		return
+	}
+	defer file.Close()
+
+	data, err := io.ReadAll(file)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "failed reading file: " + err.Error()})
+		return
+	}
+
+	// Validate magic bytes and size (videos and images allowed)
+	mimeType, err := service.ValidateMediaUpload(data, header.Filename, true)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "media validation failed: " + err.Error()})
+		return
+	}
+
+	assetId := fmt.Sprintf("asset_%d_%s", common.GetTimestamp(), common.GetUUID()[:8])
+	ext := filepath.Ext(header.Filename)
+	if ext == "" {
+		if strings.HasPrefix(mimeType, "image/") {
+			ext = ".png"
+		} else {
+			ext = ".mp4"
+		}
+	}
+	savedFilename := fmt.Sprintf("%s%s", assetId, ext)
+
+	// Save file locally to upload directory
+	uploadDir := "./data/upload/studio"
+	_ = os.MkdirAll(uploadDir, 0755)
+	filePath := filepath.Join(uploadDir, savedFilename)
+	if err := os.WriteFile(filePath, data, 0644); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "failed saving asset: " + err.Error()})
+		return
+	}
+
+	assetURL := fmt.Sprintf("/api/v1/studio/assets/%s", savedFilename)
+	host := c.Request.Host
+	scheme := "http"
+	if c.Request.TLS != nil || c.GetHeader("X-Forwarded-Proto") == "https" {
+		scheme = "https"
+	}
+	if host != "" {
+		assetURL = fmt.Sprintf("%s://%s/api/v1/studio/assets/%s", scheme, host, savedFilename)
+	}
+
+	asset := &model.StudioAsset{
+		Id:                 assetId,
+		UserId:             userId,
+		AssetType:          "input",
+		StorageURL:         assetURL,
+		FileSize:           int64(len(data)),
+		MIMEType:           mimeType,
+		AvailabilityStatus: "available",
+		CreatedAt:          common.GetTimestamp(),
+	}
+	if model.DB != nil {
+		_ = model.DB.Create(asset)
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"data": gin.H{
+			"asset_id":  assetId,
+			"url":       assetURL,
+			"file_name": header.Filename,
+			"mime_type": mimeType,
+			"file_size": len(data),
+		},
+	})
+}
+
+// ServeStudioAsset serves uploaded studio assets safely.
+func ServeStudioAsset(c *gin.Context) {
+	filename := c.Param("filename")
+	cleanFilename := filepath.Base(filename)
+	filePath := filepath.Join("./data/upload/studio", cleanFilename)
+
+	if _, err := os.Stat(filePath); os.IsNotExist(err) {
+		c.JSON(http.StatusNotFound, gin.H{"success": false, "message": "asset not found"})
+		return
+	}
+
+	c.File(filePath)
 }

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"strings"
 	"sync"
 	"time"
 
@@ -20,6 +21,9 @@ const (
 
 	// DefaultQuoteTTL defines the active lifespan of a pre-submission price quote (15 minutes).
 	DefaultQuoteTTL = 15 * time.Minute
+
+	// VideoQuoteTTL defines conservative lifespan for high-cost video price quotes (5 minutes).
+	VideoQuoteTTL = 5 * time.Minute
 
 	// MinGrossMarginFloor defines the strict platform gross margin floor (>= 60%).
 	MinGrossMarginFloor = 60.0
@@ -191,7 +195,9 @@ func (e *PricingEngine) CalculatePriceWithInputs(
 		scale = s
 	}
 
-	if resStr, ok := params["resolution"].(string); ok {
+	resStr := ""
+	if r, ok := params["resolution"].(string); ok {
+		resStr = strings.ToLower(strings.TrimSpace(r))
 		if resStr == "2k" || resStr == "720p" || resStr == "1080p" {
 			if scale > 2 && tool.Id == "image-upscale" {
 				scale = 2
@@ -218,8 +224,21 @@ func (e *PricingEngine) CalculatePriceWithInputs(
 
 	switch tool.Id {
 	case "image-to-video", "video-generate", "text-to-video":
-		// $0.016 / second ($0.080 for 5s standard)
-		costUSD = float64(duration) * 0.016
+		// Multi-output is strictly disallowed for video in initial release (single output)
+		numOutputs = 1
+
+		// $0.016 / second ($0.080 for 5s standard at 720p)
+		baseSecCost := 0.016
+		if strings.Contains(strings.ToLower(primaryModel), "kling") {
+			baseSecCost = 0.030
+		}
+		costUSD = float64(duration) * baseSecCost
+		if resStr == "1080p" {
+			costUSD *= 1.25 // 1080p requires 25% higher compute
+		}
+		if quality == "high" {
+			costUSD *= 1.20 // High quality setting requires 20% higher compute
+		}
 		if fps >= 60 {
 			costUSD *= 1.25 // 25% higher compute for high framerate
 		}
@@ -232,6 +251,15 @@ func (e *PricingEngine) CalculatePriceWithInputs(
 			chargedCredits = int(math.Ceil(float64(baseCredits) * (float64(duration) / 5.0)))
 		} else {
 			chargedCredits = baseCredits
+		}
+		if strings.Contains(strings.ToLower(primaryModel), "kling") {
+			chargedCredits = int(math.Ceil(float64(chargedCredits) * 1.85))
+		}
+		if resStr == "1080p" {
+			chargedCredits = int(math.Ceil(float64(chargedCredits) * 1.25))
+		}
+		if quality == "high" {
+			chargedCredits = int(math.Ceil(float64(chargedCredits) * 1.20))
 		}
 		if fps >= 60 {
 			chargedCredits = int(math.Ceil(float64(chargedCredits) * 1.25))
@@ -361,7 +389,12 @@ func (e *PricingEngine) CalculatePriceWithInputs(
 		ChargedQuota:            chargedQuota,
 		PlanMultiplier:          planMultiplier,
 		QuotedAt:                now,
-		ExpiresAt:               now + int64(DefaultQuoteTTL.Seconds()),
+		ExpiresAt: now + func() int64 {
+			if costBasis == "per_second" || tool.Category == "video" || tool.Id == "image-to-video" {
+				return int64(VideoQuoteTTL.Seconds())
+			}
+			return int64(DefaultQuoteTTL.Seconds())
+		}(),
 	}
 
 	return snapshot, nil
@@ -427,9 +460,23 @@ func (e *PricingEngine) SaveQuote(snapshot *model.StudioPricingSnapshot) string 
 
 	snapshot.QuoteID = quoteId
 
+	ttl := DefaultQuoteTTL
+	if snapshot.CostBasis == "per_second" || snapshot.ProviderCostBasis == "per_second" ||
+		strings.Contains(strings.ToLower(snapshot.ProviderModel), "wan") ||
+		strings.Contains(strings.ToLower(snapshot.ProviderModel), "video") ||
+		snapshot.ToolID == "image-to-video" {
+		ttl = VideoQuoteTTL
+	}
+	expiresTime := time.Now().Add(ttl)
+	if snapshot.ExpiresAt > 0 {
+		expiresTime = time.Unix(snapshot.ExpiresAt, 0)
+	} else {
+		snapshot.ExpiresAt = expiresTime.Unix()
+	}
+
 	e.quoteCache[quoteId] = quoteCacheEntry{
 		snapshot:  *snapshot,
-		expiresAt: time.Now().Add(DefaultQuoteTTL),
+		expiresAt: expiresTime,
 	}
 
 	return quoteId

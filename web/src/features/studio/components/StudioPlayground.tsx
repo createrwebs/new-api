@@ -112,6 +112,11 @@ export function StudioPlayground({
   const [showBeforeAfter, setShowBeforeAfter] = useState(false)
   const [generationCount, setGenerationCount] = useState(0)
 
+  // Video Foundation states (Queue 5)
+  const [videoResolution, setVideoResolution] = useState<'720p' | '1080p'>('720p')
+  const [videoQuality, setVideoQuality] = useState<'standard' | 'high'>('standard')
+  const [videoAudio, setVideoAudio] = useState(false)
+
   // Job execution state
   const [activeJob, setActiveJob] = useState<StudioJob | null>(null)
   const [isSubmitting, setIsSubmitting] = useState(false)
@@ -128,15 +133,23 @@ export function StudioPlayground({
   const [isPostPurchaseReturn, setIsPostPurchaseReturn] = useState(false)
   const [freshQuoteCredits, setFreshQuoteCredits] = useState<number | null>(null)
 
-  // Calculate user credits & dynamic pack quote (Queue 4)
+  // Calculate user credits & dynamic pack quote (Queue 4 & 5)
   const isProductPhoto = currentTool?.slug === 'product-photo' || currentTool?.id === 'product-photo'
+  const isVideoTool = currentTool?.category === 'video' || currentTool?.slug.includes('video') || currentTool?.id === 'image-to-video'
   const effectiveBaseCost = useMemo(() => {
     if (!currentTool) return 10
     if (isProductPhoto && packSize === 4) {
       return currentTool.credit_cost * 4
     }
+    if (isVideoTool) {
+      let cost = currentTool.credit_cost
+      if (videoResolution === '1080p') cost = Math.ceil(cost * 1.25)
+      if (videoQuality === 'high') cost = Math.ceil(cost * 1.20)
+      if (videoAudio) cost += 15
+      return cost
+    }
     return currentTool.credit_cost
-  }, [currentTool, isProductPhoto, packSize])
+  }, [currentTool, isProductPhoto, packSize, isVideoTool, videoResolution, videoQuality, videoAudio])
 
   const userCredits = Math.floor((auth.user?.quota || 0) / 1000)
   const requiredCredits = freshQuoteCredits || effectiveBaseCost
@@ -264,6 +277,15 @@ export function StudioPlayground({
       if (referenceImageUrl.trim()) params.reference_image_url = referenceImageUrl.trim()
     }
 
+    // Video Foundation parameters (Queue 5)
+    if (isVideoTool) {
+      params.duration = durationSec
+      params.duration_sec = durationSec
+      params.resolution = videoResolution
+      params.quality = videoQuality
+      params.audio = videoAudio
+    }
+
     return params
   }, [
     prompt,
@@ -277,6 +299,10 @@ export function StudioPlayground({
     packSize,
     autoRemoveBg,
     referenceImageUrl,
+    isVideoTool,
+    videoResolution,
+    videoQuality,
+    videoAudio,
   ])
 
   // Requote on parameter change (for pack_size, etc.) or post-purchase return
@@ -328,8 +354,8 @@ export function StudioPlayground({
     sessionStorage.setItem('tora_studio_purchase_origin', currentTool.id)
   }
 
-  // Handle image file upload to base64
-  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  // Handle media file upload through asset pipeline (Queue 5 Asset Pipeline)
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (!file) return
 
@@ -338,8 +364,35 @@ export function StudioPlayground({
       return
     }
 
-    if (file.size > 10 * 1024 * 1024) {
-      toast.error(t('ขนาดไฟล์ต้องไม่เกิน 10MB'))
+    if (file.size > 15 * 1024 * 1024) {
+      toast.error(t('ขนาดไฟล์ต้องไม่เกิน 15MB'))
+      return
+    }
+
+    // Attempt direct upload via /api/v1/studio/upload to avoid base64 JSON
+    try {
+      const formData = new FormData()
+      formData.append('file', file)
+      const token = localStorage.getItem('token') || ''
+      const res = await fetch('/api/v1/studio/upload', {
+        method: 'POST',
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+        body: formData,
+      })
+      if (res.ok) {
+        const json = await res.json()
+        if (json.success && json.data?.url) {
+          setImageUrl(json.data.url)
+          toast.success(t('อัปโหลดรูปภาพเข้าสู่ระบบ Asset สำเร็จ'))
+          return
+        }
+      }
+    } catch {
+      // Ignore and fallback if not video tool
+    }
+
+    if (isVideoTool) {
+      toast.error(t('การสร้างวิดีโอต้องใช้อ็อบเจกต์ URL จากการอัปโหลด กรุณาเข้าสู่ระบบก่อนอัปโหลดภาพ'))
       return
     }
 
@@ -939,31 +992,115 @@ export function StudioPlayground({
                 </div>
               )}
 
-              {/* Video Duration */}
+              {/* Video Controls (Queue 5: Conservative Controls) */}
               {isVideoTool && (
-                <div className='space-y-1.5'>
-                  <Label className='text-xs font-medium'>
-                    {t('ความยาววิดีโอ')}
-                  </Label>
-                  <div className='grid grid-cols-2 gap-2'>
-                    <Button
-                      type='button'
-                      size='sm'
-                      variant={durationSec === 5 ? 'default' : 'outline'}
-                      onClick={() => setDurationSec(5)}
-                      className='h-8 text-xs'
-                    >
-                      5 {t('วินาที (5s Reel)')}
-                    </Button>
-                    <Button
-                      type='button'
-                      size='sm'
-                      variant={durationSec === 10 ? 'default' : 'outline'}
-                      onClick={() => setDurationSec(10)}
-                      className='h-8 text-xs'
-                    >
-                      10 {t('วินาที (10s Clip)')}
-                    </Button>
+                <div className='space-y-3 rounded-lg border border-border/80 bg-muted/20 p-3'>
+                  {/* Duration (max 5s enforced) */}
+                  <div className='space-y-1.5'>
+                    <div className='flex items-center justify-between'>
+                      <Label className='text-xs font-medium'>
+                        {t('ความยาววิดีโอ (Duration)')}
+                      </Label>
+                      <span className='text-[10px] text-muted-foreground'>
+                        {t('สูงสุด 5 วินาที')}
+                      </span>
+                    </div>
+                    <div className='grid grid-cols-2 gap-2'>
+                      <Button
+                        type='button'
+                        size='sm'
+                        variant={durationSec === 3 ? 'default' : 'outline'}
+                        onClick={() => setDurationSec(3)}
+                        className='h-8 text-xs'
+                      >
+                        3 {t('วินาที (3s Quick)')}
+                      </Button>
+                      <Button
+                        type='button'
+                        size='sm'
+                        variant={durationSec === 5 ? 'default' : 'outline'}
+                        onClick={() => setDurationSec(5)}
+                        className='h-8 text-xs'
+                      >
+                        5 {t('วินาที (5s Standard Reel)')}
+                      </Button>
+                    </div>
+                  </div>
+
+                  {/* Resolution (Controlled: 720p vs 1080p) */}
+                  <div className='space-y-1.5'>
+                    <Label className='text-xs font-medium'>
+                      {t('ความละเอียด (Resolution)')}
+                    </Label>
+                    <div className='grid grid-cols-2 gap-2'>
+                      <Button
+                        type='button'
+                        size='sm'
+                        variant={videoResolution === '720p' ? 'default' : 'outline'}
+                        onClick={() => setVideoResolution('720p')}
+                        className='h-8 text-xs'
+                      >
+                        720p (HD มาตรฐาน)
+                      </Button>
+                      <Button
+                        type='button'
+                        size='sm'
+                        variant={videoResolution === '1080p' ? 'default' : 'outline'}
+                        onClick={() => setVideoResolution('1080p')}
+                        className='h-8 text-xs'
+                      >
+                        1080p (Full HD คมชัด)
+                      </Button>
+                    </div>
+                  </div>
+
+                  {/* Quality & Audio */}
+                  <div className='grid grid-cols-2 gap-2 pt-1'>
+                    <div className='space-y-1'>
+                      <Label className='text-[11px] font-medium'>
+                        {t('ระดับคุณภาพ')}
+                      </Label>
+                      <div className='flex gap-1'>
+                        <Button
+                          type='button'
+                          size='sm'
+                          variant={videoQuality === 'standard' ? 'default' : 'outline'}
+                          onClick={() => setVideoQuality('standard')}
+                          className='h-7 text-[11px] flex-1'
+                        >
+                          Standard
+                        </Button>
+                        <Button
+                          type='button'
+                          size='sm'
+                          variant={videoQuality === 'high' ? 'default' : 'outline'}
+                          onClick={() => setVideoQuality('high')}
+                          className='h-7 text-[11px] flex-1'
+                        >
+                          High
+                        </Button>
+                      </div>
+                    </div>
+                    <div className='space-y-1'>
+                      <Label className='text-[11px] font-medium'>
+                        {t('เสียงประกอบ (Audio)')}
+                      </Label>
+                      <Button
+                        type='button'
+                        size='sm'
+                        variant={videoAudio ? 'default' : 'outline'}
+                        onClick={() => setVideoAudio(!videoAudio)}
+                        className='h-7 text-[11px] w-full'
+                      >
+                        {videoAudio ? t('เปิดเสียง (+15 Cr)') : t('ปิดเสียง (Mute)')}
+                      </Button>
+                    </div>
+                  </div>
+
+                  {/* Guard Notice Callout */}
+                  <div className='rounded border border-blue-500/20 bg-blue-500/5 p-2 text-[10px] text-muted-foreground'>
+                    <p className='font-medium text-blue-400 mb-0.5'>ข้อกำหนดความปลอดภัยของระบบวิดีโอ</p>
+                    <p>ระบบควบคุมต้นทุนวิดีโอ: จำกัดสูงสุด 5 วินาที ความละเอียด 720p/1080p และรันได้ทีละ 1 งานต่อผู้ใช้เพื่อความเสถียร</p>
                   </div>
                 </div>
               )}

@@ -147,6 +147,7 @@ func (j *StudioToolJob) TableName() string {
 // StudioPricingSnapshot records complete commercial audit metadata for a studio job (Section 14).
 type StudioPricingSnapshot struct {
 	QuoteID                 string  `json:"quote_id,omitempty"`
+	ToolID                  string  `json:"tool_id,omitempty"`
 	PricingVersion          string  `json:"pricing_version"`
 	Provider                string  `json:"provider"`
 	ProviderRoute           string  `json:"provider_route,omitempty"`

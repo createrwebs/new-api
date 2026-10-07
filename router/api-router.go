@@ -374,6 +374,7 @@ func SetApiRouter(router *gin.Engine) {
 			studioPublicRoute.GET("/templates", controller.GetStudioTemplates)
 			studioPublicRoute.POST("/quote", controller.QuoteStudioJob)
 			studioPublicRoute.POST("/webhook/:provider", controller.StudioWebhook)
+			studioPublicRoute.GET("/assets/:filename", controller.ServeStudioAsset)
 		}
 
 		studioUserRoute := apiRouter.Group("/studio")
@@ -384,6 +385,7 @@ func SetApiRouter(router *gin.Engine) {
 			studioUserRoute.GET("/jobs", controller.ListStudioUserJobs)
 			studioUserRoute.POST("/jobs/:id/cancel", controller.CancelStudioJob)
 			studioUserRoute.POST("/attribution", controller.RecordStudioAttribution)
+			studioUserRoute.POST("/upload", controller.UploadStudioAsset)
 		}
 
 		studioAdminRoute := apiRouter.Group("/admin/studio")

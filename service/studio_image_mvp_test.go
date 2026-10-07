@@ -59,9 +59,8 @@ func TestQueue3_InitialPublicTools_ReadinessAndEconomics(t *testing.T) {
 	require.NoError(t, err, "object-eraser alias must resolve successfully")
 	assert.Equal(t, "object-erase", eraserDef.Id)
 
-	// 4. Video tools must be FROZEN (ComingSoon / not public)
+	// 4. Other video tools must remain FROZEN (ComingSoon / not public)
 	videoTools := []string{
-		"image-to-video",
 		"text-to-video",
 		"lip-sync",
 		"talking-avatar",
@@ -72,7 +71,7 @@ func TestQueue3_InitialPublicTools_ReadinessAndEconomics(t *testing.T) {
 		var tool model.StudioToolDefinition
 		err := db.Where("id = ?", vToolId).First(&tool).Error
 		require.NoError(t, err)
-		assert.NotEqual(t, model.StudioToolStateActive, tool.Status, "Video tool %s must NOT be active in Image MVP", vToolId)
+		assert.NotEqual(t, model.StudioToolStateActive, tool.Status, "Video tool %s must NOT be active", vToolId)
 		assert.False(t, tool.IsPublic, "Video tool %s must not be public", vToolId)
 	}
 }
