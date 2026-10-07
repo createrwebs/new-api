@@ -1,0 +1,16 @@
+docs/ai/TORA_STUDIO_QUEUE_2C_REAL_FAL_REPORT.md
+  h_f97827f62b0fea 4,7-9,12,18,20-23,25-42,46,50-54,56-60,64,66-78,80-84,86-97,99,103-122,124-128,132-134,136-145,149,151
+service/studio_fal.go
+  h_f97827f62b0fea 165-167
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.3",
+  "base_commit_sha": "e836acd866d5e8672b6cbd9be5e7d48dea73f4c6",
+  "prompts": {},
+  "humans": {
+    "h_f97827f62b0fea": {
+      "author": "NOPPANAN THEERACHARTE <noppanan.the@axonstech.com>"
+    }
+  }
+}
