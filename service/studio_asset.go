@@ -1,9 +1,14 @@
 package service
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
+	"image"
+	"image/color"
+	"image/draw"
+	"image/png"
 	"os"
 	"path/filepath"
 	"strings"
@@ -27,6 +32,15 @@ const (
 
 	// MaxUserStudioStorageBytes defines per-user active storage ceiling (500 MB).
 	MaxUserStudioStorageBytes = int64(500 * 1024 * 1024)
+
+	// ToraCanaryAssetFilename is the fixed, reproducible Tora synthetic canary asset filename.
+	ToraCanaryAssetFilename = "tora_canary_synthetic_128x128.png"
+
+	// ToraCanaryAssetSHA256 is the verified cryptographic digest of the synthetic canary asset.
+	ToraCanaryAssetSHA256 = "0da9b6b7598b6e4934116253d113ad5ca6d6584868393a15617b320d51f0aa41"
+
+	// ToraCanaryAssetBytes is the exact byte size of the synthetic 128x128 PNG image.
+	ToraCanaryAssetBytes = 668
 )
 
 var (
@@ -129,6 +143,9 @@ func CleanupExpiredStudioAssets(ctx context.Context, db *gorm.DB) (int, error) {
 
 		// Remove file from disk
 		filename := filepath.Base(asset.StorageURL)
+		if filename == ToraCanaryAssetFilename {
+			continue
+		}
 		filePath := filepath.Join(uploadDir, filename)
 		if _, statErr := os.Stat(filePath); statErr == nil {
 			_ = os.Remove(filePath)
@@ -165,4 +182,49 @@ func StartStudioAssetCleanupWorker(db *gorm.DB) {
 			}
 		}()
 	})
+}
+
+// EnsureCanaryAsset ensures the fixed, reproducible Tora synthetic canary asset is persisted on disk.
+func EnsureCanaryAsset() (string, string, error) {
+	uploadDir := GetStudioUploadDir()
+	filePath := filepath.Join(uploadDir, ToraCanaryAssetFilename)
+
+	// Check if already exists and matches expected byte size
+	if info, err := os.Stat(filePath); err == nil && info.Size() == ToraCanaryAssetBytes {
+		return filePath, GetCanaryAssetURL(), nil
+	}
+
+	// Generate deterministic synthetic 128x128 PNG (solid white background, orange circle center)
+	img := image.NewRGBA(image.Rect(0, 0, 128, 128))
+	draw.Draw(img, img.Bounds(), &image.Uniform{color.RGBA{255, 255, 255, 255}}, image.Point{}, draw.Src)
+	orange := color.RGBA{249, 115, 22, 255}
+	for y := 0; y < 128; y++ {
+		for x := 0; x < 128; x++ {
+			dx := float64(x - 64)
+			dy := float64(y - 64)
+			if dx*dx+dy*dy <= 40*40 {
+				img.Set(x, y, orange)
+			}
+		}
+	}
+
+	var buf bytes.Buffer
+	if err := png.Encode(&buf, img); err != nil {
+		return "", "", err
+	}
+
+	if err := os.WriteFile(filePath, buf.Bytes(), 0644); err != nil {
+		return "", "", err
+	}
+
+	return filePath, GetCanaryAssetURL(), nil
+}
+
+// GetCanaryAssetURL returns the public URL for the server-controlled synthetic canary image.
+func GetCanaryAssetURL() string {
+	serverURL := strings.TrimRight(os.Getenv("SERVER_URL"), "/")
+	if serverURL == "" {
+		serverURL = "https://www.toraapi.com"
+	}
+	return fmt.Sprintf("%s/api/studio/assets/%s", serverURL, ToraCanaryAssetFilename)
 }

@@ -68,6 +68,37 @@ func (f *FalProvider) ValidateConfiguration() error {
 	return nil
 }
 
+// ProbeConnection performs a non-billable validation request to test fal.ai credentials (Section 11).
+func (f *FalProvider) ProbeConnection(ctx context.Context) (string, error) {
+	if f.apiKey == "" {
+		return "FAL_NOT_CONFIGURED", ErrFalUnconfigured
+	}
+
+	// Probe https://api.fal.ai/v1/models (lightweight non-billable metadata endpoint)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://api.fal.ai/v1/models", nil)
+	if err != nil {
+		return "FAL_ERROR", err
+	}
+	req.Header.Set("Authorization", fmt.Sprintf("Key %s", f.apiKey))
+	req.Header.Set("Accept", "application/json")
+
+	resp, err := f.client.Do(req)
+	if err != nil {
+		return "FAL_ERROR", err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
+		return "FAL_ERROR", ErrFalUnconfigured
+	}
+
+	if resp.StatusCode == http.StatusOK || resp.StatusCode == http.StatusNotFound {
+		return "FAL_CONNECTED", nil
+	}
+
+	return "FAL_CONFIGURED_NOT_VERIFIED", nil
+}
+
 // EstimateCost returns the expected provider COGS in USD for a given tool or model.
 func (f *FalProvider) EstimateCost(modelEndpoint string) float64 {
 	if cost, ok := f.costLedger[modelEndpoint]; ok {

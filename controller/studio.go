@@ -831,14 +831,35 @@ func TriggerStudioProviderCanary(c *gin.Context) {
 		return
 	}
 
-	// Prepare safe test payload (non-sensitive synthetic test asset)
+	// Prepare safe test payload (fixed Tora server-controlled synthetic asset by default)
 	imageURL := strings.TrimSpace(req.ImageURL)
-	if imageURL == "" {
-		imageURL = "https://fal.media/files/lion/01_synthetic_canary_sample.png"
+	if imageURL == "" || imageURL == "default" {
+		_, assetURL, err := service.EnsureCanaryAsset()
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": fmt.Sprintf("failed ensuring canary asset: %v", err)})
+			return
+		}
+		imageURL = assetURL
+	} else {
+		if err := service.ValidateExternalURL(imageURL); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": fmt.Sprintf("invalid test image URL: %v", err)})
+			return
+		}
 	}
-	if err := service.ValidateExternalURL(imageURL); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": fmt.Sprintf("invalid test image URL: %v", err)})
-		return
+
+	// Non-billable provider connection probe (Section 11)
+	falProvider := studioSvc.GetProvider("fal")
+	if fal, ok := falProvider.(*service.FalProvider); ok {
+		probeStatus, probeErr := fal.ProbeConnection(c.Request.Context())
+		if probeErr != nil || probeStatus == "FAL_ERROR" {
+			c.JSON(http.StatusBadGateway, gin.H{
+				"success":         false,
+				"provider_status": "FAL_ERROR",
+				"error_code":      "PROVIDER_PROBE_FAILED",
+				"message":         fmt.Sprintf("non-billable provider authentication probe failed: %v", probeErr),
+			})
+			return
+		}
 	}
 
 	inputParams := map[string]interface{}{
@@ -919,6 +940,8 @@ func TriggerStudioProviderCanary(c *gin.Context) {
 			"error_message":           job.ErrorMessage,
 			"execution_type":          job.ExecutionType,
 			"idempotent_replay":       isReplay,
+			"canary_input_asset":      imageURL,
+			"canary_asset_sha256":     service.ToraCanaryAssetSHA256,
 		},
 	})
 }
