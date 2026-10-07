@@ -271,6 +271,7 @@ func EnsureStudioTables(db *gorm.DB) error {
 		&StudioAsset{},
 		&StudioCostSnapshot{},
 		&StudioConversionEvent{},
+		&StudioWorkflowPlan{},
 	)
 }
 
@@ -301,6 +302,26 @@ func GetStudioToolDefinition(toolIdOrSlug string) (*StudioToolDefinition, error)
 	}
 	var def StudioToolDefinition
 	err := DB.Where("(id = ? OR slug = ? OR id = ? OR slug = ?) AND is_enabled = true", toolIdOrSlug, toolIdOrSlug, lookup, lookup).First(&def).Error
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, ErrStudioToolNotFound
+		}
+		return nil, err
+	}
+	return &def, nil
+}
+
+// GetStudioToolDefinitionAnyStatus looks up a tool definition regardless of enabled status (e.g. for workflow quoting or admin).
+func GetStudioToolDefinitionAnyStatus(toolIdOrSlug string) (*StudioToolDefinition, error) {
+	if DB == nil {
+		return nil, errors.New("database not initialized")
+	}
+	lookup := toolIdOrSlug
+	if lookup == "object-eraser" {
+		lookup = "object-erase"
+	}
+	var def StudioToolDefinition
+	err := DB.Where("(id = ? OR slug = ? OR id = ? OR slug = ?)", toolIdOrSlug, toolIdOrSlug, lookup, lookup).First(&def).Error
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, ErrStudioToolNotFound

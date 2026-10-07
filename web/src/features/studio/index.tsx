@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query'
-import { History, LayoutGrid, Sparkles, Wand2 } from 'lucide-react'
+import { Bot, History, LayoutGrid, Sparkles, Wand2 } from 'lucide-react'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
@@ -8,6 +8,7 @@ import { Spinner } from '@/components/ui/spinner'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 
 import { getStudioTemplates, getStudioTools } from './api'
+import { CreatorAssistant } from './components/CreatorAssistant'
 import { StudioCatalog } from './components/StudioCatalog'
 import { StudioHistory } from './components/StudioHistory'
 import { StudioPlayground } from './components/StudioPlayground'
@@ -15,15 +16,15 @@ import type { StudioJob, StudioTemplate } from './types'
 
 interface StudioProps {
   initialTool?: string
-  initialTab?: 'catalog' | 'playground' | 'history'
+  initialTab?: 'assistant' | 'catalog' | 'playground' | 'history'
 }
 
 export function Studio({
   initialTool = 'image-generate',
-  initialTab = 'catalog',
+  initialTab = 'assistant',
 }: StudioProps) {
   const { t } = useTranslation()
-  const [activeTab, setActiveTab] = useState<'catalog' | 'playground' | 'history'>(
+  const [activeTab, setActiveTab] = useState<'assistant' | 'catalog' | 'playground' | 'history'>(
     initialTab
   )
   const [selectedToolSlug, setSelectedToolSlug] = useState<string>(initialTool)
@@ -96,10 +97,14 @@ export function Studio({
           <Tabs
             value={activeTab}
             onValueChange={(val) =>
-              setActiveTab(val as 'catalog' | 'playground' | 'history')
+              setActiveTab(val as 'assistant' | 'catalog' | 'playground' | 'history')
             }
           >
             <TabsList className='h-9 bg-muted/60 p-1'>
+              <TabsTrigger value='assistant' className='h-7 text-xs font-medium'>
+                <Bot className='mr-1.5 size-3.5 text-primary' />
+                {t('ผู้ช่วย AI (Assistant)')}
+              </TabsTrigger>
               <TabsTrigger value='catalog' className='h-7 text-xs font-medium'>
                 <LayoutGrid className='mr-1.5 size-3.5' />
                 {t('คลังเครื่องมือ (Catalog)')}
@@ -115,6 +120,9 @@ export function Studio({
             </TabsList>
           </Tabs>
         </div>
+
+        {/* Tab 0: Creator Assistant */}
+        {activeTab === 'assistant' && <CreatorAssistant />}
 
         {/* Tab 1: Catalog */}
         {activeTab === 'catalog' && (

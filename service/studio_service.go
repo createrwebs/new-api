@@ -21,8 +21,10 @@ var (
 
 // StudioService orchestrates job submission, quota reservation, provider execution, and atomic settlement.
 type StudioService struct {
-	providers     map[string]StudioProvider
-	pricingEngine *PricingEngine
+	providers       map[string]StudioProvider
+	pricingEngine   *PricingEngine
+	assistantEngine *StudioAssistantEngine
+	router          *StudioRouter
 }
 
 func NewStudioService(providers ...StudioProvider) *StudioService {
@@ -30,10 +32,13 @@ func NewStudioService(providers ...StudioProvider) *StudioService {
 	for _, p := range providers {
 		pMap[p.Name()] = p
 	}
-	return &StudioService{
+	svc := &StudioService{
 		providers:     pMap,
 		pricingEngine: NewPricingEngine(),
 	}
+	svc.assistantEngine = NewStudioAssistantEngine(svc)
+	svc.router = NewStudioRouter(svc.providers)
+	return svc
 }
 
 func (s *StudioService) RegisterProvider(provider StudioProvider) {
@@ -41,6 +46,7 @@ func (s *StudioService) RegisterProvider(provider StudioProvider) {
 		s.providers = make(map[string]StudioProvider)
 	}
 	s.providers[provider.Name()] = provider
+	s.router = NewStudioRouter(s.providers)
 }
 
 func (s *StudioService) GetProvider(name string) StudioProvider {
@@ -55,6 +61,20 @@ func (s *StudioService) GetPricingEngine() *PricingEngine {
 		s.pricingEngine = NewPricingEngine()
 	}
 	return s.pricingEngine
+}
+
+func (s *StudioService) GetAssistantEngine() *StudioAssistantEngine {
+	if s.assistantEngine == nil {
+		s.assistantEngine = NewStudioAssistantEngine(s)
+	}
+	return s.assistantEngine
+}
+
+func (s *StudioService) GetRouter() *StudioRouter {
+	if s.router == nil {
+		s.router = NewStudioRouter(s.providers)
+	}
+	return s.router
 }
 
 // recordEvent persists an audit event for state transitions.
@@ -99,10 +119,21 @@ func (s *StudioService) SubmitJob(
 		return existingJob, nil
 	}
 
-	// 2. Lookup Tool Definition to determine quota price (Section 7)
+	// 2. User Role & Admin check
+	userIsAdmin := false
+	if len(isAdmin) > 0 {
+		userIsAdmin = isAdmin[0]
+	}
+
+	// 3. Lookup Tool Definition to determine quota price (Section 7)
 	toolDef, err := model.GetStudioToolDefinition(toolId)
 	if err != nil {
-		return nil, fmt.Errorf("invalid tool requested: %w", err)
+		if userIsAdmin {
+			toolDef, err = model.GetStudioToolDefinitionAnyStatus(toolId)
+		}
+		if err != nil {
+			return nil, fmt.Errorf("invalid tool requested: %w", err)
+		}
 	}
 
 	// Multi-reference validation (Queue 4: Product Studio)
@@ -123,12 +154,6 @@ func (s *StudioService) SubmitJob(
 				return nil, fmt.Errorf("invalid reference background URL: %w", err)
 			}
 		}
-	}
-
-	// 3. User Role & Admin check
-	userIsAdmin := false
-	if len(isAdmin) > 0 {
-		userIsAdmin = isAdmin[0]
 	}
 
 	isVideoJob := toolDef.Category == "video" || toolId == "image-to-video"
@@ -231,8 +256,17 @@ func (s *StudioService) SubmitJob(
 	}
 
 	// 4. Select Provider & guard mock usage in production
-	if providerName == "" {
-		providerName = toolDef.PrimaryProvider
+	var fallbackProviders []string
+	if providerName == "" || providerName == "auto" {
+		tier := QualityTierQuality
+		if t, ok := inputParams["quality_tier"].(string); ok && t != "" {
+			tier = QualityTier(strings.ToUpper(t))
+		}
+		var routeErr error
+		providerName, fallbackProviders, routeErr = s.GetRouter().SelectProvider(toolId, tier, inputParams)
+		if routeErr != nil || providerName == "" {
+			providerName = toolDef.PrimaryProvider
+		}
 	}
 	if providerName == "" {
 		providerName = "mock"
@@ -321,9 +355,12 @@ func (s *StudioService) SubmitJob(
 		s.recordEvent(model.DB, jobId, "WALLET_RESERVED", model.StudioJobStatusCreated, model.StudioJobStatusReserved, "")
 	}
 
-	// 8. Dispatch to External Provider (transition to SUBMITTING)
+	// 8. Dispatch to External Provider (transition to SUBMITTING) with safe fallback
 	job.Status = model.StudioJobStatusSubmitting
-	submitResult, err := provider.Submit(ctx, job)
+	submitResult, chosenProvider, err := s.GetRouter().ExecuteWithSafeFallback(ctx, job, providerName, fallbackProviders)
+	if chosenProvider != "" && chosenProvider != job.ProviderName {
+		job.ProviderName = chosenProvider
+	}
 	if err != nil {
 		if errors.Is(err, ErrProviderAmbiguous) {
 			// Section 15: Ambiguous timeout: do NOT refund yet, mark AMBIGUOUS_SUBMISSION

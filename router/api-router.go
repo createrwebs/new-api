@@ -386,6 +386,13 @@ func SetApiRouter(router *gin.Engine) {
 			studioUserRoute.POST("/jobs/:id/cancel", controller.CancelStudioJob)
 			studioUserRoute.POST("/attribution", controller.RecordStudioAttribution)
 			studioUserRoute.POST("/upload", controller.UploadStudioAsset)
+
+			// Creator Assistant & ToolPlan routes (Queue 6)
+			studioUserRoute.POST("/assistant/plan", controller.CreateAssistantPlan)
+			studioUserRoute.GET("/assistant/plan/:id", controller.GetAssistantPlan)
+			studioUserRoute.POST("/assistant/plan/:id/confirm", controller.ConfirmAssistantPlan)
+			studioUserRoute.POST("/assistant/plan/:id/retry", controller.RetryAssistantPlanStep)
+			studioUserRoute.POST("/assistant/plan/:id/requote", controller.RequoteAssistantPlan)
 		}
 
 		studioAdminRoute := apiRouter.Group("/admin/studio")
