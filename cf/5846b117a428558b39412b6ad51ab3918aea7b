@@ -1,0 +1,26 @@
+controller/studio.go
+  h_f97827f62b0fea 4,550-553,555-558,636-638,683-925
+controller/studio_test.go
+  h_f97827f62b0fea 213-324
+docker-compose.yml
+  h_f97827f62b0fea 39-41
+docs/ai/TORA_STUDIO_FINAL_ACCEPTANCE_REPORT.md
+  h_f97827f62b0fea 1,5,7,17,19-20,22-23,28-33,40-42,58,66,68-69,98,104,108-154,158-176,179-186,190,192,194-200,202-222,224-228,232,236,255,257,259-266,270,274
+model/studio.go
+  h_f97827f62b0fea 138
+router/api-router.go
+  h_f97827f62b0fea 402
+service/studio_service.go
+  h_f97827f62b0fea 328-335,351
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.3",
+  "base_commit_sha": "cf5846b117a428558b39412b6ad51ab3918aea7b",
+  "prompts": {},
+  "humans": {
+    "h_f97827f62b0fea": {
+      "author": "NOPPANAN THEERACHARTE <noppanan.the@axonstech.com>"
+    }
+  }
+}
