@@ -1,0 +1,19 @@
+docs/ai/TORA_STUDIO_PROVIDER_MATRIX.md
+  s_8b4544554b557a::t_9c1190e1cdf3f6 2,5,7,13,15-19,23-45,49-65,69,71-80,84,90-96
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.3",
+  "base_commit_sha": "967a8c2698361ce1647a5b20b4abee8056015f71",
+  "prompts": {},
+  "sessions": {
+    "s_8b4544554b557a": {
+      "agent_id": {
+        "tool": "cline",
+        "id": "conv_1791362568588_5ojyv4f",
+        "model": "unknown"
+      },
+      "human_author": "NOPPANAN THEERACHARTE <noppanan.the@axonstech.com>"
+    }
+  }
+}
