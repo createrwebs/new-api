@@ -1,0 +1,14 @@
+docker-compose.yml
+  h_f97827f62b0fea 42-43
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.3",
+  "base_commit_sha": "dfc787e830d970fd962cf2d27a4bd23e1a7645ec",
+  "prompts": {},
+  "humans": {
+    "h_f97827f62b0fea": {
+      "author": "NOPPANAN THEERACHARTE <noppanan.the@axonstech.com>"
+    }
+  }
+}
