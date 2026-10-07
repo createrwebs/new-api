@@ -1,0 +1,40 @@
+controller/studio.go
+  h_f97827f62b0fea 1652,1657,1664-1668,1677,1700,1709,1731,1738-1742
+docs/ai/TORA_CREDIT_CANONICAL_CONVERSION.md
+  h_f97827f62b0fea 1-139
+docs/ai/TORA_STUDIO_KIE_INTEGRATION.md
+  h_f97827f62b0fea 2,7-8,41,138,140,142-147,159-161,164-166
+docs/ai/TORA_STUDIO_PROVIDER_MATRIX.md
+  h_f97827f62b0fea 3,7-12,20-22,30,32-40,42-45,51,53-66,75,79,81,83-87,95,99,110
+docs/ai/TORA_STUDIO_QUEUE_2F_REPORT.md
+  h_f97827f62b0fea 15-17
+docs/ai/TORA_STUDIO_QUEUE_2G_REPORT.md
+  h_f97827f62b0fea 1-158
+docs/ai/TORA_STUDIO_ROUTE_ECONOMICS.md
+  h_f97827f62b0fea 2,4-5,7-8,12,14,16-20,22-25,29-68,72,74-75,78-83,88-89,92-95,103,105-111
+docs/ai/TORA_STUDIO_WAVESPEED_INTEGRATION.md
+  h_f97827f62b0fea 5,7-8,12,21-25,51,53,68-71,77,89-91,97,112-114,116-122,130-131
+model/studio_relay.go
+  h_f97827f62b0fea 27-46,76,85-88
+service/studio_canonical_billing_test.go
+  h_f97827f62b0fea 1-271
+service/studio_generic_relay_test.go
+  h_f97827f62b0fea 49-51,544
+service/studio_pricing.go
+  h_f97827f62b0fea 511-517
+service/studio_router.go
+  h_f97827f62b0fea 12,117-150,216,218
+service/studio_seed.go
+  h_f97827f62b0fea 613,623,626-631,644,647-652,665,670-673,682,686,688,691-696,709,712-717,730,735-738,753,756-761,774,779-782,795,798-803,816,819-824,837,842-845,860,863-868,881,884-889
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.3",
+  "base_commit_sha": "8f6c5bb5811d71105124f4a0f2fd971aad3a553a",
+  "prompts": {},
+  "humans": {
+    "h_f97827f62b0fea": {
+      "author": "NOPPANAN THEERACHARTE <noppanan.the@axonstech.com>"
+    }
+  }
+}
