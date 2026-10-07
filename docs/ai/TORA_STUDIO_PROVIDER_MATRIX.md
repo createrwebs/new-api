@@ -1,129 +1,97 @@
 # TORA AI STUDIO — API PROVIDER MATRIX
-## MULTI-PROVIDER EVALUATION: FAL.AI vs MuAPI vs REPLICATE
+## MULTI-PROVIDER EVALUATION: WaveSpeedAI vs KIE.ai vs FAL.AI vs REPLICATE vs RUNWARE
 
 > **Target Platform**: Tora Studio Media AI Suite  
-> **Architecture**: Provider-Agnostic Media Gateway (Zero GPU on current EC2)  
+> **Architecture**: Generic Media Relay Core (Zero GPU on current EC2)  
 > **Key Integration Rule**: Never hard-code API keys in documentation or code. Use environment variables and provider key vault.  
-> **Last Verified**: 2026-10-07 against official fal.ai documentation.
+> **Last Updated**: 2026-10-07 (Queue 2F Generic Relay Core Integration)
 
 ---
 
 ### 1. Provider Comparison Overview
 
-| Provider | Base URL | Auth Header Format | Request Model | Webhook Support | Cost Tracking | Key Strengths |
+| Provider | Base URL | Auth Header Format | Request Model / Protocol | Webhook Support | Dynamic Quoting | Key Strengths / Role |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
-| **fal.ai** | `https://queue.fal.run` | `Authorization: Key <KEY>` | Async Queue (`/{model_id}/requests/{id}/status`) + SSE | Native (`?fal_webhook=<url>`) | Per-second / per-request ledger | Lowest latency, cutting-edge Flux/BiRefNet/Wan endpoints, high throughput |
-| **MuAPI** | `https://api.muapi.ai` | `x-api-key: <KEY>` | Submit-then-Poll (`/api/v1/predictions/{id}`) | Webhook & Polling | `X-MuAPI-Cost-USD` Header | Aggregates Midjourney V7, Kling, Suno, Wan 2.1/2.2 under unified API |
-| **Replicate** | `https://api.replicate.com` | `Authorization: Bearer <TOKEN>` | Submit-then-Poll (`/v1/predictions/{id}`) | Native (`webhook` field) | Exact per-second billing | Vast model library, battle-tested production SLA, open-source models |
+| **WaveSpeedAI** | `https://api.wavespeed.ai` | `Authorization: Bearer <KEY>` | `WAVESPEED_V3` (`/api/v3/media/*`) | Webhook & Polling | `/api/v3/model/price` endpoint | Lowest COGS, dynamic discounted pricing, Flux Schnell/Dev, BiRefNet |
+| **KIE.ai** | `https://api.kie.ai` | `Authorization: Bearer <KEY>` | `KIE_JOBS_V1` (`/api/v1/jobs/*`) | Webhook (`callBackUrl`) & Polling | Catalog flat rate | High reliability, clean task IDs, Ideogram V2, rembg, upscale |
+| **fal.ai** | `https://queue.fal.run` | `Authorization: Key <KEY>` | `FAL_QUEUE_V1` (`/{model_id}`) | Native (`?fal_webhook=`) & SSE | Pre-quoted model rates | Industry standard, low latency, currently BILLING_BLOCKED |
+| **Replicate** | `https://api.replicate.com` | `Authorization: Bearer <TOKEN>` | `REPLICATE_PREDICTIONS_V1` | Native (`webhook` field) & Polling | Fixed runtime rates | Vast open-source library, secondary fallback |
+| **Runware** | `https://api.runware.ai` | `Authorization: Bearer <KEY>` | WebSocket Multiplexed / REST | Native stream | Flat per-image rates | Ultra-fast FLUX inference; future evaluation |
 
 ---
 
-### 2. Official fal.ai Queue API Protocol Verification (2026-10-07)
+### 2. WaveSpeedAI Protocol Specification (`WAVESPEED_V3`)
 
-Official verification against `fal.ai` queue specification confirms the following authoritative REST contract:
-
-#### A. Authentication
-- **Header:** `Authorization: Key ${FAL_KEY}`
-- **Security:** Keys must have format `<UUID>:<secret>`. Missing key triggers HTTP 401/403.
-
-#### B. Queue Endpoints & URL Structure
-The queue API strictly routes by `model_id`. Calling request paths without `model_id` triggers HTTP 404:
-1. **Submit Request:**
-   - `POST https://queue.fal.run/{model_id}` (e.g. `https://queue.fal.run/fal-ai/birefnet`)
-   - Optional webhook query parameter: `?fal_webhook=https://www.toraapi.com/api/studio/webhook/fal`
-   - Response (`200 OK`):
-     ```json
-     {
-       "request_id": "89b53805-4c07-4e61-9f93-e4d0d3b66c4d",
-       "response_url": "https://queue.fal.run/fal-ai/birefnet/requests/89b53805-4c07-4e61-9f93-e4d0d3b66c4d",
-       "status_url": "https://queue.fal.run/fal-ai/birefnet/requests/89b53805-4c07-4e61-9f93-e4d0d3b66c4d/status",
-       "cancel_url": "https://queue.fal.run/fal-ai/birefnet/requests/89b53805-4c07-4e61-9f93-e4d0d3b66c4d/cancel"
-     }
-     ```
-2. **Status Check (Polling):**
-   - `GET https://queue.fal.run/{model_id}/requests/{request_id}/status`
-   - Lifecycle States: `IN_QUEUE`, `IN_PROGRESS`, `COMPLETED`
-3. **Fetch Result:**
-   - `GET https://queue.fal.run/{model_id}/requests/{request_id}`
-   - Result Shape:
-     ```json
-     {
-       "image": {
-         "url": "https://fal.media/files/lion/transparent.png",
-         "content_type": "image/png"
-       }
-     }
-     ```
-4. **Cancel Request:**
-   - `DELETE https://queue.fal.run/{model_id}/requests/{request_id}/cancel`
-   - Status: `202 Accepted` (best-effort cancellation before execution)
-5. **Webhook Callback:**
-   - Sent as HTTP `POST` to configured `fal_webhook`
-   - Signed with `X-Fal-Webhook-Signature` (Ed25519)
-   - Payload:
-     ```json
-     {
-       "request_id": "89b53805-4c07-4e61-9f93-e4d0d3b66c4d",
-       "status": "OK",
-       "payload": {
-         "image": {
-           "url": "https://fal.media/files/lion/transparent.png"
-         }
-       }
-     }
-     ```
+- **Authentication**: `Authorization: Bearer ${WAVESPEED_API_KEY}`
+- **Dynamic Pricing Endpoint**: `POST /api/v3/model/price`
+  - Query contains `model_id` and parameters (e.g. resolution, steps).
+  - Returns `base_price` and `discounted_price`.
+  - Tora caches quotes for 5 minutes (`MediaPriceCache`) and bases retail margin strictly on `discounted_price`.
+- **Submit Task**: `POST /api/v3/media/tasks`
+  - Body contains normalized parameters and `webhook_url`.
+  - Returns `{"task_id": "ws_..."}`.
+- **Polling & Webhook**: `GET /api/v3/media/tasks/{id}`, `POST /api/studio/webhook/wavespeed`.
 
 ---
 
-### 3. Comprehensive 15-Tool Provider Routing Matrix
+### 3. KIE.ai Protocol Specification (`KIE_JOBS_V1`)
 
-| # | Logical Studio Tool | Primary Candidate | Fallback Candidate | Provider Cost Est. (USD) | Execution Latency | Primary Endpoint / Model ID | Webhook? | Safety / Consent Requirements |
-| :-: | :--- | :--- | :--- | :--- | :--- | :--- | :---: | :--- |
-| 1 | **Background Remove** | **fal.ai** | **Replicate** | $0.005 / image | ~1.5s | `fal-ai/birefnet` | Yes | None |
-| 2 | **Image Upscale (4K)** | **fal.ai** | **Replicate** | $0.015 / image | ~4.0s | `fal-ai/clarity-upscaler` | Yes | None |
-| 3 | **Image Generate (Fast)** | **fal.ai** | **Replicate** | $0.003 / image | ~1.2s | `fal-ai/flux/schnell` | Yes | Standard NSFW filter |
-| 4 | **Image Generate (Pro)** | **fal.ai** | **MuAPI** | $0.025 / image | ~6.5s | `fal-ai/flux/dev` | Yes | Standard NSFW filter |
-| 5 | **Object Erase / Inpaint**| **fal.ai** | **Replicate** | $0.020 / image | ~5.0s | `fal-ai/flux/dev/inpainting` | Yes | Standard content safety |
-| 6 | **Image Extend (Outpaint)**| **fal.ai** | **Replicate** | $0.025 / image | ~6.0s | `fal-ai/flux-fill` | Yes | Standard content safety |
-| 7 | **Product Photo Studio** | **fal.ai** | **MuAPI** | $0.035 / image | ~8.0s | `fal-ai/product-photography` | Yes | Commercial asset rights |
-| 8 | **Portrait Enhancement** | **fal.ai** | **Replicate** | $0.010 / image | ~3.0s | `fal-ai/face-restore` | Yes | Facial data privacy |
-| 9 | **Style Transfer** | **fal.ai** | **Replicate** | $0.025 / image | ~7.0s | `fal-ai/flux-lora` | Yes | Intellectual property checks |
-| 10 | **Text-to-Video (Fast)** | **fal.ai** | **MuAPI** | $0.030 / 5s clip | ~12.0s | `fal-ai/ltx-video` | Yes | Motion safety, deepfake check |
-| 11 | **Text-to-Video (HD)** | **MuAPI** | **fal.ai** | $0.080 / 5s clip | ~35.0s | `wan-video/wan-2.2-t2v` | Yes | Rigorous copyright verification |
-| 12 | **Image-to-Video (Pro)** | **MuAPI** | **fal.ai** | $0.120 / 5s clip | ~45.0s | `kling-v1-standard` / `wan-2.2-i2v` | Yes | Image copyright & likeness gate |
-| 13 | **Lip Sync Video** | **fal.ai** | **MuAPI** | $0.050 / 10s audio| ~15.0s | `fal-ai/sync-lips` / `musetalk` | Yes | **Mandatory Voice/Likeness Consent** |
-| 14 | **Face Swap (Pro)** | **MuAPI** | **fal.ai** | $0.040 / image | ~5.0s | `face-fusion-cloud` | Yes | **Strict Biometric Consent Gate** |
-| 15 | **Video Upscale (HD)** | **fal.ai** | **Replicate** | $0.100 / 10s clip| ~30.0s | `fal-ai/video-upscaler` | Yes | None |
+- **Authentication**: `Authorization: Bearer ${KIE_API_KEY}`
+- **Submit Task**: `POST /api/v1/jobs/createTask`
+  - Body contains `model`, `callBackUrl`, and `params`.
+  - Returns `{"code": 200, "data": {"taskId": "kie_..."}}`.
+- **Status & Polling**: `GET /api/v1/jobs/recordInfo?taskId={id}`
+  - Returns state (`waiting`, `running`, `success`, `fail`), `result.images`, and cost.
+- **Webhook Endpoint**: `POST /api/studio/webhook/kie`
 
 ---
 
-### 4. Canary Tool Selection & Operational Policy
+### 4. fal.ai Queue Protocol Specification (`FAL_QUEUE_V1`)
 
-For the Queue 2 live provider canary:
-- **Primary Canary Tool:** `background-remove` (`fal-ai/birefnet`)
-  - Lowest COGS ($0.005 USD per run).
-  - Fast execution (~1.5 seconds).
-  - Deterministic PNG transparency output with zero ambiguity.
-- **Fallback Canary Tool:** `image-upscale` (`fal-ai/clarity-upscaler`)
-  - Low COGS ($0.015 USD per run).
-  - 4K resolution upscaler with zero prompt variability.
-- **Strict Prohibition:** Video generation (`image-to-video`, `text-to-video`) is strictly prohibited during canary phase to prevent high-compute cost risks and variable latency.
-- **Test Asset Invariant:** The test asset must be a small, non-sensitive, public synthetic graphic (e.g. 100x100 PNG).
+- **Authentication**: `Authorization: Key ${FAL_KEY}`
+- **Submit Request**: `POST https://queue.fal.run/{model_id}?fal_webhook=...`
+- **Current Operational Status**: `AUTHENTICATED` / `BILLING_BLOCKED` (Exhausted balance HTTP 403 on upstream test). Kept as an active protocol adapter ready for top-up.
 
 ---
 
-### 5. Idempotency & Concurrency Architecture
+### 5. Multi-Provider Logical Tool Routing Matrix
+
+| Logical Tool | Tier | WaveSpeed Route | KIE Route | fal.ai Route | Replicate Route |
+| :--- | :---: | :--- | :--- | :--- | :--- |
+| **Background Remove** | `FAST` | `wavespeed-ai/birefnet` ($0.004) | `rembg` ($0.005) | `fal-ai/birefnet` ($0.005) | `cjwbw/rembg` |
+| **Image Upscale (4K)** | `QUALITY` | `wavespeed-ai/image-upscaler` ($0.010)| `upscale-v1` ($0.012) | `fal-ai/clarity-upscaler` ($0.015)| `nightmareai/real-esrgan` |
+| **Image Generate (Fast)**| `FAST` | `wavespeed-ai/flux-schnell` ($0.0025)| `flux-schnell` ($0.003) | `fal-ai/flux/schnell` ($0.003) | `black-forest-labs/flux-schnell` |
+| **Image Generate (Pro)** | `QUALITY` | `wavespeed-ai/flux-dev` ($0.018) | `flux-dev` ($0.020) | `fal-ai/flux/dev` ($0.025) | `black-forest-labs/flux-dev` |
+| **Product Photo Studio** | `PREMIUM` | `wavespeed-ai/product-photo` ($0.025)| — | `fal-ai/product-photography` ($0.035)| — |
+
+---
+
+### 6. Runware Protocol Architectural Evaluation Note
+
+Runware (`https://api.runware.ai`) was reviewed as a potential high-throughput candidate:
+1. **Connection Model**: Runware relies primarily on persistent WebSocket connections (`wss://ws-api.runware.ai/v1`) with message multiplexing, though a REST fallback exists.
+2. **Advantages**:
+   - Ultra-low connection handshake overhead for high-concurrency batch operations.
+   - Per-image generation times down to ~300ms for distilled models.
+3. **Operational Overhead for Tora**:
+   - WebSocket connection pooling in Go requires maintaining stateful connection pools across multiple app server instances.
+   - Tora's current architecture is stateless HTTP/REST with webhook callbacks and Redis-backed state, keeping `NEW_SERVER_COUNT = 0`.
+4. **Integration Roadmap**:
+   - Scheduled for evaluation in a future phase once WaveSpeed and KIE live volumes demonstrate saturation or latency bottlenecks.
+
+---
+
+### 7. Idempotency & Safe-Fallback Invariants
 
 ```mermaid
 flowchart TD
     Client["Client Request (Idempotency-Key)"] --> QuotaCheck["Atomic PreConsumeUserWallet"]
     QuotaCheck --> CheckDB{"Duplicate Key in DB?"}
-    CheckDB -- Yes --> ReturnExisting["Return Existing Job<br/>(No New Reservation / No Charge)"]
-    CheckDB -- No --> ProviderSubmit["Submit to fal.ai Queue"]
-    ProviderSubmit -- Timeout/Ambiguous --> HoldReservation["Status: AMBIGUOUS_SUBMISSION<br/>(Reconcile Before Release)"]
-    ProviderSubmit -- Queued --> DispatchPollWebhook["Async Poll + Webhook Callback"]
-    DispatchPollWebhook --> FirstTerminal{"First to Complete?"}
-    FirstTerminal -- Webhook First --> SettleQuota["Atomic SettleUserWalletPreConsume"]
-    FirstTerminal -- Poll First --> SettleQuota
-    SettleQuota --> MarkSucceeded["Status: SUCCEEDED"]
+    CheckDB -- Yes --> ReturnExisting["Return Existing Job<br/>(No Charge)"]
+    CheckDB -- No --> RouteSelect["SelectRoute (Health, Cost, Tier)"]
+    RouteSelect --> SubmitCandidate["Submit to Best Provider Candidate"]
+    SubmitCandidate -- DNS / Conn Refused --> TryNextCandidate["Try Safe Fallback Candidate"]
+    SubmitCandidate -- Timeout / Ambiguous --> FailNoFallback["Fail Without Fallback<br/>(ErrProviderAmbiguous)"]
+    SubmitCandidate -- Accepted (Job ID) --> WaitWebhookPoll["Async Webhook / Poll Listener"]
+    WaitWebhookPoll --> SettleWallet["Atomic SettleUserWalletPreConsume"]
 ```

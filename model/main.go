@@ -410,6 +410,8 @@ func migrateDB() error {
 		&StudioToolDefinition{},
 		&StudioToolTemplate{},
 		&StudioProviderRoute{},
+		&StudioProviderConfig{},
+		&StudioModelRoute{},
 		&StudioToolJob{},
 		&StudioJobEvent{},
 		&StudioAsset{},

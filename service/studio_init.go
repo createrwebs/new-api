@@ -36,11 +36,19 @@ func InitStudio(db *gorm.DB) error {
 		falProvider := NewFalProvider()
 		replicateProvider := NewReplicateProvider()
 
+		// Register Generic Media Relay protocol adapters (Queue 2F, Section 5)
+		registry := GetProtocolRegistry()
+		registry.Register(NewWaveSpeedAdapter())
+		registry.Register(NewKieAdapter())
+		registry.Register(NewFalQueueAdapter(falProvider))
+		registry.Register(NewReplicatePredictionsAdapter(replicateProvider))
+		registry.Register(NewMockProtocolAdapter(mockProvider))
+
 		GlobalStudioService = NewStudioService(mockProvider, falProvider, replicateProvider)
 		if db != nil {
 			StartStudioAssetCleanupWorker(db)
 		}
-		common.SysLog("Tora Studio V1 service initialized successfully")
+		common.SysLog("Tora Studio V1 service & Generic Media Relay initialized successfully")
 	})
 
 	return initErr

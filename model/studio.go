@@ -132,6 +132,8 @@ type StudioToolJob struct {
 	InputParams     string          `json:"input_params" gorm:"type:text"` // JSON payload
 	OutputResult    string          `json:"output_result" gorm:"type:text"` // JSON payload / URLs
 	PricingSnapshot string          `json:"pricing_snapshot" gorm:"type:text"` // JSON of StudioPricingSnapshot (Section 14)
+	RouteId         string          `json:"route_id" gorm:"type:varchar(64);index"` // e.g. "ws-birefnet", "kie-flux-schnell"
+	SelectionReason string          `json:"selection_reason" gorm:"type:text"` // Audit log of route selection decision
 	ErrorMessage    string          `json:"error_message" gorm:"type:text"`
 	RiskClass       string          `json:"risk_class" gorm:"type:varchar(32);default:'low'"`
 	ClientIP        string          `json:"client_ip" gorm:"type:varchar(64)"`
@@ -145,27 +147,30 @@ func (j *StudioToolJob) TableName() string {
 	return "studio_tool_jobs"
 }
 
-// StudioPricingSnapshot records complete commercial audit metadata for a studio job (Section 14).
+// StudioPricingSnapshot records complete commercial audit metadata for a studio job (Section 14 & 34).
 type StudioPricingSnapshot struct {
-	QuoteID                 string  `json:"quote_id,omitempty"`
-	ToolID                  string  `json:"tool_id,omitempty"`
-	PricingVersion          string  `json:"pricing_version"`
-	Provider                string  `json:"provider"`
-	ProviderRoute           string  `json:"provider_route,omitempty"`
-	ProviderModel           string  `json:"provider_model"`
+	QuoteID                 string   `json:"quote_id,omitempty"`
+	ToolID                  string   `json:"tool_id,omitempty"`
+	PricingVersion          string   `json:"pricing_version"`
+	Provider                string   `json:"provider"`
+	ProviderRoute           string   `json:"provider_route,omitempty"`
+	ProviderModel           string   `json:"provider_model"`
 	ProviderEstimatedCostUSD float64 `json:"provider_estimated_cost_usd"`
-	ProviderCostBasis       string  `json:"provider_cost_basis"` // "per_image", "per_second", "flat"
-	CostBasis               string  `json:"cost_basis,omitempty"`
-	TargetMargin            float64 `json:"target_margin"`
-	CalculatedSellUSD       float64 `json:"calculated_sell_usd"`
-	SellUSDEquivalent       float64 `json:"sell_usd_equivalent,omitempty"`
-	CalculatedCredits       float64 `json:"calculated_credits"`
-	ChargedCredits          int     `json:"charged_credits"`
-	EstimatedCredits        int     `json:"estimated_credits,omitempty"`
-	ChargedQuota            int     `json:"charged_quota"`
-	PlanMultiplier          float64 `json:"plan_multiplier"`
-	QuotedAt                int64   `json:"quoted_at"`
-	ExpiresAt               int64   `json:"expires_at"`
+	ProviderCostBasis       string   `json:"provider_cost_basis"` // "per_image", "per_second", "flat"
+	CostBasis               string   `json:"cost_basis,omitempty"`
+	TargetMargin            float64  `json:"target_margin"`
+	CalculatedSellUSD       float64  `json:"calculated_sell_usd"`
+	SellUSDEquivalent       float64  `json:"sell_usd_equivalent,omitempty"`
+	CalculatedCredits       float64  `json:"calculated_credits"`
+	ChargedCredits          int      `json:"charged_credits"`
+	EstimatedCredits        int      `json:"estimated_credits,omitempty"`
+	ChargedQuota            int      `json:"charged_quota"`
+	PlanMultiplier          float64  `json:"plan_multiplier"`
+	CandidateRoutes         []string `json:"candidate_routes,omitempty"`
+	SelectionReason         string   `json:"selection_reason,omitempty"`
+	RoutingVersion          string   `json:"routing_version,omitempty"`
+	QuotedAt                int64    `json:"quoted_at"`
+	ExpiresAt               int64    `json:"expires_at"`
 }
 
 // StudioJobEvent records state changes for auditability and recovery.
@@ -268,6 +273,8 @@ func EnsureStudioTables(db *gorm.DB) error {
 		&StudioToolDefinition{},
 		&StudioToolTemplate{},
 		&StudioProviderRoute{},
+		&StudioProviderConfig{},
+		&StudioModelRoute{},
 		&StudioToolJob{},
 		&StudioJobEvent{},
 		&StudioAsset{},
@@ -342,6 +349,16 @@ func ListPublicStudioTools() ([]StudioToolDefinition, error) {
 	err := DB.Where("is_enabled = ? AND is_public = ?", true, true).
 		Order("display_order ASC, id ASC").
 		Find(&tools).Error
+	return tools, err
+}
+
+// ListAllStudioTools retrieves all tool definitions regardless of enabled status for administration.
+func ListAllStudioTools() ([]StudioToolDefinition, error) {
+	if DB == nil {
+		return nil, errors.New("database not initialized")
+	}
+	var tools []StudioToolDefinition
+	err := DB.Order("display_order ASC, id ASC").Find(&tools).Error
 	return tools, err
 }
 

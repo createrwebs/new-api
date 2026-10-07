@@ -255,17 +255,35 @@ func (s *StudioService) SubmitJob(
 		}
 	}
 
-	// 4. Select Provider & guard mock usage in production
+	// 4. Select Route / Provider via Generic Media Relay (Queue 2F, Sections 21-25)
+	tier := QualityTierQuality
+	if t, ok := inputParams["quality_tier"].(string); ok && t != "" {
+		tier = QualityTier(strings.ToUpper(t))
+	}
+	normInput := NormalizedFromMap(inputParams)
+
+	var selectedRoute *model.StudioModelRoute
+	var fallbackRoutes []*model.StudioModelRoute
 	var fallbackProviders []string
+	var routeSelectionReason string
+	var candidateRouteIds []string
+
 	if providerName == "" || providerName == "auto" {
-		tier := QualityTierQuality
-		if t, ok := inputParams["quality_tier"].(string); ok && t != "" {
-			tier = QualityTier(strings.ToUpper(t))
-		}
-		var routeErr error
-		providerName, fallbackProviders, routeErr = s.GetRouter().SelectProvider(toolId, tier, inputParams)
-		if routeErr != nil || providerName == "" {
-			providerName = toolDef.PrimaryProvider
+		primaryRoute, _, fallbacks, reason, candidateResults, routeErr := s.GetRouter().SelectRoute(ctx, toolId, tier, normInput, toolDef.QuotaCost)
+		if routeErr == nil && primaryRoute != nil {
+			selectedRoute = primaryRoute
+			fallbackRoutes = fallbacks
+			providerName = primaryRoute.ProviderId
+			routeSelectionReason = reason
+			for _, cr := range candidateResults {
+				candidateRouteIds = append(candidateRouteIds, cr.Route.Id)
+			}
+		} else {
+			var legacyRouteErr error
+			providerName, fallbackProviders, legacyRouteErr = s.GetRouter().SelectProvider(toolId, tier, inputParams)
+			if legacyRouteErr != nil || providerName == "" {
+				providerName = toolDef.PrimaryProvider
+			}
 		}
 	}
 	if providerName == "" {
@@ -280,7 +298,7 @@ func (s *StudioService) SubmitJob(
 	}
 
 	provider := s.GetProvider(providerName)
-	if provider == nil {
+	if provider == nil && selectedRoute == nil {
 		// Fallback to mock only if registered and permitted
 		if !userIsAdmin && !common.DebugEnabled && os.Getenv("GIN_MODE") == "release" {
 			return nil, fmt.Errorf("provider %s is not registered or unavailable", providerName)
@@ -296,6 +314,17 @@ func (s *StudioService) SubmitJob(
 	pricingSnapshot, err := s.pricingEngine.CalculatePriceWithInputs(toolDef, inputParams, planMultiplier)
 	if err != nil {
 		return nil, fmt.Errorf("failed calculating pricing snapshot: %w", err)
+	}
+
+	if selectedRoute != nil {
+		pricingSnapshot.ProviderRoute = selectedRoute.Id
+		pricingSnapshot.ProviderModel = selectedRoute.ProviderModelId
+		if selectedRoute.EffectiveCostUSD > 0 {
+			pricingSnapshot.ProviderEstimatedCostUSD = selectedRoute.EffectiveCostUSD
+		}
+		pricingSnapshot.CandidateRoutes = candidateRouteIds
+		pricingSnapshot.SelectionReason = routeSelectionReason
+		pricingSnapshot.RoutingVersion = "v2_generic_relay"
 	}
 
 	minMargin := toolDef.MarginPercent
@@ -342,6 +371,8 @@ func (s *StudioService) SubmitJob(
 		RequestId:       requestId,
 		IdempotencyKey:  idempotencyKey,
 		ProviderName:    providerName,
+		RouteId:         func() string { if selectedRoute != nil { return selectedRoute.Id }; return "" }(),
+		SelectionReason: routeSelectionReason,
 		Status:          model.StudioJobStatusReserved,
 		ReservedQuota:   quotaToReserve,
 		InputParams:     string(inputParamsJSON),
@@ -366,10 +397,35 @@ func (s *StudioService) SubmitJob(
 
 	// 8. Dispatch to External Provider (transition to SUBMITTING) with safe fallback
 	job.Status = model.StudioJobStatusSubmitting
-	submitResult, chosenProvider, err := s.GetRouter().ExecuteWithSafeFallback(ctx, job, providerName, fallbackProviders)
-	if chosenProvider != "" && chosenProvider != job.ProviderName {
-		job.ProviderName = chosenProvider
+	var submitResult *ProviderSubmitResult
+	var submitErr error
+
+	if selectedRoute != nil {
+		normOut, winningRoute, execErr := s.GetRouter().ExecuteRouteWithSafeFallback(ctx, job, normInput, selectedRoute, fallbackRoutes)
+		if winningRoute != nil {
+			job.RouteId = winningRoute.Id
+			job.ProviderName = winningRoute.ProviderId
+		}
+		if execErr != nil {
+			submitErr = execErr
+		} else if normOut != nil {
+			submitResult = &ProviderSubmitResult{
+				ProviderJobId: normOut.ProviderJobID,
+				Status:        normOut.Status,
+				OutputURL:     normOut.PrimaryOutputURL(),
+				OutputURLs:    normOut.AllOutputURLs(),
+				RawResponse:   normOut.RawResponse,
+			}
+		}
+	} else {
+		res, chosenProvider, legacyErr := s.GetRouter().ExecuteWithSafeFallback(ctx, job, providerName, fallbackProviders)
+		if chosenProvider != "" && chosenProvider != job.ProviderName {
+			job.ProviderName = chosenProvider
+		}
+		submitResult = res
+		submitErr = legacyErr
 	}
+	err = submitErr
 	if err != nil {
 		if errors.Is(err, ErrProviderAmbiguous) {
 			// Section 15: Ambiguous timeout: do NOT refund yet, mark AMBIGUOUS_SUBMISSION
@@ -598,7 +654,7 @@ func (s *StudioService) HandleWebhook(ctx context.Context, providerName string, 
 	normalizedStatus := strings.ToLower(status)
 	oldStatus := job.Status
 
-	if normalizedStatus == "completed" || normalizedStatus == "succeeded" || normalizedStatus == "ok" {
+	if normalizedStatus == "completed" || normalizedStatus == "succeeded" || normalizedStatus == "ok" || normalizedStatus == "success" {
 		// Atomic check-and-settle: only settle if not already settled
 		if job.ReservedQuota > 0 && job.SettledQuota == 0 {
 			if err := model.SettleUserWalletPreConsume(job.RequestId); err != nil {

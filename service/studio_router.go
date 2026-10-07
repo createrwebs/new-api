@@ -5,13 +5,14 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/QuantumNous/new-api/model"
 )
 
-// QualityTier represents user-facing logical quality selection.
+// QualityTier represents user-facing logical quality selection (Section 22).
 type QualityTier string
 
 const (
@@ -22,14 +23,25 @@ const (
 
 // RouteCandidate represents an evaluated provider option for a tool execution.
 type RouteCandidate struct {
-	ProviderName   string      `json:"provider_name"`
-	ModelEndpoint  string      `json:"model_endpoint"`
-	QualityTier    QualityTier `json:"quality_tier"`
-	EstimatedCost  float64     `json:"estimated_cost_usd"`
-	P50LatencyMs   int64       `json:"p50_latency_ms"`
-	SuccessRate    float64     `json:"success_rate"`
-	RoutingScore   float64     `json:"routing_score"`
-	IsAvailable    bool        `json:"is_available"`
+	ProviderName  string      `json:"provider_name"`
+	ModelEndpoint string      `json:"model_endpoint"`
+	QualityTier   QualityTier `json:"quality_tier"`
+	EstimatedCost float64     `json:"estimated_cost_usd"`
+	P50LatencyMs  int64       `json:"p50_latency_ms"`
+	SuccessRate   float64     `json:"success_rate"`
+	RoutingScore  float64     `json:"routing_score"`
+	IsAvailable   bool        `json:"is_available"`
+}
+
+// RouteCandidateResult holds the evaluated candidate route, provider, and score (Section 21 & 34).
+type RouteCandidateResult struct {
+	Route            *model.StudioModelRoute     `json:"route"`
+	ProviderConfig   *model.StudioProviderConfig `json:"provider_config"`
+	EffectiveCostUSD float64                     `json:"effective_cost_usd"`
+	Score            float64                     `json:"score"`
+	Reason           string                      `json:"reason"`
+	IsEligible       bool                        `json:"is_eligible"`
+	SkipReason       string                      `json:"skip_reason,omitempty"`
 }
 
 // StudioRoutingAnalytics aggregates live telemetry per provider and tool.
@@ -63,7 +75,296 @@ func NewStudioRouter(providers map[string]StudioProvider) *StudioRouter {
 	}
 }
 
+// SelectRoute evaluates all configured DB routes for a tool, evaluates dynamic quotes,
+// applies circuit breakers, enforces profitability, and deterministically scores routes (Sections 21-25 & 28).
+func (r *StudioRouter) SelectRoute(
+	ctx context.Context,
+	toolId string,
+	tier QualityTier,
+	normInput *NormalizedMediaInput,
+	retailQuota int,
+) (*model.StudioModelRoute, *model.StudioProviderConfig, []*model.StudioModelRoute, string, []RouteCandidateResult, error) {
+	if tier == "" {
+		tier = QualityTierQuality
+	}
+
+	// 1. Fetch configured routes for logical tool from database
+	routes, err := model.GetStudioModelRoutesByTool(toolId)
+	if err != nil || len(routes) == 0 {
+		return nil, nil, nil, "", nil, errors.New("no configured routes for tool")
+	}
+
+	var candidates []RouteCandidateResult
+	var skippedReasons []string
+
+	for i := range routes {
+		route := routes[i]
+		cand := RouteCandidateResult{
+			Route:            &route,
+			EffectiveCostUSD: route.EffectiveCostUSD,
+			IsEligible:       true,
+		}
+
+		// A. Check Route enabled flag
+		if !route.Enabled {
+			cand.IsEligible = false
+			cand.SkipReason = "route disabled"
+			candidates = append(candidates, cand)
+			continue
+		}
+
+		// B. Fetch Provider Config and check circuit breaker (Section 25)
+		providerCfg, cfgErr := model.GetStudioProviderConfig(route.ProviderId)
+		if cfgErr != nil || providerCfg == nil {
+			cand.IsEligible = false
+			cand.SkipReason = fmt.Sprintf("provider config '%s' not found", route.ProviderId)
+			candidates = append(candidates, cand)
+			continue
+		}
+		cand.ProviderConfig = providerCfg
+
+		if !providerCfg.Enabled {
+			cand.IsEligible = false
+			cand.SkipReason = "provider disabled"
+			candidates = append(candidates, cand)
+			continue
+		}
+
+		if providerCfg.HealthStatus == model.ProviderHealthBillingBlocked {
+			cand.IsEligible = false
+			cand.SkipReason = "provider billing blocked (exhausted balance)"
+			skippedReasons = append(skippedReasons, fmt.Sprintf("%s billing blocked", route.Id))
+			candidates = append(candidates, cand)
+			continue
+		}
+
+		if providerCfg.HealthStatus == model.ProviderHealthDisabled || providerCfg.HealthStatus == model.ProviderHealthAuthFailed {
+			cand.IsEligible = false
+			cand.SkipReason = fmt.Sprintf("provider health: %s", providerCfg.HealthStatus)
+			candidates = append(candidates, cand)
+			continue
+		}
+
+		// C. Route-level Circuit Breaker: consecutive failures >= 5 (Section 24)
+		if route.ConsecutiveFails >= 5 {
+			cand.IsEligible = false
+			cand.SkipReason = fmt.Sprintf("circuit breaker tripped (consecutive_fails: %d)", route.ConsecutiveFails)
+			candidates = append(candidates, cand)
+			continue
+		}
+
+		// D. Validate Protocol Adapter registration & credentials
+		adapter, adErr := GetProtocolRegistry().Get(route.Protocol)
+		if adErr != nil {
+			cand.IsEligible = false
+			cand.SkipReason = fmt.Sprintf("adapter error: %v", adErr)
+			candidates = append(candidates, cand)
+			continue
+		}
+
+		if valErr := adapter.ValidateConfiguration(providerCfg); valErr != nil {
+			cand.IsEligible = false
+			cand.SkipReason = fmt.Sprintf("credentials unconfigured: %v", valErr)
+			candidates = append(candidates, cand)
+			continue
+		}
+
+		// E. Dynamic Quote Lookup if DYNAMIC_API configured (Section 10 & 27)
+		costUSD := route.EffectiveCostUSD
+		if route.PricingStrategy == "DYNAMIC_API" && normInput != nil {
+			if q, qErr := adapter.Quote(ctx, providerCfg, &route, normInput); qErr == nil && q > 0 {
+				costUSD = q
+			}
+		}
+		cand.EffectiveCostUSD = costUSD
+
+		// F. Profitability Guard (Section 28)
+		if retailQuota > 0 && route.MinMargin > 0 {
+			sellUSD := float64(retailQuota) / 1000000.0 // 1 Credit = 1000 Quota = $0.001 -> $1 = 1M Quota
+			if sellUSD > 0 {
+				grossMargin := ((sellUSD - costUSD) / sellUSD) * 100.0
+				if grossMargin < route.MinMargin {
+					cand.IsEligible = false
+					cand.SkipReason = fmt.Sprintf("profitability violation: gross margin %.1f%% below floor %.1f%%", grossMargin, route.MinMargin)
+					candidates = append(candidates, cand)
+					continue
+				}
+			}
+		}
+
+		// G. Tier Matching (Section 22)
+		tierMatch := 0.5
+		if route.QualityTier == string(tier) {
+			tierMatch = 1.0
+		} else if tier == QualityTierFast && route.QualityTier == "QUALITY" {
+			tierMatch = 0.6
+		} else if tier == QualityTierQuality && route.QualityTier == "FAST" {
+			tierMatch = 0.5
+		} else if tier == QualityTierPremium && route.QualityTier != "PREMIUM" {
+			tierMatch = 0.2
+		}
+
+		// H. Health & Latency Factor (Section 24)
+		successRate := route.SuccessRate / 100.0
+		if successRate <= 0 {
+			successRate = 1.0
+		}
+		if route.ConsecutiveFails > 0 {
+			successRate -= float64(route.ConsecutiveFails) * 0.15
+			if successRate < 0.1 {
+				successRate = 0.1
+			}
+		}
+
+		// I. Cost Factor (Section 23: Cost-first within equivalent quality)
+		costFactor := 1.0 - (costUSD / 0.10)
+		if costFactor < 0 {
+			costFactor = 0
+		}
+
+		// J. Priority Factor
+		priFactor := 1.0 / float64(max(1, route.Priority))
+
+		// Composite deterministic score
+		qWeight := route.QualityWeight
+		if qWeight <= 0 {
+			qWeight = 1.0
+		}
+		hWeight := route.HealthWeight
+		if hWeight <= 0 {
+			hWeight = 1.0
+		}
+		cWeight := route.CostWeight
+		if cWeight <= 0 {
+			cWeight = 1.0
+		}
+
+		score := (tierMatch * qWeight * 2.0) +
+			(successRate * hWeight * 2.0) +
+			(costFactor * cWeight * 2.0) +
+			priFactor
+
+		cand.Score = score
+		cand.Reason = fmt.Sprintf("tier: %s, match: %.2f, cost: $%.4f, success: %.1f%%, pri: %d",
+			route.QualityTier, tierMatch, costUSD, route.SuccessRate, route.Priority)
+		candidates = append(candidates, cand)
+	}
+
+	// Filter eligible candidates
+	var eligible []RouteCandidateResult
+	for _, c := range candidates {
+		if c.IsEligible {
+			eligible = append(eligible, c)
+		}
+	}
+
+	if len(eligible) == 0 {
+		return nil, nil, nil, "", candidates, errors.New("no eligible routes available after health, credential, and profitability checks")
+	}
+
+	// Sort eligible candidates by Score descending
+	sort.Slice(eligible, func(i, j int) bool {
+		return eligible[i].Score > eligible[j].Score
+	})
+
+	primary := eligible[0].Route
+	primaryProvider := eligible[0].ProviderConfig
+	var fallbacks []*model.StudioModelRoute
+	for i := 1; i < len(eligible); i++ {
+		fallbacks = append(fallbacks, eligible[i].Route)
+	}
+
+	reason := fmt.Sprintf("Selected route '%s' (%s) with score %.2f [cost: $%.4f, tier: %s, priority: %d]",
+		primary.Id, primaryProvider.Name, eligible[0].Score, eligible[0].EffectiveCostUSD, primary.QualityTier, primary.Priority)
+
+	if len(skippedReasons) > 0 {
+		reason = fmt.Sprintf("%s (skipped: %s)", reason, strings.Join(skippedReasons, ", "))
+	}
+
+	return primary, primaryProvider, fallbacks, reason, candidates, nil
+}
+
+// ExecuteRouteWithSafeFallback dispatches the generation request through the generic protocol adapter,
+// strictly enforcing Section 26: Ambiguous submissions NEVER fall back.
+func (r *StudioRouter) ExecuteRouteWithSafeFallback(
+	ctx context.Context,
+	job *model.StudioToolJob,
+	normInput *NormalizedMediaInput,
+	primaryRoute *model.StudioModelRoute,
+	fallbackRoutes []*model.StudioModelRoute,
+) (*NormalizedMediaOutput, *model.StudioModelRoute, error) {
+	providerCfg, err := model.GetStudioProviderConfig(primaryRoute.ProviderId)
+	if err != nil || providerCfg == nil {
+		return nil, primaryRoute, fmt.Errorf("provider config '%s' not found: %w", primaryRoute.ProviderId, err)
+	}
+
+	adapter, err := GetProtocolRegistry().Get(primaryRoute.Protocol)
+	if err != nil {
+		return nil, primaryRoute, err
+	}
+
+	startTime := time.Now()
+	out, err := adapter.Submit(ctx, providerCfg, primaryRoute, normInput)
+	latencyMs := time.Since(startTime).Milliseconds()
+
+	if err == nil {
+		_ = model.UpdateRouteHealthStats(primaryRoute.Id, latencyMs, true)
+		return out, primaryRoute, nil
+	}
+
+	_ = model.UpdateRouteHealthStats(primaryRoute.Id, latencyMs, false)
+
+	// SAFE FALLBACK INVARIANT (Section 26):
+	// Ambiguous state (timeout after bytes dispatched) MUST NOT fall back!
+	if errors.Is(err, ErrProviderAmbiguous) {
+		return nil, primaryRoute, fmt.Errorf("%w: ambiguous submission to '%s'; safe fallback blocked to avoid double execution", err, primaryRoute.Id)
+	}
+
+	// Permanent rejection (e.g. invalid prompt/params or policy rejection): do NOT fall back.
+	if errors.Is(err, ErrProviderPermanent) {
+		return nil, primaryRoute, err
+	}
+
+	// Mark billing blocked if provider balance exhausted
+	if errors.Is(err, ErrProviderAccountLocked) {
+		providerCfg.HealthStatus = model.ProviderHealthBillingBlocked
+		_ = model.SaveStudioProviderConfig(providerCfg)
+	}
+
+	// Safe Fallback loop (only for clean pre-submission failures)
+	for _, fbRoute := range fallbackRoutes {
+		fbProvider, fbCfgErr := model.GetStudioProviderConfig(fbRoute.ProviderId)
+		if fbCfgErr != nil || fbProvider == nil || !fbProvider.Enabled ||
+			fbProvider.HealthStatus == model.ProviderHealthBillingBlocked ||
+			fbProvider.HealthStatus == model.ProviderHealthDisabled {
+			continue
+		}
+
+		fbAdapter, fbAdErr := GetProtocolRegistry().Get(fbRoute.Protocol)
+		if fbAdErr != nil {
+			continue
+		}
+
+		fbStartTime := time.Now()
+		fbOut, fbErr := fbAdapter.Submit(ctx, fbProvider, fbRoute, normInput)
+		fbLatencyMs := time.Since(fbStartTime).Milliseconds()
+
+		if fbErr == nil {
+			_ = model.UpdateRouteHealthStats(fbRoute.Id, fbLatencyMs, true)
+			return fbOut, fbRoute, nil
+		}
+
+		_ = model.UpdateRouteHealthStats(fbRoute.Id, fbLatencyMs, false)
+		if errors.Is(fbErr, ErrProviderAmbiguous) {
+			return nil, fbRoute, fmt.Errorf("%w: fallback to '%s' encountered ambiguous submission", fbErr, fbRoute.Id)
+		}
+	}
+
+	return nil, primaryRoute, err
+}
+
 // SelectProvider determines the best primary provider and fallback list based on quality tier and health.
+// Maintains backward compatibility with legacy providers while honoring new route configs when available.
 func (r *StudioRouter) SelectProvider(
 	toolId string,
 	tier QualityTier,
@@ -72,16 +373,27 @@ func (r *StudioRouter) SelectProvider(
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
+	// Try DB routes first
+	normInput := NormalizedFromMap(inputParams)
+	primaryRoute, _, fallbackRoutes, _, _, err := r.SelectRoute(context.Background(), toolId, tier, normInput, 0)
+	if err == nil && primaryRoute != nil {
+		primary := primaryRoute.ProviderId
+		var fallbacks []string
+		for _, fb := range fallbackRoutes {
+			fallbacks = append(fallbacks, fb.ProviderId)
+		}
+		return primary, fallbacks, nil
+	}
+
 	if tier == "" {
 		tier = QualityTierQuality
 	}
 
-	// Candidates mapping based on tool and tier
+	// Fallback to legacy candidates mapping based on tool and tier
 	var candidates []RouteCandidate
 
 	switch toolId {
 	case "background-remove":
-		// Replicate rembg ($0.003) vs Fal birefnet ($0.005)
 		if tier == QualityTierFast {
 			candidates = []RouteCandidate{
 				{ProviderName: "replicate", ModelEndpoint: "cjwbw/rembg", EstimatedCost: 0.003, QualityTier: QualityTierFast},
@@ -95,7 +407,6 @@ func (r *StudioRouter) SelectProvider(
 		}
 
 	case "image-upscale":
-		// Replicate Real-ESRGAN ($0.005) vs Fal Clarity ($0.015)
 		if tier == QualityTierFast {
 			candidates = []RouteCandidate{
 				{ProviderName: "replicate", ModelEndpoint: "nightmareai/real-esrgan", EstimatedCost: 0.005, QualityTier: QualityTierFast},
@@ -127,7 +438,6 @@ func (r *StudioRouter) SelectProvider(
 		}
 
 	default:
-		// Default to primary provider configured on tool or fal
 		candidates = []RouteCandidate{
 			{ProviderName: "fal", QualityTier: tier},
 			{ProviderName: "replicate", QualityTier: tier},
@@ -170,7 +480,6 @@ func (r *StudioRouter) SelectProvider(
 			tierMatch = 0.2
 		}
 
-		// Composite Score: 0.35*avail + 0.35*tierMatch + 0.15*successRate + 0.15*costFactor
 		costFactor := 1.0 - (c.EstimatedCost / 0.10)
 		if costFactor < 0 {
 			costFactor = 0
@@ -187,7 +496,6 @@ func (r *StudioRouter) SelectProvider(
 		return "mock", []string{}, nil
 	}
 
-	// Sort candidates by score descending
 	sort.Slice(scored, func(i, j int) bool {
 		return scored[i].RoutingScore > scored[j].RoutingScore
 	})
@@ -222,7 +530,7 @@ func (r *StudioRouter) RecordJobResult(providerName string, success bool, latenc
 	}
 }
 
-// ExecuteWithSafeFallback dispatches the job with strict safe-fallback rules.
+// ExecuteWithSafeFallback dispatches the job with strict safe-fallback rules for legacy StudioProvider.
 func (r *StudioRouter) ExecuteWithSafeFallback(
 	ctx context.Context,
 	job *model.StudioToolJob,
@@ -246,19 +554,14 @@ func (r *StudioRouter) ExecuteWithSafeFallback(
 
 	r.RecordJobResult(primaryProvider, false, latency)
 
-	// SAFE FALLBACK INVARIANT:
-	// If submission state is ambiguous (e.g. timeout after sending bytes),
-	// WE MUST NOT FALL BACK! Reconcile first. Never send same generation to two providers.
 	if errors.Is(err, ErrProviderAmbiguous) {
 		return nil, primaryProvider, fmt.Errorf("%w: cannot safe-fallback due to ambiguous upstream state", err)
 	}
 
-	// Permanent rejection (e.g. invalid prompt/params or policy rejection): do NOT fall back.
 	if errors.Is(err, ErrProviderPermanent) {
 		return nil, primaryProvider, err
 	}
 
-	// Fallback is allowed ONLY when submission definitely did not begin (e.g. connection refused or unconfigured)
 	for _, fallbackName := range fallbackProviders {
 		fb := r.providers[fallbackName]
 		if fb == nil {

@@ -216,12 +216,24 @@ func StudioWebhook(c *gin.Context) {
 	}
 
 	var payload struct {
-		RequestId     string `json:"request_id"`
-		ProviderJobId string `json:"provider_job_id"`
-		Status        string `json:"status"` // "COMPLETED", "FAILED", "OK", "ERROR"
-		OutputURL     string `json:"output_url"`
-		Error         string `json:"error"`
-		Payload       struct {
+		RequestId     string      `json:"request_id"`
+		ProviderJobId string      `json:"provider_job_id"`
+		TaskId        string      `json:"taskId"` // KIE callback field
+		Status        string      `json:"status"` // "COMPLETED", "FAILED", "OK", "ERROR"
+		State         string      `json:"state"`  // KIE state: "success", "fail"
+		OutputURL     string      `json:"output_url"`
+		Result        interface{} `json:"result"` // KIE result: array of URLs or URL string
+		Error         string      `json:"error"`
+		ErrorMsg      string      `json:"errorMsg"`
+		Data          struct {
+			TaskId   string      `json:"taskId"`
+			State    string      `json:"state"`
+			Result   interface{} `json:"result"`
+			Outputs  []string    `json:"outputs"` // WaveSpeed callback field
+			Error    string      `json:"error"`
+			ErrorMsg string      `json:"errorMsg"`
+		} `json:"data"`
+		Payload struct {
 			Image struct {
 				URL string `json:"url"`
 			} `json:"image"`
@@ -232,7 +244,7 @@ func StudioWebhook(c *gin.Context) {
 				URL string `json:"video"`
 			} `json:"video"`
 		} `json:"payload"`
-		Image         struct {
+		Image struct {
 			URL string `json:"url"`
 		} `json:"image"`
 		Images []struct {
@@ -253,8 +265,33 @@ func StudioWebhook(c *gin.Context) {
 		jobId = payload.RequestId
 	}
 	if jobId == "" {
+		jobId = payload.TaskId
+	}
+	if jobId == "" {
+		jobId = payload.Data.TaskId
+	}
+	if jobId == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "missing provider job / request id"})
 		return
+	}
+
+	status := payload.Status
+	if status == "" {
+		status = payload.State
+	}
+	if status == "" {
+		status = payload.Data.State
+	}
+
+	errText := payload.Error
+	if errText == "" {
+		errText = payload.ErrorMsg
+	}
+	if errText == "" {
+		errText = payload.Data.Error
+	}
+	if errText == "" {
+		errText = payload.Data.ErrorMsg
 	}
 
 	outputURL := payload.OutputURL
@@ -271,11 +308,38 @@ func StudioWebhook(c *gin.Context) {
 			outputURL = payload.Image.URL
 		} else if payload.Video.URL != "" {
 			outputURL = payload.Video.URL
+		} else if len(payload.Data.Outputs) > 0 {
+			outputURL = payload.Data.Outputs[0]
+		}
+	}
+
+	// Parse KIE result if outputURL is still empty
+	if outputURL == "" {
+		resVal := payload.Result
+		if resVal == nil {
+			resVal = payload.Data.Result
+		}
+		if resVal != nil {
+			if s, ok := resVal.(string); ok && s != "" {
+				outputURL = s
+			} else if arr, ok := resVal.([]interface{}); ok && len(arr) > 0 {
+				if s, ok := arr[0].(string); ok {
+					outputURL = s
+				} else if obj, ok := arr[0].(map[string]interface{}); ok {
+					if u, ok := obj["url"].(string); ok {
+						outputURL = u
+					}
+				}
+			} else if obj, ok := resVal.(map[string]interface{}); ok {
+				if u, ok := obj["url"].(string); ok {
+					outputURL = u
+				}
+			}
 		}
 	}
 
 	studioSvc := service.GetStudioService()
-	job, err := studioSvc.HandleWebhook(c.Request.Context(), provider, jobId, payload.Status, outputURL, payload.Error)
+	job, err := studioSvc.HandleWebhook(c.Request.Context(), provider, jobId, status, outputURL, errText)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": err.Error()})
 		return
@@ -1384,4 +1448,299 @@ func ServeStudioAsset(c *gin.Context) {
 	}
 
 	c.File(filePath)
+}
+
+// GetStudioAdminProviders returns all configured media providers and their operational status (Section 39).
+func GetStudioAdminProviders(c *gin.Context) {
+	configs, err := model.GetAllStudioProviderConfigs()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": err.Error()})
+		return
+	}
+
+	type ProviderView struct {
+		model.StudioProviderConfig
+		ConnectionState string `json:"connection_state"`
+		AdapterFound    bool   `json:"adapter_found"`
+		RoutesCount     int    `json:"routes_count"`
+	}
+
+	allRoutes, _ := model.GetAllStudioModelRoutes()
+	routesCountMap := make(map[string]int)
+	for _, r := range allRoutes {
+		routesCountMap[r.ProviderId]++
+	}
+
+	registry := service.GetProtocolRegistry()
+	var results []ProviderView
+
+	for _, cfg := range configs {
+		pv := ProviderView{
+			StudioProviderConfig: cfg,
+			RoutesCount:          routesCountMap[cfg.Id],
+		}
+
+		adapter, err := registry.Get(cfg.Protocol)
+		if err != nil {
+			pv.ConnectionState = "ADAPTER_NOT_FOUND"
+			pv.AdapterFound = false
+		} else {
+			pv.AdapterFound = true
+			if valErr := adapter.ValidateConfiguration(&cfg); valErr != nil {
+				pv.ConnectionState = "CREDENTIAL_MISSING"
+			} else {
+				pv.ConnectionState = cfg.HealthStatus
+			}
+		}
+
+		results = append(results, pv)
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"data":    results,
+	})
+}
+
+// GetStudioAdminRoutes returns all model routes with optional filtering (Section 39).
+func GetStudioAdminRoutes(c *gin.Context) {
+	toolId := c.Query("tool_id")
+	providerId := c.Query("provider_id")
+
+	allRoutes, err := model.GetAllStudioModelRoutes()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": err.Error()})
+		return
+	}
+
+	var filtered []model.StudioModelRoute
+	for _, r := range allRoutes {
+		if toolId != "" && r.LogicalTool != toolId {
+			continue
+		}
+		if providerId != "" && r.ProviderId != providerId {
+			continue
+		}
+		filtered = append(filtered, r)
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"data":    filtered,
+	})
+}
+
+// CreateStudioAdminRoute creates a new route record (Section 29).
+func CreateStudioAdminRoute(c *gin.Context) {
+	var route model.StudioModelRoute
+	if err := c.ShouldBindJSON(&route); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "invalid route payload: " + err.Error()})
+		return
+	}
+
+	if route.Id == "" || route.LogicalTool == "" || route.ProviderId == "" || route.Protocol == "" || route.ProviderModelId == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "missing required fields (id, logical_tool, provider_id, protocol, provider_model_id)"})
+		return
+	}
+
+	if err := model.SaveStudioModelRoute(&route); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"message": "route created successfully",
+		"data":    route,
+	})
+}
+
+// UpdateStudioAdminRoute updates an existing route configuration without code rebuilds (Section 29).
+func UpdateStudioAdminRoute(c *gin.Context) {
+	id := c.Param("id")
+	if id == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "route id required"})
+		return
+	}
+
+	existing, err := model.GetStudioModelRoute(id)
+	if err != nil || existing == nil {
+		c.JSON(http.StatusNotFound, gin.H{"success": false, "message": "route not found"})
+		return
+	}
+
+	var updates struct {
+		Enabled          *bool    `json:"enabled"`
+		Priority         *int     `json:"priority"`
+		QualityTier      *string  `json:"quality_tier"`
+		ProviderModelId  *string  `json:"provider_model_id"`
+		PricingStrategy  *string  `json:"pricing_strategy"`
+		BaseCostUSD      *float64 `json:"base_cost_usd"`
+		EffectiveCostUSD *float64 `json:"effective_cost_usd"`
+		MinMargin        *float64 `json:"min_margin"`
+		InputMapping     *string  `json:"input_mapping"`
+		OutputMapping    *string  `json:"output_mapping"`
+	}
+
+	if err := c.ShouldBindJSON(&updates); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "invalid update payload: " + err.Error()})
+		return
+	}
+
+	if updates.Enabled != nil {
+		existing.Enabled = *updates.Enabled
+	}
+	if updates.Priority != nil {
+		existing.Priority = *updates.Priority
+	}
+	if updates.QualityTier != nil {
+		existing.QualityTier = *updates.QualityTier
+	}
+	if updates.ProviderModelId != nil {
+		existing.ProviderModelId = *updates.ProviderModelId
+	}
+	if updates.PricingStrategy != nil {
+		existing.PricingStrategy = *updates.PricingStrategy
+	}
+	if updates.BaseCostUSD != nil {
+		existing.BaseCostUSD = *updates.BaseCostUSD
+	}
+	if updates.EffectiveCostUSD != nil {
+		existing.EffectiveCostUSD = *updates.EffectiveCostUSD
+	}
+	if updates.MinMargin != nil {
+		existing.MinMargin = *updates.MinMargin
+	}
+	if updates.InputMapping != nil {
+		existing.InputMapping = *updates.InputMapping
+	}
+	if updates.OutputMapping != nil {
+		existing.OutputMapping = *updates.OutputMapping
+	}
+
+	if err := model.SaveStudioModelRoute(existing); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"message": "route updated successfully",
+		"data":    existing,
+	})
+}
+
+// DeleteStudioAdminRoute removes a model route (Section 29).
+func DeleteStudioAdminRoute(c *gin.Context) {
+	id := c.Param("id")
+	if id == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "route id required"})
+		return
+	}
+
+	if err := model.DeleteStudioModelRoute(id); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"message": "route deleted successfully",
+	})
+}
+
+// RouteEconomicsItem represents economic margin decision surface for a route (Section 40).
+type RouteEconomicsItem struct {
+	ToolID             string  `json:"tool_id"`
+	ToolName           string  `json:"tool_name"`
+	RetailCredits      int     `json:"retail_credits"`
+	RetailQuota        int     `json:"retail_quota"`
+	RetailSellUSD      float64 `json:"retail_sell_usd"`
+	RouteID            string  `json:"route_id"`
+	ProviderID         string  `json:"provider_id"`
+	Protocol           string  `json:"protocol"`
+	ProviderModelID    string  `json:"provider_model_id"`
+	QualityTier        string  `json:"quality_tier"`
+	EffectiveCostUSD   float64 `json:"effective_cost_usd"`
+	GrossProfitUSD     float64 `json:"gross_profit_usd"`
+	GrossMarginPercent float64 `json:"gross_margin_percent"`
+	MarginHealth       string  `json:"margin_health"`
+	Enabled            bool    `json:"enabled"`
+	Priority           int     `json:"priority"`
+}
+
+// GetStudioAdminEconomics outputs gross margin analysis per logical tool and route (Section 40).
+func GetStudioAdminEconomics(c *gin.Context) {
+	tools, err := model.ListAllStudioTools()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": err.Error()})
+		return
+	}
+
+	toolMap := make(map[string]model.StudioToolDefinition)
+	for _, t := range tools {
+		toolMap[t.Id] = t
+	}
+
+	routes, err := model.GetAllStudioModelRoutes()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": err.Error()})
+		return
+	}
+
+	var economics []RouteEconomicsItem
+
+	for _, r := range routes {
+		tool, hasTool := toolMap[r.LogicalTool]
+		sellUSD := 0.010
+		toolName := r.LogicalTool
+		credits := 10
+		quota := 10000
+
+		if hasTool {
+			toolName = tool.DisplayName
+			credits = tool.CreditCost
+			quota = tool.QuotaCost
+			sellUSD = float64(quota) / 1000000.0
+		}
+
+		profitUSD := sellUSD - r.EffectiveCostUSD
+		marginPercent := 0.0
+		if sellUSD > 0 {
+			marginPercent = (profitUSD / sellUSD) * 100.0
+		}
+
+		marginHealth := "HEALTHY"
+		if marginPercent < 20.0 {
+			marginHealth = "UNPROFITABLE"
+		} else if marginPercent < 40.0 {
+			marginHealth = "THIN"
+		} else if marginPercent < 60.0 {
+			marginHealth = "ACCEPTABLE"
+		}
+
+		economics = append(economics, RouteEconomicsItem{
+			ToolID:             r.LogicalTool,
+			ToolName:           toolName,
+			RetailCredits:      credits,
+			RetailQuota:        quota,
+			RetailSellUSD:      sellUSD,
+			RouteID:            r.Id,
+			ProviderID:         r.ProviderId,
+			Protocol:           r.Protocol,
+			ProviderModelID:    r.ProviderModelId,
+			QualityTier:        r.QualityTier,
+			EffectiveCostUSD:   r.EffectiveCostUSD,
+			GrossProfitUSD:     profitUSD,
+			GrossMarginPercent: marginPercent,
+			MarginHealth:       marginHealth,
+			Enabled:            r.Enabled,
+			Priority:           r.Priority,
+		})
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"data":    economics,
+	})
 }
