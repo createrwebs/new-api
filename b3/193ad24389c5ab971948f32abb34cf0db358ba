@@ -1,0 +1,34 @@
+controller/studio.go
+  h_f97827f62b0fea 44-53,58-59,88-106,1034-1039,1051-1052,1069,1078-1079,1101
+docs/ai/TORA_CREATOR_ASSISTANT_REPORT.md
+  h_f97827f62b0fea 3-6,8
+docs/ai/TORA_STUDIO_FINAL_ACCEPTANCE_MATRIX.md
+  h_f97827f62b0fea 1-62
+docs/ai/TORA_STUDIO_FINAL_ACCEPTANCE_REPORT.md
+  h_f97827f62b0fea 1-304
+docs/ai/TORA_STUDIO_MULTI_PROVIDER_REPORT.md
+  h_f97827f62b0fea 3-6,8
+docs/ai/TORA_STUDIO_VIDEO_V1_REPORT.md
+  h_f97827f62b0fea 3-6,8
+model/studio.go
+  h_f97827f62b0fea 205
+service/studio_asset.go
+  h_f97827f62b0fea 1-168
+service/studio_asset_test.go
+  h_f97827f62b0fea 1-130
+service/studio_init.go
+  h_f97827f62b0fea 37,39-42,65-80
+service/studio_service_test.go
+  h_f97827f62b0fea 777
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.3",
+  "base_commit_sha": "b3193ad24389c5ab971948f32abb34cf0db358ba",
+  "prompts": {},
+  "humans": {
+    "h_f97827f62b0fea": {
+      "author": "NOPPANAN THEERACHARTE <noppanan.the@axonstech.com>"
+    }
+  }
+}
