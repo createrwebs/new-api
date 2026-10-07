@@ -401,11 +401,17 @@ func SetApiRouter(router *gin.Engine) {
 			studioAdminRoute.GET("/telemetry", controller.GetStudioAdminTelemetry)
 			studioAdminRoute.POST("/provider-canary", controller.TriggerStudioProviderCanary)
 			studioAdminRoute.GET("/providers", controller.GetStudioAdminProviders)
+			studioAdminRoute.POST("/providers/:id/sync", controller.SyncStudioProviderCatalog)
+			studioAdminRoute.GET("/providers/:id/catalog", controller.GetStudioProviderCatalog)
+			studioAdminRoute.GET("/drift-events", controller.GetStudioContractDriftEvents)
+			studioAdminRoute.GET("/pricing-alerts", controller.GetStudioPricingDriftAlerts)
 			studioAdminRoute.GET("/routes", controller.GetStudioAdminRoutes)
 			studioAdminRoute.POST("/routes", controller.CreateStudioAdminRoute)
+			studioAdminRoute.POST("/routes/dry-run", controller.DryRunStudioModelRoute)
 			studioAdminRoute.PUT("/routes/:id", controller.UpdateStudioAdminRoute)
 			studioAdminRoute.DELETE("/routes/:id", controller.DeleteStudioAdminRoute)
 			studioAdminRoute.GET("/economics", controller.GetStudioAdminEconomics)
+			studioAdminRoute.POST("/pricing/simulate", controller.SimulateStudioPricing)
 		}
 
 		usageRoute := apiRouter.Group("/usage")

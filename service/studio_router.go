@@ -194,6 +194,16 @@ func (r *StudioRouter) SelectRoute(
 			continue
 		}
 
+		// C2. Validate Normalized Input parameters against route constraints (Section 18)
+		if normInput != nil {
+			if valInputErr := ValidateNormalizedInput(&route, normInput); valInputErr != nil {
+				cand.IsEligible = false
+				cand.SkipReason = fmt.Sprintf("input validation failed: %v", valInputErr)
+				candidates = append(candidates, cand)
+				continue
+			}
+		}
+
 		// D. Validate Protocol Adapter registration & credentials
 		adapter, adErr := GetProtocolRegistry().Get(route.Protocol)
 		if adErr != nil {

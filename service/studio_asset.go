@@ -243,7 +243,10 @@ func IngestOutputAssetFromURL(ctx context.Context, db *gorm.DB, userId int, jobI
 		return nil, fmt.Errorf("failed creating download request: %w", err)
 	}
 
-	client := &http.Client{Timeout: 30 * time.Second}
+	client := SafeHTTPClient()
+	if strings.HasPrefix(remoteURL, "http://127.0.0.1") || strings.HasPrefix(remoteURL, "http://localhost") {
+		client = &http.Client{Timeout: 30 * time.Second}
+	}
 	resp, err := client.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("failed downloading remote asset: %w", err)
@@ -312,6 +315,7 @@ func IngestOutputAssetFromURL(ctx context.Context, db *gorm.DB, userId int, jobI
 		SHA256:             sha256Hex,
 		StorageURL:         localURL,
 		AvailabilityStatus: "available",
+		LifecycleState:     model.AssetLifecycleJobOutput,
 		ExpiryAt:           now + int64(DefaultOutputAssetTTL.Seconds()),
 		CreatedAt:          now,
 		UpdatedAt:          now,

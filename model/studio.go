@@ -133,6 +133,7 @@ type StudioToolJob struct {
 	OutputResult    string          `json:"output_result" gorm:"type:text"` // JSON payload / URLs
 	PricingSnapshot string          `json:"pricing_snapshot" gorm:"type:text"` // JSON of StudioPricingSnapshot (Section 14)
 	RouteId         string          `json:"route_id" gorm:"type:varchar(64);index"` // e.g. "ws-birefnet", "kie-flux-schnell"
+	RoutingVersion  string          `json:"routing_version,omitempty" gorm:"type:varchar(32);default:'v1_deterministic'"`
 	SelectionReason string          `json:"selection_reason" gorm:"type:text"` // Audit log of route selection decision
 	ErrorMessage    string          `json:"error_message" gorm:"type:text"`
 	RiskClass       string          `json:"risk_class" gorm:"type:varchar(32);default:'low'"`
@@ -214,6 +215,7 @@ type StudioAsset struct {
 	Height             int    `json:"height" gorm:"type:int;default:0"`
 	Duration           int    `json:"duration" gorm:"type:int;default:0"`
 	AvailabilityStatus string `json:"availability_status" gorm:"type:varchar(32);default:'available'"`
+	LifecycleState     string `json:"lifecycle_state,omitempty" gorm:"type:varchar(32);default:'JOB_OUTPUT';index"` // TEMPORARY_INPUT, JOB_INPUT, JOB_OUTPUT, PERSISTENT_USER_ASSET, EXPIRED, DELETED
 	Status             string `json:"status,omitempty" gorm:"-"`
 	StorageURL         string `json:"storage_url" gorm:"type:varchar(512);not null"`
 	ExpiryAt           int64  `json:"expiry_at" gorm:"bigint;index"`
@@ -221,6 +223,16 @@ type StudioAsset struct {
 	CreatedAt          int64  `json:"created_at" gorm:"bigint"`
 	UpdatedAt          int64  `json:"updated_at" gorm:"bigint"`
 }
+
+// Asset Lifecycle States (Section 55)
+const (
+	AssetLifecycleTemporaryInput      = "TEMPORARY_INPUT"
+	AssetLifecycleJobInput            = "JOB_INPUT"
+	AssetLifecycleJobOutput           = "JOB_OUTPUT"
+	AssetLifecyclePersistentUserAsset = "PERSISTENT_USER_ASSET"
+	AssetLifecycleExpired             = "EXPIRED"
+	AssetLifecycleDeleted             = "DELETED"
+)
 
 func (a *StudioAsset) TableName() string {
 	return "studio_assets"
@@ -292,6 +304,9 @@ func EnsureStudioTables(db *gorm.DB) error {
 		&StudioCostSnapshot{},
 		&StudioConversionEvent{},
 		&StudioWorkflowPlan{},
+		&StudioProviderCatalogSnapshot{},
+		&StudioContractDriftEvent{},
+		&StudioPricingDriftAlert{},
 	)
 }
 

@@ -1754,3 +1754,190 @@ func GetStudioAdminEconomics(c *gin.Context) {
 		"data":    economics,
 	})
 }
+
+// SyncStudioProviderCatalog triggers catalog sync for an upstream provider (Section 13).
+func SyncStudioProviderCatalog(c *gin.Context) {
+	id := c.Param("id")
+	if id == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "provider id required"})
+		return
+	}
+
+	result, err := service.SyncProviderCatalog(c.Request.Context(), id)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"message": "catalog synced successfully",
+		"data":    result,
+	})
+}
+
+// GetStudioProviderCatalog returns recorded catalog model snapshots for a provider (Section 14).
+func GetStudioProviderCatalog(c *gin.Context) {
+	id := c.Param("id")
+	if id == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "provider id required"})
+		return
+	}
+
+	snapshots, err := model.GetCatalogSnapshotsByProvider(id)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"data":    snapshots,
+	})
+}
+
+// GetStudioContractDriftEvents returns recent provider contract drift events (Section 12 & 46).
+func GetStudioContractDriftEvents(c *gin.Context) {
+	events, err := model.GetRecentContractDriftEvents(50)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"data":    events,
+	})
+}
+
+// GetStudioPricingDriftAlerts returns recent provider pricing drift alerts (Section 45).
+func GetStudioPricingDriftAlerts(c *gin.Context) {
+	alerts, err := model.GetRecentPricingDriftAlerts(50)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"data":    alerts,
+	})
+}
+
+// DryRunStudioModelRoute validates a candidate route configuration without Go recompile (Section 15 & 47).
+func DryRunStudioModelRoute(c *gin.Context) {
+	var req struct {
+		ProviderID      string                 `json:"provider_id"`
+		Protocol        string                 `json:"protocol"`
+		ProviderModelID string                 `json:"provider_model_id"`
+		LogicalTool     string                 `json:"logical_tool"`
+		InputMapping    string                 `json:"input_mapping"`
+		QualityTier     string                 `json:"quality_tier"`
+		EffectiveCostUSD float64               `json:"effective_cost_usd"`
+		MinMargin       float64                `json:"min_margin"`
+		MockInput       map[string]interface{} `json:"mock_input"`
+	}
+
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "invalid dry-run payload: " + err.Error()})
+		return
+	}
+
+	// 1. Validate Provider Configuration
+	providerCfg, err := model.GetStudioProviderConfig(req.ProviderID)
+	if err != nil || providerCfg == nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"success": false,
+			"step":    "PROVIDER_VALIDATION",
+			"message": fmt.Sprintf("provider '%s' not registered in database", req.ProviderID),
+		})
+		return
+	}
+
+	// 2. Validate Protocol Adapter
+	adapter, err := service.GetProtocolRegistry().Get(req.Protocol)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"success": false,
+			"step":    "PROTOCOL_VALIDATION",
+			"message": fmt.Sprintf("protocol '%s' not supported: %v", req.Protocol, err),
+		})
+		return
+	}
+
+	// 3. Normalize mock input
+	normInput := service.NormalizedFromMap(req.MockInput)
+
+	// 4. Validate input constraints for logical tool
+	dummyRoute := model.StudioModelRoute{
+		LogicalTool: req.LogicalTool,
+		QualityTier: req.QualityTier,
+	}
+	if valErr := service.ValidateNormalizedInput(&dummyRoute, normInput); valErr != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"success": false,
+			"step":    "INPUT_VALIDATION",
+			"message": fmt.Sprintf("mock input failed validation: %v", valErr),
+		})
+		return
+	}
+
+	// 5. Test Declarative Parameter Mapping
+	mappedPayload, mapErr := service.ApplyDeclarativeMapping(normInput, req.InputMapping)
+	if mapErr != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"success": false,
+			"step":    "PARAMETER_MAPPING",
+			"message": fmt.Sprintf("parameter mapping DSL execution failed: %v", mapErr),
+		})
+		return
+	}
+
+	// 6. Economics Dry-Run Simulation
+	var simResult *service.PricingSimulationResult
+	if req.EffectiveCostUSD > 0 {
+		minMargin := req.MinMargin
+		if minMargin <= 0 {
+			minMargin = 60.0
+		}
+		simResult, _ = service.SimulatePricing(req.EffectiveCostUSD, minMargin, 1.0)
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"verdict": "VALIDATION_PASSED",
+		"message": "route dry-run passed schema, mapping, and protocol checks",
+		"data": gin.H{
+			"provider_status":   providerCfg.HealthStatus,
+			"adapter_protocol":  adapter.Protocol(),
+			"mapped_payload":    mappedPayload,
+			"pricing_simulation": simResult,
+		},
+	})
+}
+
+// SimulateStudioPricing endpoint for economic simulation and margin guard modeling (Section 69).
+func SimulateStudioPricing(c *gin.Context) {
+	var req struct {
+		ProviderCostUSD     float64 `json:"provider_cost_usd"`
+		TargetMarginPercent float64 `json:"target_margin_percent"`
+		PlanMultiplier      float64 `json:"plan_multiplier"`
+	}
+
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "invalid simulator payload: " + err.Error()})
+		return
+	}
+
+	result, err := service.SimulatePricing(req.ProviderCostUSD, req.TargetMarginPercent, req.PlanMultiplier)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"data":    result,
+	})
+}
+

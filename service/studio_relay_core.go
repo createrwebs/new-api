@@ -2,7 +2,6 @@ package service
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -249,105 +248,9 @@ func (r *GlobalProtocolRegistry) Get(protocol string) (MediaProtocolAdapter, err
 	return adapter, nil
 }
 
-// ApplyParameterMapping maps NormalizedMediaInput into provider-specific payload using route.InputMapping (Section 7).
+// ApplyParameterMapping maps NormalizedMediaInput into provider-specific payload using route.InputMapping (Section 7 & 17).
 func ApplyParameterMapping(input *NormalizedMediaInput, mappingJSON string) (map[string]interface{}, error) {
-	payload := make(map[string]interface{})
-
-	var mapping map[string]string
-	if strings.TrimSpace(mappingJSON) != "" {
-		if err := json.Unmarshal([]byte(mappingJSON), &mapping); err != nil {
-			return nil, fmt.Errorf("invalid input mapping JSON: %w", err)
-		}
-	}
-
-	// Default 1:1 fallback mappings if mapping is empty
-	if len(mapping) == 0 {
-		if input.Prompt != "" {
-			payload["prompt"] = input.Prompt
-		}
-		if input.NegativePrompt != "" {
-			payload["negative_prompt"] = input.NegativePrompt
-		}
-		if len(input.InputAssets) > 0 {
-			payload["image_url"] = input.InputAssets[0]
-		}
-		if input.AspectRatio != "" {
-			payload["aspect_ratio"] = input.AspectRatio
-		}
-		if input.Seed > 0 {
-			payload["seed"] = input.Seed
-		}
-		for k, v := range input.AdvancedParams {
-			payload[k] = v
-		}
-		return payload, nil
-	}
-
-	// Apply declarative mapping
-	for normKey, targetKey := range mapping {
-		switch normKey {
-		case "prompt":
-			if input.Prompt != "" {
-				payload[targetKey] = input.Prompt
-			}
-		case "negative_prompt":
-			if input.NegativePrompt != "" {
-				payload[targetKey] = input.NegativePrompt
-			}
-		case "image_url", "input_assets[0]":
-			if len(input.InputAssets) > 0 {
-				payload[targetKey] = input.InputAssets[0]
-			}
-		case "mask_url", "mask_asset":
-			if input.MaskAsset != "" {
-				payload[targetKey] = input.MaskAsset
-			}
-		case "aspect_ratio":
-			if input.AspectRatio != "" {
-				payload[targetKey] = input.AspectRatio
-			}
-		case "width":
-			if input.Width > 0 {
-				payload[targetKey] = input.Width
-			}
-		case "height":
-			if input.Height > 0 {
-				payload[targetKey] = input.Height
-			}
-		case "size":
-			if input.Width > 0 && input.Height > 0 {
-				payload[targetKey] = fmt.Sprintf("%d*%d", input.Width, input.Height)
-			} else if input.AspectRatio == "1:1" {
-				payload[targetKey] = "1024*1024"
-			} else if input.AspectRatio == "16:9" {
-				payload[targetKey] = "1280*720"
-			} else if input.AspectRatio == "9:16" {
-				payload[targetKey] = "720*1280"
-			}
-		case "duration":
-			if input.Duration > 0 {
-				payload[targetKey] = input.Duration
-			}
-		case "seed":
-			if input.Seed > 0 {
-				payload[targetKey] = input.Seed
-			}
-		case "num_outputs", "number_of_outputs":
-			if input.NumberOfOutputs > 0 {
-				payload[targetKey] = input.NumberOfOutputs
-			}
-		case "callback_url":
-			if input.CallbackURL != "" {
-				payload[targetKey] = input.CallbackURL
-			}
-		default:
-			if v, ok := input.AdvancedParams[normKey]; ok {
-				payload[targetKey] = v
-			}
-		}
-	}
-
-	return payload, nil
+	return ApplyDeclarativeMapping(input, mappingJSON)
 }
 
 // MediaPriceCache provides short bounded in-memory caching for dynamic pricing lookups (Section 27).

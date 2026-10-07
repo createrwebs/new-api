@@ -24,16 +24,20 @@ const (
 	ProtocolMock                  = "MOCK"
 )
 
-// Route activation states (Queue 2G Section 22)
+// Route activation states (Section 16: 12-state Route State Machine)
 const (
-	RouteStatusDraft              = "DRAFT"
-	RouteStatusContractVerified   = "CONTRACT_VERIFIED"
-	RouteStatusCredentialRequired = "CREDENTIAL_REQUIRED"
-	RouteStatusReadyForCanary     = "READY_FOR_CANARY"
-	RouteStatusActive             = "ACTIVE"
-	RouteStatusDegraded           = "DEGRADED"
-	RouteStatusBillingBlocked     = "BILLING_BLOCKED"
-	RouteStatusDisabled           = "DISABLED"
+	RouteStatusDraft                  = "DRAFT"
+	RouteStatusContractPending        = "CONTRACT_PENDING"
+	RouteStatusContractVerified       = "CONTRACT_VERIFIED"
+	RouteStatusCredentialRequired     = "CREDENTIAL_REQUIRED"
+	RouteStatusReadyForCanary         = "READY_FOR_CANARY"
+	RouteStatusActive                 = "ACTIVE"
+	RouteStatusDegraded               = "DEGRADED"
+	RouteStatusRateLimited            = "RATE_LIMITED"
+	RouteStatusAuthFailed             = "AUTH_FAILED"
+	RouteStatusBillingBlocked         = "BILLING_BLOCKED"
+	RouteStatusContractReviewRequired = "CONTRACT_REVIEW_REQUIRED"
+	RouteStatusDisabled               = "DISABLED"
 )
 
 // Provider price sources (Queue 2G Section 18)
@@ -222,3 +226,156 @@ func DeleteStudioModelRoute(id string) error {
 	}
 	return DB.Where("id = ?", id).Delete(&StudioModelRoute{}).Error
 }
+
+// Drift type constants (Section 12 & 46)
+const (
+	DriftTypeModelMissing     = "MODEL_MISSING"
+	DriftTypeModelRenamed     = "MODEL_RENAMED"
+	DriftTypeModelDisabled    = "MODEL_DISABLED"
+	DriftTypePricingChanged   = "PRICING_CHANGED"
+	DriftTypeCapabilityChanged = "CAPABILITY_CHANGED"
+	DriftTypeSchemaChanged    = "SCHEMA_CHANGED"
+)
+
+// StudioProviderCatalogSnapshot records upstream provider catalog models (Section 14).
+type StudioProviderCatalogSnapshot struct {
+	Id               int     `json:"id" gorm:"primaryKey;autoIncrement"`
+	ProviderId       string  `json:"provider_id" gorm:"type:varchar(32);index;not null"`
+	ModelId          string  `json:"model_id" gorm:"type:varchar(128);index;not null"`
+	DisplayName      string  `json:"display_name" gorm:"type:varchar(128)"`
+	CapabilityFamily string  `json:"capability_family" gorm:"type:varchar(64);index"` // "image-generation", "upscale", "background-removal", "video"
+	InputModality    string  `json:"input_modality" gorm:"type:varchar(32)"` // "text", "image", "audio"
+	OutputModality   string  `json:"output_modality" gorm:"type:varchar(32)"` // "image", "video", "audio"
+	PricingMetadata  string  `json:"pricing_metadata" gorm:"type:text"` // JSON
+	EstimatedCostUSD float64 `json:"estimated_cost_usd" gorm:"type:numeric(10,4);default:0.0"`
+	Availability     string  `json:"availability" gorm:"type:varchar(32);default:'AVAILABLE'"` // "AVAILABLE", "DEPRECATED", "DISABLED"
+	RawSchemaHash    string  `json:"raw_schema_hash" gorm:"type:varchar(64)"`
+	FirstSeenAt      int64   `json:"first_seen_at" gorm:"bigint"`
+	LastSeenAt       int64   `json:"last_seen_at" gorm:"bigint;index"`
+	LastVerifiedAt   int64   `json:"last_verified_at" gorm:"bigint"`
+	CreatedAt        int64   `json:"created_at" gorm:"bigint"`
+	UpdatedAt        int64   `json:"updated_at" gorm:"bigint"`
+}
+
+func (s *StudioProviderCatalogSnapshot) TableName() string {
+	return "studio_provider_catalog_snapshots"
+}
+
+// StudioContractDriftEvent records changes in provider model catalog or schema (Section 12 & 46).
+type StudioContractDriftEvent struct {
+	Id                int    `json:"id" gorm:"primaryKey;autoIncrement"`
+	ProviderId        string `json:"provider_id" gorm:"type:varchar(32);index;not null"`
+	RouteId           string `json:"route_id" gorm:"type:varchar(64);index"`
+	ModelId           string `json:"model_id" gorm:"type:varchar(128);index;not null"`
+	DriftType         string `json:"drift_type" gorm:"type:varchar(32);index;not null"` // MODEL_MISSING, etc.
+	OldState          string `json:"old_state" gorm:"type:text"`
+	NewState          string `json:"new_state" gorm:"type:text"`
+	Details           string `json:"details" gorm:"type:text"`
+	RemediationAction string `json:"remediation_action" gorm:"type:varchar(64)"` // MARKED_REVIEW_REQUIRED, DEGRADED, DISABLED
+	CreatedAt         int64  `json:"created_at" gorm:"bigint;index"`
+}
+
+func (e *StudioContractDriftEvent) TableName() string {
+	return "studio_contract_drift_events"
+}
+
+// StudioPricingDriftAlert records significant price movements from upstream providers (Section 45).
+type StudioPricingDriftAlert struct {
+	Id            int     `json:"id" gorm:"primaryKey;autoIncrement"`
+	ProviderId    string  `json:"provider_id" gorm:"type:varchar(32);index;not null"`
+	RouteId       string  `json:"route_id" gorm:"type:varchar(64);index;not null"`
+	ModelId       string  `json:"model_id" gorm:"type:varchar(128);index;not null"`
+	OldPriceUSD   float64 `json:"old_price_usd" gorm:"type:numeric(10,4);not null"`
+	NewPriceUSD   float64 `json:"new_price_usd" gorm:"type:numeric(10,4);not null"`
+	PercentChange float64 `json:"percent_change" gorm:"type:numeric(6,2);not null"` // e.g. +25.50 or -10.00
+	ActionTaken   string  `json:"action_taken" gorm:"type:varchar(64)"` // ALERT_ONLY, RECALCULATED_MARGIN, ROUTE_DISABLED
+	CreatedAt     int64   `json:"created_at" gorm:"bigint;index"`
+}
+
+func (a *StudioPricingDriftAlert) TableName() string {
+	return "studio_pricing_drift_alerts"
+}
+
+// SaveCatalogSnapshot upserts a catalog snapshot model record.
+func SaveCatalogSnapshot(snap *StudioProviderCatalogSnapshot) error {
+	if DB == nil {
+		return errors.New("db is not initialized")
+	}
+	now := time.Now().Unix()
+	if snap.FirstSeenAt == 0 {
+		snap.FirstSeenAt = now
+	}
+	snap.LastSeenAt = now
+	snap.UpdatedAt = now
+	if snap.CreatedAt == 0 {
+		snap.CreatedAt = now
+	}
+
+	var existing StudioProviderCatalogSnapshot
+	err := DB.Where("provider_id = ? AND model_id = ?", snap.ProviderId, snap.ModelId).First(&existing).Error
+	if err != nil {
+		return DB.Create(snap).Error
+	}
+	snap.Id = existing.Id
+	snap.FirstSeenAt = existing.FirstSeenAt
+	return DB.Save(snap).Error
+}
+
+// GetCatalogSnapshotsByProvider returns all recorded catalog models for a provider.
+func GetCatalogSnapshotsByProvider(providerId string) ([]StudioProviderCatalogSnapshot, error) {
+	if DB == nil {
+		return nil, nil
+	}
+	var snaps []StudioProviderCatalogSnapshot
+	err := DB.Where("provider_id = ?", providerId).Order("model_id ASC").Find(&snaps).Error
+	return snaps, err
+}
+
+// SaveContractDriftEvent records a contract drift event.
+func SaveContractDriftEvent(event *StudioContractDriftEvent) error {
+	if DB == nil {
+		return errors.New("db is not initialized")
+	}
+	if event.CreatedAt == 0 {
+		event.CreatedAt = time.Now().Unix()
+	}
+	return DB.Create(event).Error
+}
+
+// GetRecentContractDriftEvents returns recent drift events.
+func GetRecentContractDriftEvents(limit int) ([]StudioContractDriftEvent, error) {
+	if DB == nil {
+		return nil, nil
+	}
+	if limit <= 0 || limit > 100 {
+		limit = 50
+	}
+	var events []StudioContractDriftEvent
+	err := DB.Order("created_at DESC").Limit(limit).Find(&events).Error
+	return events, err
+}
+
+// SavePricingDriftAlert records a pricing drift alert.
+func SavePricingDriftAlert(alert *StudioPricingDriftAlert) error {
+	if DB == nil {
+		return errors.New("db is not initialized")
+	}
+	if alert.CreatedAt == 0 {
+		alert.CreatedAt = time.Now().Unix()
+	}
+	return DB.Create(alert).Error
+}
+
+// GetRecentPricingDriftAlerts returns recent pricing drift alerts.
+func GetRecentPricingDriftAlerts(limit int) ([]StudioPricingDriftAlert, error) {
+	if DB == nil {
+		return nil, nil
+	}
+	if limit <= 0 || limit > 100 {
+		limit = 50
+	}
+	var alerts []StudioPricingDriftAlert
+	err := DB.Order("created_at DESC").Limit(limit).Find(&alerts).Error
+	return alerts, err
+}
+
