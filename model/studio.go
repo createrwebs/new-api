@@ -202,6 +202,7 @@ type StudioAsset struct {
 	ExpiryAt           int64  `json:"expiry_at" gorm:"bigint;index"`
 	ExpiresAt          int64  `json:"expires_at,omitempty" gorm:"-"`
 	CreatedAt          int64  `json:"created_at" gorm:"bigint"`
+	UpdatedAt          int64  `json:"updated_at" gorm:"bigint"`
 }
 
 func (a *StudioAsset) TableName() string {

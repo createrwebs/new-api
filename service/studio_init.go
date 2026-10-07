@@ -34,8 +34,12 @@ func InitStudio(db *gorm.DB) error {
 
 		mockProvider := NewDeterministicMockProvider(MockModeInstantSuccess)
 		falProvider := NewFalProvider()
+		replicateProvider := NewReplicateProvider()
 
-		GlobalStudioService = NewStudioService(mockProvider, falProvider)
+		GlobalStudioService = NewStudioService(mockProvider, falProvider, replicateProvider)
+		if db != nil {
+			StartStudioAssetCleanupWorker(db)
+		}
 		common.SysLog("Tora Studio V1 service initialized successfully")
 	})
 
@@ -58,10 +62,22 @@ func LogStudioStatus(ctx context.Context) {
 	}
 	fal := svc.GetProvider("fal")
 	if fal != nil {
-		if err := fal.(*FalProvider).ValidateConfiguration(); err != nil {
-			common.SysLog("[Studio] fal.ai provider status: OPERATOR_BLOCKED (API key not set)")
-		} else {
-			common.SysLog("[Studio] fal.ai provider status: ACTIVE (API key configured)")
+		if falP, ok := fal.(*FalProvider); ok {
+			if err := falP.ValidateConfiguration(); err != nil {
+				common.SysLog("[Studio] fal.ai provider status: OPERATOR_BLOCKED (API key not set)")
+			} else {
+				common.SysLog("[Studio] fal.ai provider status: ACTIVE (API key configured)")
+			}
+		}
+	}
+	replicate := svc.GetProvider("replicate")
+	if replicate != nil {
+		if repP, ok := replicate.(*ReplicateProvider); ok {
+			if err := repP.ValidateConfiguration(); err != nil {
+				common.SysLog("[Studio] replicate provider status: OPERATOR_BLOCKED (API token not set)")
+			} else {
+				common.SysLog("[Studio] replicate provider status: ACTIVE (API token configured)")
+			}
 		}
 	}
 	common.SysLog("[Studio] mock provider status: ACTIVE (Deterministic test double ready)")

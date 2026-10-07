@@ -41,9 +41,21 @@ func GetStudioTools(c *gin.Context) {
 		}
 	}
 
+	replicateProvider := studioSvc.GetProvider("replicate")
+	replicateBlocked := false
+	if replicateProvider != nil {
+		if rep, ok := replicateProvider.(*service.ReplicateProvider); ok {
+			if rep.ValidateConfiguration() != nil {
+				replicateBlocked = true
+			}
+		}
+	}
+
 	// Update live tool state if provider is blocked
 	for i := range tools {
 		if tools[i].PrimaryProvider == "fal" && falBlocked {
+			tools[i].Status = model.StudioToolStateOperatorBlocked
+		} else if tools[i].PrimaryProvider == "replicate" && replicateBlocked {
 			tools[i].Status = model.StudioToolStateOperatorBlocked
 		}
 	}
@@ -71,6 +83,25 @@ func GetStudioToolBySlug(c *gin.Context) {
 		}
 		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": err.Error()})
 		return
+	}
+
+	studioSvc := service.GetStudioService()
+	falBlocked := false
+	if falProvider := studioSvc.GetProvider("fal"); falProvider != nil {
+		if fal, ok := falProvider.(*service.FalProvider); ok && fal.ValidateConfiguration() != nil {
+			falBlocked = true
+		}
+	}
+	replicateBlocked := false
+	if repProvider := studioSvc.GetProvider("replicate"); repProvider != nil {
+		if rep, ok := repProvider.(*service.ReplicateProvider); ok && rep.ValidateConfiguration() != nil {
+			replicateBlocked = true
+		}
+	}
+	if tool.PrimaryProvider == "fal" && falBlocked {
+		tool.Status = model.StudioToolStateOperatorBlocked
+	} else if tool.PrimaryProvider == "replicate" && replicateBlocked {
+		tool.Status = model.StudioToolStateOperatorBlocked
 	}
 
 	c.JSON(http.StatusOK, gin.H{
@@ -1000,6 +1031,12 @@ func UploadStudioAsset(c *gin.Context) {
 		return
 	}
 
+	// Check disk quota exhaustion guards (Section 17 & 18)
+	if err := service.CheckStorageQuota(model.DB, userId, int64(len(data))); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": err.Error()})
+		return
+	}
+
 	assetId := fmt.Sprintf("asset_%d_%s", common.GetTimestamp(), common.GetUUID()[:8])
 	ext := filepath.Ext(header.Filename)
 	if ext == "" {
@@ -1011,9 +1048,8 @@ func UploadStudioAsset(c *gin.Context) {
 	}
 	savedFilename := fmt.Sprintf("%s%s", assetId, ext)
 
-	// Save file locally to upload directory
-	uploadDir := "./data/upload/studio"
-	_ = os.MkdirAll(uploadDir, 0755)
+	// Save file to authoritative studio upload directory
+	uploadDir := service.GetStudioUploadDir()
 	filePath := filepath.Join(uploadDir, savedFilename)
 	if err := os.WriteFile(filePath, data, 0644); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "failed saving asset: " + err.Error()})
@@ -1030,6 +1066,7 @@ func UploadStudioAsset(c *gin.Context) {
 		assetURL = fmt.Sprintf("%s://%s/api/v1/studio/assets/%s", scheme, host, savedFilename)
 	}
 
+	now := common.GetTimestamp()
 	asset := &model.StudioAsset{
 		Id:                 assetId,
 		UserId:             userId,
@@ -1038,7 +1075,8 @@ func UploadStudioAsset(c *gin.Context) {
 		FileSize:           int64(len(data)),
 		MIMEType:           mimeType,
 		AvailabilityStatus: "available",
-		CreatedAt:          common.GetTimestamp(),
+		ExpiryAt:           now + int64(service.DefaultInputAssetTTL.Seconds()),
+		CreatedAt:          now,
 	}
 	if model.DB != nil {
 		_ = model.DB.Create(asset)
@@ -1060,7 +1098,7 @@ func UploadStudioAsset(c *gin.Context) {
 func ServeStudioAsset(c *gin.Context) {
 	filename := c.Param("filename")
 	cleanFilename := filepath.Base(filename)
-	filePath := filepath.Join("./data/upload/studio", cleanFilename)
+	filePath := filepath.Join(service.GetStudioUploadDir(), cleanFilename)
 
 	if _, err := os.Stat(filePath); os.IsNotExist(err) {
 		c.JSON(http.StatusNotFound, gin.H{"success": false, "message": "asset not found"})

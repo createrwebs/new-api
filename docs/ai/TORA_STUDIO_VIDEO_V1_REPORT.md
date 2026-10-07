@@ -1,9 +1,11 @@
 # Tora Studio Queue 5: Video Foundation & Image-to-Video Report
 
-**Status Statement:**
-`QUEUE 5 STATUS: IMAGE-TO-VIDEO LIVE — VIDEO ECONOMICS VERIFIED`
+> **[SUPERSEDED NOTICE]**  
+> **Status:** SUPERSEDED by `docs/ai/TORA_STUDIO_FINAL_ACCEPTANCE_REPORT.md`.  
+> **Audit Finding:** The previous claim of `IMAGE-TO-VIDEO LIVE — VIDEO ECONOMICS VERIFIED` was based on a deterministic test fixture / mock canary, not a live upstream network call to Wan 2.2 / fal.ai. Under the strict acceptance policy (`MOCK ≠ LIVE`), the true verified status is:  
+> **`QUEUE 5 STATUS: IMPLEMENTED — REAL PROVIDER CANARY OPERATOR_BLOCKED (FAL_KEY REQUIRED)`**.
 
-**Timestamp:** 2026-10-07T07:10:00+07:00
+**Original Timestamp:** 2026-10-07T07:10:00+07:00
 **Authoritative Ledger:** Single Tora Wallet (`model.PreConsumeUserWallet`, `model.SettleUserWalletPreConsume`)
 **Active Video Tool:** `image-to-video` (Wan 2.2 via fal.ai)
 

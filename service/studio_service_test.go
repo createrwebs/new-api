@@ -774,7 +774,7 @@ func TestStudioPricing_CalculatePriceWithInputs_MultiVariable(t *testing.T) {
 	videoTool := &model.StudioToolDefinition{
 		Id:              "video-generate",
 		PrimaryProvider: "fal",
-		PrimaryModel:    "fal-ai/kling-video/v1/standard/text-to-video",
+		PrimaryModel:    "fal-ai/wan-video/v1/standard/text-to-video",
 		Category:        "video",
 		CreditCost:      100, // 100 credits = $0.20 USD (meets 60% margin over $0.080)
 		MarginPercent:   60.0,

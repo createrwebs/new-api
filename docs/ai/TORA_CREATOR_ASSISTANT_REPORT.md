@@ -1,9 +1,11 @@
 # Tora Studio Queue 6: Creator Assistant & ToolPlan Report
 
-**Status Statement:**
-`QUEUE 6 STATUS: CREATOR ASSISTANT WORKFLOW VERIFIED`
+> **[SUPERSEDED NOTICE]**  
+> **Status:** SUPERSEDED by `docs/ai/TORA_STUDIO_FINAL_ACCEPTANCE_REPORT.md`.  
+> **Audit Finding:** The Creator Assistant and ToolPlan engine architecture (natural language parsing, multi-step dependency DAG, authoritative quoting, and partial step-level settlement/refund) is fully verified in code and tests. However, live multi-step execution against external providers requires live provider API credentials (`FAL_KEY`). Under the strict acceptance policy, the true status is:  
+> **`QUEUE 6 STATUS: IMPLEMENTATION VERIFIED — REAL WORKFLOW E2E PENDING (OPERATOR_BLOCKED)`**.
 
-**Timestamp:** 2026-10-07T07:18:00+07:00
+**Original Timestamp:** 2026-10-07T07:18:00+07:00
 **Authoritative Ledger:** Single Tora Wallet (`model.PreConsumeUserWallet`, `model.SettleUserWalletPreConsume`)
 
 ---

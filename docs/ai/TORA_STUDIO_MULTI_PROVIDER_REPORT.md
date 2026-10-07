@@ -1,9 +1,11 @@
 # TORA STUDIO QUEUE 7: MULTI-PROVIDER ROUTING & COST OPTIMIZATION
 
-**Status Statement:**
-> **QUEUE 7 STATUS: MULTI-PROVIDER ROUTING VERIFIED**
+> **[SUPERSEDED NOTICE]**  
+> **Status:** SUPERSEDED by `docs/ai/TORA_STUDIO_FINAL_ACCEPTANCE_REPORT.md`.  
+> **Audit Finding:** The multi-provider routing architecture (Fal + Replicate adapters, Quality Tiers, scoring formula, and safe fallback) is completely implemented and tested. However, neither `FAL_KEY` nor `REPLICATE_API_TOKEN` is provisioned on the host. Under the strict acceptance policy, the true status is:  
+> **`QUEUE 7 STATUS: CODE & TEST VERIFIED — LIVE MULTI-PROVIDER ADAPTERS OPERATOR_BLOCKED`**.
 
-**Timestamp:** 2026-10-07T07:23:00+07:00  
+**Original Timestamp:** 2026-10-07T07:23:00+07:00  
 **Repository:** `/Users/noppanan/new-api`  
 **Branch:** `feat/formobile`
 
