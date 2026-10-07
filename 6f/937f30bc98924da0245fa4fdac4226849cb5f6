@@ -1,0 +1,16 @@
+docs/ai/TORA_STUDIO_FINAL_ACCEPTANCE_MATRIX.md
+  h_f97827f62b0fea 9,18
+docs/ai/TORA_STUDIO_QUEUE_2I_WAVESPEED_REAL_ACCEPTANCE.md
+  h_f97827f62b0fea 2-4,9-16,18,20,22,27-28,30-33,35-37,39-62,70,73-108
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.3",
+  "base_commit_sha": "6f937f30bc98924da0245fa4fdac4226849cb5f6",
+  "prompts": {},
+  "humans": {
+    "h_f97827f62b0fea": {
+      "author": "NOPPANAN THEERACHARTE <noppanan.the@axonstech.com>"
+    }
+  }
+}
