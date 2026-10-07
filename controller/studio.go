@@ -1649,18 +1649,23 @@ func DeleteStudioAdminRoute(c *gin.Context) {
 	})
 }
 
-// RouteEconomicsItem represents economic margin decision surface for a route (Section 40).
+// RouteEconomicsItem represents economic margin decision surface for a route (Section 36 & 40).
 type RouteEconomicsItem struct {
 	ToolID             string  `json:"tool_id"`
 	ToolName           string  `json:"tool_name"`
 	RetailCredits      int     `json:"retail_credits"`
-	RetailQuota        int     `json:"retail_quota"`
+	CanonicalQuota     int     `json:"canonical_quota"`
 	RetailSellUSD      float64 `json:"retail_sell_usd"`
 	RouteID            string  `json:"route_id"`
 	ProviderID         string  `json:"provider_id"`
 	Protocol           string  `json:"protocol"`
 	ProviderModelID    string  `json:"provider_model_id"`
 	QualityTier        string  `json:"quality_tier"`
+	Status             string  `json:"status"`
+	PriceSource        string  `json:"price_source"`
+	PriceSourceRef     string  `json:"price_source_ref"`
+	PriceVerifiedAt    int64   `json:"price_verified_at"`
+	PricingVersion     string  `json:"pricing_version"`
 	EffectiveCostUSD   float64 `json:"effective_cost_usd"`
 	GrossProfitUSD     float64 `json:"gross_profit_usd"`
 	GrossMarginPercent float64 `json:"gross_margin_percent"`
@@ -1669,7 +1674,7 @@ type RouteEconomicsItem struct {
 	Priority           int     `json:"priority"`
 }
 
-// GetStudioAdminEconomics outputs gross margin analysis per logical tool and route (Section 40).
+// GetStudioAdminEconomics outputs gross margin analysis per logical tool and route (Section 36 & 40).
 func GetStudioAdminEconomics(c *gin.Context) {
 	tools, err := model.ListAllStudioTools()
 	if err != nil {
@@ -1692,7 +1697,7 @@ func GetStudioAdminEconomics(c *gin.Context) {
 
 	for _, r := range routes {
 		tool, hasTool := toolMap[r.LogicalTool]
-		sellUSD := 0.010
+		sellUSD := 0.020 // Default 10 Credits = 10,000 Quota = $0.020 USD under canonical conversion
 		toolName := r.LogicalTool
 		credits := 10
 		quota := 10000
@@ -1701,7 +1706,7 @@ func GetStudioAdminEconomics(c *gin.Context) {
 			toolName = tool.DisplayName
 			credits = tool.CreditCost
 			quota = tool.QuotaCost
-			sellUSD = float64(quota) / 1000000.0
+			sellUSD = float64(quota) / common.QuotaPerUnit // Canonical conversion: 500,000 Quota = $1.00 USD
 		}
 
 		profitUSD := sellUSD - r.EffectiveCostUSD
@@ -1723,13 +1728,18 @@ func GetStudioAdminEconomics(c *gin.Context) {
 			ToolID:             r.LogicalTool,
 			ToolName:           toolName,
 			RetailCredits:      credits,
-			RetailQuota:        quota,
+			CanonicalQuota:     quota,
 			RetailSellUSD:      sellUSD,
 			RouteID:            r.Id,
 			ProviderID:         r.ProviderId,
 			Protocol:           r.Protocol,
 			ProviderModelID:    r.ProviderModelId,
 			QualityTier:        r.QualityTier,
+			Status:             r.Status,
+			PriceSource:        r.PriceSource,
+			PriceSourceRef:     r.PriceSourceRef,
+			PriceVerifiedAt:    r.PriceVerifiedAt,
+			PricingVersion:     r.PricingVersion,
 			EffectiveCostUSD:   r.EffectiveCostUSD,
 			GrossProfitUSD:     profitUSD,
 			GrossMarginPercent: marginPercent,

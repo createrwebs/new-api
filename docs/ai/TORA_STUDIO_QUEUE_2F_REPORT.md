@@ -12,6 +12,9 @@
 > - Config-Driven Models: Zero Go code edits to add new models under supported protocols.
 > - Ambiguous Submission Invariant: Never fall back on downstream timeout/ambiguity.
 
+> [!WARNING]
+> **Queue 2G Canonicalization Update**: Preliminary documentation in Queue 2F informally referenced `1 Credit = 100 Quota = $0.001 USD` and a `/ 1,000,000` sellUSD calculation. Queue 2G forensically reconciled this against `common.QuotaPerUnit = 500,000.0` and `service.QuotaPerCredit = 1000`. The authoritative conversion is: **$1.00 USD = 500,000 Quota = 500 Tora Credits (1 Credit = 1,000 Quota = $0.0020 USD)**. See `docs/ai/TORA_CREDIT_CANONICAL_CONVERSION.md` and `docs/ai/TORA_STUDIO_QUEUE_2G_REPORT.md`.
+
 ---
 
 ### 1. Executive Summary

@@ -508,8 +508,13 @@ func FormatToraCredits(quota int) int {
 	return quota / QuotaPerCredit
 }
 
-// QuotaFromToraCredits converts user-facing Tora Credits to internal quota units.
-func QuotaFromToraCredits(credits int) int {
+// QuotaToCredits converts raw quota units to user-facing Tora Credits.
+func (e *PricingEngine) QuotaToCredits(quota int) int {
+	return quota / QuotaPerCredit
+}
+
+// CreditsToQuota converts user-facing Tora Credits to internal quota units.
+func (e *PricingEngine) CreditsToQuota(credits int) int {
 	return credits * QuotaPerCredit
 }
 

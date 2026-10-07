@@ -46,6 +46,9 @@ func setupTestRelayDB(t *testing.T) *gorm.DB {
 	// Ensure Wallet tables
 	_ = db.AutoMigrate(&model.WalletPreConsumeRecord{}, &model.User{})
 
+	// In test DB, activate WaveSpeed and KIE routes because test credentials are provided
+	_ = db.Model(&model.StudioModelRoute{}).Where("provider_id IN ?", []string{"wavespeed", "kie"}).Update("status", model.RouteStatusActive)
+
 	return db
 }
 
@@ -538,6 +541,7 @@ func TestStudio_ProfitabilityGuard_RejectsLossMakingRoute(t *testing.T) {
 		Protocol:         model.ProtocolMock,
 		ProviderModelId:  "expensive-gpu-v1",
 		QualityTier:      "QUALITY",
+		Status:           model.RouteStatusActive,
 		Enabled:          true,
 		PricingStrategy:  "FIXED_COGS",
 		BaseCostUSD:      0.050,

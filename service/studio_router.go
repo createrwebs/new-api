@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
 )
 
@@ -113,6 +114,40 @@ func (r *StudioRouter) SelectRoute(
 			continue
 		}
 
+		// A2. Check Route Status (Queue 2G Section 22)
+		if route.Status == model.RouteStatusDisabled {
+			cand.IsEligible = false
+			cand.SkipReason = "route disabled"
+			candidates = append(candidates, cand)
+			continue
+		}
+		if route.Status == model.RouteStatusDraft {
+			cand.IsEligible = false
+			cand.SkipReason = "route status draft (not executable)"
+			candidates = append(candidates, cand)
+			continue
+		}
+		if route.Status == model.RouteStatusBillingBlocked {
+			cand.IsEligible = false
+			cand.SkipReason = "route billing blocked (exhausted balance)"
+			candidates = append(candidates, cand)
+			continue
+		}
+		if route.Status == model.RouteStatusCredentialRequired {
+			cand.IsEligible = false
+			cand.SkipReason = "route credential required (unconfigured)"
+			candidates = append(candidates, cand)
+			continue
+		}
+
+		// A3. Provider Price Source Model Governance (Queue 2G Section 18)
+		if route.PriceSource == model.PriceSourceUnknown || route.PriceSource == "UNKNOWN" {
+			cand.IsEligible = false
+			cand.SkipReason = "price source UNKNOWN rejected by governance"
+			candidates = append(candidates, cand)
+			continue
+		}
+
 		// B. Fetch Provider Config and check circuit breaker (Section 25)
 		providerCfg, cfgErr := model.GetStudioProviderConfig(route.ProviderId)
 		if cfgErr != nil || providerCfg == nil {
@@ -178,9 +213,9 @@ func (r *StudioRouter) SelectRoute(
 		}
 		cand.EffectiveCostUSD = costUSD
 
-		// F. Profitability Guard (Section 28)
+		// F. Profitability Guard (Queue 2G: Authoritative QuotaPerUnit conversion)
 		if retailQuota > 0 && route.MinMargin > 0 {
-			sellUSD := float64(retailQuota) / 1000000.0 // 1 Credit = 1000 Quota = $0.001 -> $1 = 1M Quota
+			sellUSD := float64(retailQuota) / common.QuotaPerUnit // Canonical conversion: 500,000 Quota = $1.00 USD
 			if sellUSD > 0 {
 				grossMargin := ((sellUSD - costUSD) / sellUSD) * 100.0
 				if grossMargin < route.MinMargin {

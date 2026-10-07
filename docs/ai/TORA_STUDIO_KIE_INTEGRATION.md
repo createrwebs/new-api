@@ -1,10 +1,11 @@
 # TORA STUDIO — KIE.AI INTEGRATION SPECIFICATION & ARCHITECTURE
-## Queue 2F: Protocol Adaptor for KIE Jobs API (`KIE_JOBS_V1`)
+## Queue 2G: Protocol Adaptor for KIE Jobs API (`KIE_JOBS_V1`)
 
 > **Platform**: Tora Studio Generic Media Relay Core  
 > **Protocol**: `KIE_JOBS_V1`  
 > **Auth Invariant**: `KIE_API_KEY` stored strictly in server environment; no plain-text credentials in DB or client requests.  
-> **Zero-Code Model Invariant**: Adding a new KIE model requires inserting a row into `studio_model_routes`—zero Go code modifications.
+> **Zero-Code Model Invariant**: Adding a new KIE model requires inserting a row into `studio_model_routes`—zero Go code modifications.  
+> **Authoritative Economic Standard**: `v2_canonical` (1 Tora Credit = 1,000 Quota = $0.0020 USD, $1.00 USD = 500 Tora Credits = 500,000 Quota)
 
 ---
 
@@ -37,7 +38,7 @@ Content-Type: application/json
 {
   "model": "rembg",
   "callBackUrl": "https://www.toraapi.com/api/studio/webhook/kie",
-  "params": {
+  "input": {
     "image_url": "https://assets.toraapi.com/inputs/user1/test.png"
   }
 }
@@ -134,16 +135,16 @@ Public webhook receiver endpoint in Tora Controller (`controller/studio.go`):
 
 ---
 
-### 3. Seeded Default KIE Model Routes
+### 3. Audited Default KIE Model Routes (Canonical Economics)
 
-The following initial model routes are seeded in `service/studio_seed.go`:
+All figures below reflect the authoritative Tora conversion ($1.00 USD = 500 Tora Credits = 500,000 Quota units):
 
-| Logical Tool | Provider Model ID | Tier | Input Mapping | Base COGS | Retail Price (Tora Credits) |
-|:---|:---|:---|:---|:---|:---|
-| `background-remove` | `rembg` | `FAST` | `{"image_url": "image_url"}` | $0.005 | 20 Credits ($0.02) |
-| `image-upscale` | `upscale-v1` | `QUALITY` | `{"image_url": "image_url", "scale": 4}` | $0.012 | 40 Credits ($0.04) |
-| `image-generate` | `flux-schnell` | `FAST` | `{"prompt": "prompt", "aspect_ratio": "aspect_ratio"}` | $0.003 | 15 Credits ($0.015) |
-| `image-generate` | `flux-dev` | `QUALITY` | `{"prompt": "prompt", "aspect_ratio": "aspect_ratio"}` | $0.020 | 60 Credits ($0.06) |
+| Logical Tool | Provider Model ID | Tier | Status | Base COGS | Retail Credits | Canonical Quota | Sell Value (USD) | Gross Margin |
+|:---|:---|:---|:---|:---|:---|:---|:---|:---|
+| `background-remove` | `rembg` | `FAST` | `CREDENTIAL_REQUIRED` | $0.0050 | 10 Credits | 10,000 | $0.0200 | **75.0%** |
+| `image-upscale` | `upscale-v1` | `QUALITY` | `CREDENTIAL_REQUIRED` | $0.0120 | 25 Credits | 25,000 | $0.0500 | **76.0%** |
+| `image-generate` | `flux-schnell` | `FAST` | `CREDENTIAL_REQUIRED` | $0.0030 | 10 Credits | 10,000 | $0.0200 | **85.0%** |
+| `image-generate` | `flux-dev` | `QUALITY` | `CREDENTIAL_REQUIRED` | $0.0200 | 30 Credits | 30,000 | $0.0600 | **66.7%** |
 
 ---
 
@@ -155,14 +156,14 @@ To onboard a new model (e.g. `ideogram-v2` or `kling-v1`), an administrator exec
 ```sql
 INSERT INTO studio_model_routes (
     id, logical_tool, provider_id, protocol, provider_model_id, quality_tier,
-    enabled, input_mapping, output_mapping, capabilities,
-    pricing_strategy, base_cost_usd, effective_cost_usd, priority,
-    weight_health, weight_cost, weight_quality, weight_latency, min_margin
+    status, enabled, input_mapping, output_mapping, capabilities,
+    pricing_strategy, base_cost_usd, effective_cost_usd, price_source, price_source_ref,
+    priority, weight_health, weight_cost, weight_quality, weight_latency, min_margin
 ) VALUES (
     'route-kie-ideogram-v2', 'image-generate', 'kie', 'KIE_JOBS_V1', 'ideogram-v2', 'PREMIUM',
-    1, '{"prompt":"prompt","style":"style"}', '{"result.images[0]":"image_url"}', '{"style_selection":true}',
-    'FLAT', 0.040, 0.040, 90,
-    0.3, 0.3, 0.3, 0.1, 0.60
+    'CONTRACT_VERIFIED', 1, '{"prompt":"prompt","style":"style"}', '{"result.images[0]":"image_url"}', '{"style_selection":true}',
+    'FIXED_COGS', 0.040, 0.040, 'MANUAL_VERIFIED', 'https://docs.kie.ai/market/ideogram-v2',
+    90, 0.3, 0.3, 0.3, 0.1, 60.0
 );
 ```
 
