@@ -162,6 +162,9 @@ func (f *FalProvider) Submit(ctx context.Context, job *model.StudioToolJob) (*Pr
 	respBody, _ := io.ReadAll(resp.Body)
 
 	if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
+		if strings.Contains(string(respBody), "Exhausted balance") || strings.Contains(string(respBody), "User is locked") {
+			return nil, fmt.Errorf("fal.ai account locked or balance exhausted: %s", strings.TrimSpace(string(respBody)))
+		}
 		return nil, ErrFalUnconfigured
 	}
 
