@@ -547,38 +547,68 @@ func (s *StudioService) PollJob(ctx context.Context, jobId string, userId int, i
 		return job, nil
 	}
 
-	provider := s.GetProvider(job.ProviderName)
-	if provider == nil {
-		return nil, fmt.Errorf("provider %s unavailable for polling", job.ProviderName)
+	var pollStatus string
+	var pollOutputURL string
+	var pollOutputURLs []string
+	var pollError string
+
+	if job.RouteId != "" {
+		if route, err := model.GetStudioModelRoute(job.RouteId); err == nil && route != nil {
+			if providerCfg, err := model.GetStudioProviderConfig(route.ProviderId); err == nil && providerCfg != nil {
+				if adapter, err := GetProtocolRegistry().Get(route.Protocol); err == nil && adapter != nil {
+					normOut, err := adapter.Status(ctx, providerCfg, route, job.ProviderJobId)
+					if err != nil {
+						return job, err
+					}
+					if normOut != nil {
+						pollStatus = normOut.Status
+						pollOutputURL = normOut.PrimaryOutputURL()
+						pollOutputURLs = normOut.AllOutputURLs()
+						pollError = normOut.ErrorMessage
+					}
+				}
+			}
+		}
 	}
 
-	pollResult, err := provider.Poll(ctx, job.ProviderJobId)
-	if err != nil {
-		return job, err
+	if pollStatus == "" {
+		provider := s.GetProvider(job.ProviderName)
+		if provider == nil {
+			return nil, fmt.Errorf("provider %s unavailable for polling", job.ProviderName)
+		}
+
+		pollResult, err := provider.Poll(ctx, job.ProviderJobId)
+		if err != nil {
+			return job, err
+		}
+		pollStatus = pollResult.Status
+		pollOutputURL = pollResult.OutputURL
+		pollOutputURLs = pollResult.OutputURLs
+		pollError = pollResult.ErrorMessage
 	}
 
 	oldStatus := job.Status
-	switch pollResult.Status {
+	switch pollStatus {
 	case "completed":
 		if job.ReservedQuota > 0 && job.SettledQuota == 0 {
 			_ = model.SettleUserWalletPreConsume(job.RequestId)
 			job.SettledQuota = job.ReservedQuota
 		}
 		job.Status = model.StudioJobStatusSucceeded
-		if job.ToolId == "image-to-video" || strings.HasSuffix(job.ToolId, "-video") || strings.HasSuffix(strings.ToLower(pollResult.OutputURL), ".mp4") {
-			posterURL := strings.Replace(pollResult.OutputURL, ".mp4", "_poster.jpg", 1)
+		if job.ToolId == "image-to-video" || strings.HasSuffix(job.ToolId, "-video") || strings.HasSuffix(strings.ToLower(pollOutputURL), ".mp4") {
+			posterURL := strings.Replace(pollOutputURL, ".mp4", "_poster.jpg", 1)
 			job.OutputResult = fmt.Sprintf(`{"output_url": "%s", "video_url": "%s", "thumbnail_url": "%s", "poster_url": "%s"}`,
-				pollResult.OutputURL, pollResult.OutputURL, posterURL, posterURL)
-		} else if len(pollResult.OutputURLs) > 1 {
-			urlsJSON, _ := json.Marshal(pollResult.OutputURLs)
-			job.OutputResult = fmt.Sprintf(`{"output_url": "%s", "output_urls": %s, "variants": %s}`, pollResult.OutputURL, string(urlsJSON), string(urlsJSON))
+				pollOutputURL, pollOutputURL, posterURL, posterURL)
+		} else if len(pollOutputURLs) > 1 {
+			urlsJSON, _ := json.Marshal(pollOutputURLs)
+			job.OutputResult = fmt.Sprintf(`{"output_url": "%s", "output_urls": %s, "variants": %s}`, pollOutputURL, string(urlsJSON), string(urlsJSON))
 		} else {
-			job.OutputResult = fmt.Sprintf(`{"output_url": "%s"}`, pollResult.OutputURL)
+			job.OutputResult = fmt.Sprintf(`{"output_url": "%s"}`, pollOutputURL)
 		}
 		job.CompletedAt = common.GetTimestamp()
 
 		if model.DB != nil {
-			s.recordEvent(model.DB, jobId, "JOB_SUCCEEDED_POLL", oldStatus, model.StudioJobStatusSucceeded, pollResult.OutputURL)
+			s.recordEvent(model.DB, jobId, "JOB_SUCCEEDED_POLL", oldStatus, model.StudioJobStatusSucceeded, pollOutputURL)
 			toolDef, _ := model.GetStudioToolDefinition(job.ToolId)
 			s.recordCostSnapshot(model.DB, job, toolDef, job.ProviderName)
 		}
@@ -588,10 +618,10 @@ func (s *StudioService) PollJob(ctx context.Context, jobId string, userId int, i
 			_ = model.RefundUserWalletPreConsume(job.RequestId)
 		}
 		job.Status = model.StudioJobStatusFailed
-		job.ErrorMessage = pollResult.ErrorMessage
+		job.ErrorMessage = pollError
 
 		if model.DB != nil {
-			s.recordEvent(model.DB, jobId, "JOB_FAILED_POLL", oldStatus, model.StudioJobStatusFailed, pollResult.ErrorMessage)
+			s.recordEvent(model.DB, jobId, "JOB_FAILED_POLL", oldStatus, model.StudioJobStatusFailed, pollError)
 		}
 
 	case "processing", "queued":
@@ -617,7 +647,15 @@ func (s *StudioService) CancelJob(ctx context.Context, jobId string, userId int,
 	}
 
 	oldStatus := job.Status
-	if provider := s.GetProvider(job.ProviderName); provider != nil {
+	if job.RouteId != "" {
+		if route, err := model.GetStudioModelRoute(job.RouteId); err == nil && route != nil {
+			if providerCfg, err := model.GetStudioProviderConfig(route.ProviderId); err == nil && providerCfg != nil {
+				if adapter, err := GetProtocolRegistry().Get(route.Protocol); err == nil && adapter != nil {
+					_ = adapter.Cancel(ctx, providerCfg, route, job.ProviderJobId)
+				}
+			}
+		}
+	} else if provider := s.GetProvider(job.ProviderName); provider != nil {
 		_ = provider.Cancel(ctx, job.ProviderJobId)
 	}
 

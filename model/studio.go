@@ -149,28 +149,38 @@ func (j *StudioToolJob) TableName() string {
 
 // StudioPricingSnapshot records complete commercial audit metadata for a studio job (Section 14 & 34).
 type StudioPricingSnapshot struct {
-	QuoteID                 string   `json:"quote_id,omitempty"`
-	ToolID                  string   `json:"tool_id,omitempty"`
-	PricingVersion          string   `json:"pricing_version"`
-	Provider                string   `json:"provider"`
-	ProviderRoute           string   `json:"provider_route,omitempty"`
-	ProviderModel           string   `json:"provider_model"`
-	ProviderEstimatedCostUSD float64 `json:"provider_estimated_cost_usd"`
-	ProviderCostBasis       string   `json:"provider_cost_basis"` // "per_image", "per_second", "flat"
-	CostBasis               string   `json:"cost_basis,omitempty"`
-	TargetMargin            float64  `json:"target_margin"`
-	CalculatedSellUSD       float64  `json:"calculated_sell_usd"`
-	SellUSDEquivalent       float64  `json:"sell_usd_equivalent,omitempty"`
-	CalculatedCredits       float64  `json:"calculated_credits"`
-	ChargedCredits          int      `json:"charged_credits"`
-	EstimatedCredits        int      `json:"estimated_credits,omitempty"`
-	ChargedQuota            int      `json:"charged_quota"`
-	PlanMultiplier          float64  `json:"plan_multiplier"`
-	CandidateRoutes         []string `json:"candidate_routes,omitempty"`
-	SelectionReason         string   `json:"selection_reason,omitempty"`
-	RoutingVersion          string   `json:"routing_version,omitempty"`
-	QuotedAt                int64    `json:"quoted_at"`
-	ExpiresAt               int64    `json:"expires_at"`
+	QuoteID                  string   `json:"quote_id,omitempty"`
+	ToolID                   string   `json:"tool_id,omitempty"`
+	LogicalTool              string   `json:"logical_tool,omitempty"`
+	QualityTier              string   `json:"quality_tier,omitempty"`
+	PricingVersion           string   `json:"pricing_version"`
+	Provider                 string   `json:"provider"`
+	ProviderRoute            string   `json:"provider_route,omitempty"`
+	ProviderModel            string   `json:"provider_model"`
+	ProviderModelId          string   `json:"provider_model_id,omitempty"`
+	ProviderPriceSource      string   `json:"provider_price_source,omitempty"`
+	ProviderOriginalPrice    float64  `json:"provider_original_price,omitempty"`
+	ProviderEffectivePrice   float64  `json:"provider_effective_price,omitempty"`
+	ProviderDiscount         float64  `json:"provider_discount,omitempty"`
+	Currency                 string   `json:"currency,omitempty"`
+	InputPricingHash         string   `json:"input_pricing_hash,omitempty"`
+	ProviderEstimatedCostUSD float64  `json:"provider_estimated_cost_usd"`
+	ProviderCostBasis        string   `json:"provider_cost_basis"` // "per_image", "per_second", "flat"
+	CostBasis                string   `json:"cost_basis,omitempty"`
+	TargetMargin             float64  `json:"target_margin"`
+	EstimatedMargin          float64  `json:"estimated_margin,omitempty"`
+	CalculatedSellUSD        float64  `json:"calculated_sell_usd"`
+	SellUSDEquivalent        float64  `json:"sell_usd_equivalent,omitempty"`
+	CalculatedCredits        float64  `json:"calculated_credits"`
+	ChargedCredits           int      `json:"charged_credits"`
+	EstimatedCredits         int      `json:"estimated_credits,omitempty"`
+	ChargedQuota             int      `json:"charged_quota"`
+	PlanMultiplier           float64  `json:"plan_multiplier"`
+	CandidateRoutes          []string `json:"candidate_routes,omitempty"`
+	SelectionReason          string   `json:"selection_reason,omitempty"`
+	RoutingVersion           string   `json:"routing_version,omitempty"`
+	QuotedAt                 int64    `json:"quoted_at"`
+	ExpiresAt                int64    `json:"expires_at"`
 }
 
 // StudioJobEvent records state changes for auditability and recovery.
@@ -199,6 +209,7 @@ type StudioAsset struct {
 	MIME               string `json:"mime,omitempty" gorm:"-"`
 	FileSize           int64  `json:"file_size" gorm:"bigint;not null"`
 	Size               int64  `json:"size,omitempty" gorm:"-"`
+	SHA256             string `json:"sha256,omitempty" gorm:"type:varchar(64)"`
 	Width              int    `json:"width" gorm:"type:int;default:0"`
 	Height             int    `json:"height" gorm:"type:int;default:0"`
 	Duration           int    `json:"duration" gorm:"type:int;default:0"`

@@ -3,12 +3,15 @@ package service
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"errors"
 	"fmt"
 	"image"
 	"image/color"
 	"image/draw"
 	"image/png"
+	"io"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -227,4 +230,99 @@ func GetCanaryAssetURL() string {
 		serverURL = "https://www.toraapi.com"
 	}
 	return fmt.Sprintf("%s/api/studio/assets/%s", serverURL, ToraCanaryAssetFilename)
+}
+
+// IngestOutputAssetFromURL downloads a provider output URL, persists it locally with SHA-256, and registers ownership (Queue 2H Section 20).
+func IngestOutputAssetFromURL(ctx context.Context, db *gorm.DB, userId int, jobId string, remoteURL string) (*model.StudioAsset, error) {
+	if strings.TrimSpace(remoteURL) == "" {
+		return nil, errors.New("remote URL cannot be empty")
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, remoteURL, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed creating download request: %w", err)
+	}
+
+	client := &http.Client{Timeout: 30 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed downloading remote asset: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("remote asset server returned status %d", resp.StatusCode)
+	}
+
+	data, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed reading asset bytes: %w", err)
+	}
+
+	if len(data) == 0 {
+		return nil, errors.New("downloaded asset is empty (0 bytes)")
+	}
+
+	if err := CheckStorageQuota(db, userId, int64(len(data))); err != nil {
+		return nil, err
+	}
+
+	// Determine MIME type and file extension
+	contentType := resp.Header.Get("Content-Type")
+	mimeType := http.DetectContentType(data)
+	if contentType != "" && strings.Contains(contentType, "image/") {
+		mimeType = strings.Split(contentType, ";")[0]
+	}
+
+	ext := ".png"
+	switch strings.ToLower(mimeType) {
+	case "image/jpeg", "image/jpg":
+		ext = ".jpg"
+	case "image/webp":
+		ext = ".webp"
+	case "video/mp4":
+		ext = ".mp4"
+	}
+
+	now := common.GetTimestamp()
+	filename := fmt.Sprintf("out_%d_%s%s", now, common.GetUUID()[:8], ext)
+	uploadDir := GetStudioUploadDir()
+	filePath := filepath.Join(uploadDir, filename)
+
+	if err := os.WriteFile(filePath, data, 0644); err != nil {
+		return nil, fmt.Errorf("failed persisting local asset file: %w", err)
+	}
+
+	hashBytes := sha256.Sum256(data)
+	sha256Hex := fmt.Sprintf("%x", hashBytes)
+
+	serverURL := strings.TrimRight(os.Getenv("SERVER_URL"), "/")
+	if serverURL == "" {
+		serverURL = "https://www.toraapi.com"
+	}
+	localURL := fmt.Sprintf("%s/api/studio/assets/%s", serverURL, filename)
+
+	asset := &model.StudioAsset{
+		Id:                 fmt.Sprintf("ast_%d_%s", now, common.GetUUID()[:8]),
+		UserId:             userId,
+		JobId:              jobId,
+		AssetType:          "output",
+		MIMEType:           mimeType,
+		FileSize:           int64(len(data)),
+		SHA256:             sha256Hex,
+		StorageURL:         localURL,
+		AvailabilityStatus: "available",
+		ExpiryAt:           now + int64(DefaultOutputAssetTTL.Seconds()),
+		CreatedAt:          now,
+		UpdatedAt:          now,
+	}
+
+	if db != nil {
+		if err := model.CreateStudioAsset(asset); err != nil {
+			_ = os.Remove(filePath)
+			return nil, fmt.Errorf("failed persisting asset to database: %w", err)
+		}
+	}
+
+	return asset, nil
 }

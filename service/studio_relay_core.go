@@ -17,6 +17,7 @@ var (
 	ErrProviderUnconfigured = errors.New("media provider credential not configured")
 	ErrProviderAccountLocked = errors.New("upstream provider account locked or balance exhausted")
 	ErrInvalidModelRoute    = errors.New("invalid or disabled model route")
+	ErrPriceUnavailable     = errors.New("upstream provider price unavailable")
 )
 
 // NormalizedMediaInput represents a provider-neutral generation/editing request (Section 6).

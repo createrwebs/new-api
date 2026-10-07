@@ -1,6 +1,8 @@
 package service
 
 import (
+	"os"
+
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
 	"gorm.io/gorm"
@@ -610,7 +612,7 @@ func SeedStudioCatalog(db *gorm.DB) error {
 		_ = db.Where("id = ?", cfg.Id).Assign(cfg).FirstOrCreate(&cfg)
 	}
 
-	// 4. Generic Media Model Routes (Queue 2F & 2G Canonical Routing)
+	// 4. Generic Media Model Routes (Queue 2H Reconciled Catalog & Route Audit)
 	modelRoutes := []model.StudioModelRoute{
 		// --- background-remove routes ---
 		{
@@ -620,13 +622,13 @@ func SeedStudioCatalog(db *gorm.DB) error {
 			Protocol:         model.ProtocolWaveSpeedV3,
 			ProviderModelId:  "wavespeed-ai/birefnet",
 			QualityTier:      "FAST",
-			Status:           model.RouteStatusCredentialRequired,
-			Enabled:          true,
+			Status:           model.RouteStatusDisabled, // Disabled per Queue 2H Section 6 (unverified in WaveSpeed catalog)
+			Enabled:          false,
 			PricingStrategy:  "DYNAMIC_API",
 			BaseCostUSD:      0.004,
 			EffectiveCostUSD: 0.004,
-			PriceSource:      model.PriceSourceRemoteDynamic,
-			PriceSourceRef:   "POST /api/v3/model/price",
+			PriceSource:      model.PriceSourceUnknown,
+			PriceSourceRef:   "UNVERIFIED: WaveSpeed does not host wavespeed-ai/birefnet",
 			PriceVerifiedAt:  now,
 			PricingVersion:   "v2_canonical",
 			Priority:         1,
@@ -641,13 +643,13 @@ func SeedStudioCatalog(db *gorm.DB) error {
 			Protocol:         model.ProtocolKieJobsV1,
 			ProviderModelId:  "rembg",
 			QualityTier:      "FAST",
-			Status:           model.RouteStatusCredentialRequired,
-			Enabled:          true,
+			Status:           model.RouteStatusDraft, // Draft per Queue 2H Section 29 (unverified KIE market ID)
+			Enabled:          false,
 			PricingStrategy:  "FIXED_COGS",
 			BaseCostUSD:      0.005,
 			EffectiveCostUSD: 0.005,
-			PriceSource:      model.PriceSourceManualVerified,
-			PriceSourceRef:   "https://docs.kie.ai/market/rembg",
+			PriceSource:      model.PriceSourceUnknown,
+			PriceSourceRef:   "UNVERIFIED: KIE Market model ID pending verification",
 			PriceVerifiedAt:  now,
 			PricingVersion:   "v2_canonical",
 			Priority:         2,
@@ -685,19 +687,19 @@ func SeedStudioCatalog(db *gorm.DB) error {
 			Protocol:         model.ProtocolWaveSpeedV3,
 			ProviderModelId:  "wavespeed-ai/image-upscaler",
 			QualityTier:      "FAST",
-			Status:           model.RouteStatusCredentialRequired,
+			Status:           model.RouteStatusContractVerified, // Verified in catalog; awaits dedicated upscale canary
 			Enabled:          true,
 			PricingStrategy:  "DYNAMIC_API",
 			BaseCostUSD:      0.010,
 			EffectiveCostUSD: 0.010,
 			PriceSource:      model.PriceSourceRemoteDynamic,
-			PriceSourceRef:   "POST /api/v3/model/price",
+			PriceSourceRef:   "POST /api/v3/model/price (Catalog: https://wavespeed.ai/models/wavespeed-ai/image-upscaler)",
 			PriceVerifiedAt:  now,
 			PricingVersion:   "v2_canonical",
 			Priority:         1,
 			MinMargin:        60.0,
 			SuccessRate:      100.0,
-			InputMapping:     `{"image_url":"image_url"}`,
+			InputMapping:     `{"image_url":"image"}`,
 		},
 		{
 			Id:               "kie-upscale",
@@ -706,13 +708,13 @@ func SeedStudioCatalog(db *gorm.DB) error {
 			Protocol:         model.ProtocolKieJobsV1,
 			ProviderModelId:  "upscale-v1",
 			QualityTier:      "QUALITY",
-			Status:           model.RouteStatusCredentialRequired,
-			Enabled:          true,
+			Status:           model.RouteStatusDraft, // Draft per Queue 2H Section 29 (unverified KIE market ID)
+			Enabled:          false,
 			PricingStrategy:  "FIXED_COGS",
 			BaseCostUSD:      0.012,
 			EffectiveCostUSD: 0.012,
-			PriceSource:      model.PriceSourceManualVerified,
-			PriceSourceRef:   "https://docs.kie.ai/market/upscale",
+			PriceSource:      model.PriceSourceUnknown,
+			PriceSourceRef:   "UNVERIFIED: KIE Market model ID pending verification",
 			PriceVerifiedAt:  now,
 			PricingVersion:   "v2_canonical",
 			Priority:         2,
@@ -750,19 +752,24 @@ func SeedStudioCatalog(db *gorm.DB) error {
 			Protocol:         model.ProtocolWaveSpeedV3,
 			ProviderModelId:  "wavespeed-ai/flux-schnell",
 			QualityTier:      "FAST",
-			Status:           model.RouteStatusCredentialRequired,
+			Status: func() string {
+				if os.Getenv("WAVESPEED_API_KEY") != "" {
+					return model.RouteStatusReadyForCanary
+				}
+				return model.RouteStatusCredentialRequired
+			}(),
 			Enabled:          true,
 			PricingStrategy:  "DYNAMIC_API",
-			BaseCostUSD:      0.0025,
-			EffectiveCostUSD: 0.0025,
+			BaseCostUSD:      0.003, // Queue 2H Section 1: updated from 0.0025 to 0.003 baseline
+			EffectiveCostUSD: 0.003,
 			PriceSource:      model.PriceSourceRemoteDynamic,
-			PriceSourceRef:   "POST /api/v3/model/price",
+			PriceSourceRef:   "POST /api/v3/model/price (Catalog: https://wavespeed.ai/models/wavespeed-ai/flux-schnell)",
 			PriceVerifiedAt:  now,
 			PricingVersion:   "v2_canonical",
 			Priority:         1,
 			MinMargin:        60.0,
 			SuccessRate:      100.0,
-			InputMapping:     `{"prompt":"prompt","aspect_ratio":"aspect_ratio"}`,
+			InputMapping:     `{"prompt":"prompt","aspect_ratio":"aspect_ratio","size":"size"}`,
 		},
 		{
 			Id:               "kie-flux-schnell",
@@ -771,16 +778,37 @@ func SeedStudioCatalog(db *gorm.DB) error {
 			Protocol:         model.ProtocolKieJobsV1,
 			ProviderModelId:  "flux-schnell",
 			QualityTier:      "FAST",
-			Status:           model.RouteStatusCredentialRequired,
-			Enabled:          true,
+			Status:           model.RouteStatusDraft, // Draft per Queue 2H Section 29 (candidate: flux-2/flex-text-to-image)
+			Enabled:          false,
 			PricingStrategy:  "FIXED_COGS",
 			BaseCostUSD:      0.003,
 			EffectiveCostUSD: 0.003,
-			PriceSource:      model.PriceSourceManualVerified,
-			PriceSourceRef:   "https://docs.kie.ai/market/flux-schnell",
+			PriceSource:      model.PriceSourceUnknown,
+			PriceSourceRef:   "UNVERIFIED: KIE Market model ID pending verification (Queue 2I candidate: flux-2/flex-text-to-image)",
 			PriceVerifiedAt:  now,
 			PricingVersion:   "v2_canonical",
 			Priority:         2,
+			MinMargin:        60.0,
+			SuccessRate:      100.0,
+			InputMapping:     `{"prompt":"prompt","aspect_ratio":"aspect_ratio"}`,
+		},
+		{
+			Id:               "fal-flux-schnell",
+			LogicalTool:      "image-generate",
+			ProviderId:       "fal",
+			Protocol:         model.ProtocolFalQueue,
+			ProviderModelId:  "fal-ai/flux/schnell",
+			QualityTier:      "FAST",
+			Status:           model.RouteStatusBillingBlocked,
+			Enabled:          true,
+			PricingStrategy:  "FIXED_COGS",
+			BaseCostUSD:      0.0035,
+			EffectiveCostUSD: 0.0035,
+			PriceSource:      model.PriceSourceManualVerified,
+			PriceSourceRef:   "https://fal.ai/models/fal-ai/flux/schnell",
+			PriceVerifiedAt:  now,
+			PricingVersion:   "v2_canonical",
+			Priority:         3,
 			MinMargin:        60.0,
 			SuccessRate:      100.0,
 			InputMapping:     `{"prompt":"prompt","aspect_ratio":"aspect_ratio"}`,
@@ -792,19 +820,19 @@ func SeedStudioCatalog(db *gorm.DB) error {
 			Protocol:         model.ProtocolWaveSpeedV3,
 			ProviderModelId:  "wavespeed-ai/flux-dev",
 			QualityTier:      "QUALITY",
-			Status:           model.RouteStatusCredentialRequired,
+			Status:           model.RouteStatusContractVerified,
 			Enabled:          true,
 			PricingStrategy:  "DYNAMIC_API",
 			BaseCostUSD:      0.018,
 			EffectiveCostUSD: 0.018,
 			PriceSource:      model.PriceSourceRemoteDynamic,
-			PriceSourceRef:   "POST /api/v3/model/price",
+			PriceSourceRef:   "POST /api/v3/model/price (Catalog: https://wavespeed.ai/models/wavespeed-ai/flux-dev)",
 			PriceVerifiedAt:  now,
 			PricingVersion:   "v2_canonical",
 			Priority:         1,
 			MinMargin:        60.0,
 			SuccessRate:      100.0,
-			InputMapping:     `{"prompt":"prompt","aspect_ratio":"aspect_ratio"}`,
+			InputMapping:     `{"prompt":"prompt","aspect_ratio":"aspect_ratio","size":"size"}`,
 		},
 		{
 			Id:               "kie-flux-dev",
@@ -813,13 +841,13 @@ func SeedStudioCatalog(db *gorm.DB) error {
 			Protocol:         model.ProtocolKieJobsV1,
 			ProviderModelId:  "flux-dev",
 			QualityTier:      "QUALITY",
-			Status:           model.RouteStatusCredentialRequired,
-			Enabled:          true,
+			Status:           model.RouteStatusDraft, // Draft per Queue 2H Section 29 (candidate: flux-2/pro-text-to-image)
+			Enabled:          false,
 			PricingStrategy:  "FIXED_COGS",
 			BaseCostUSD:      0.020,
 			EffectiveCostUSD: 0.020,
-			PriceSource:      model.PriceSourceManualVerified,
-			PriceSourceRef:   "https://docs.kie.ai/market/flux-dev",
+			PriceSource:      model.PriceSourceUnknown,
+			PriceSourceRef:   "UNVERIFIED: KIE Market model ID pending verification (candidate: flux-2/pro-text-to-image)",
 			PriceVerifiedAt:  now,
 			PricingVersion:   "v2_canonical",
 			Priority:         2,
@@ -857,8 +885,8 @@ func SeedStudioCatalog(db *gorm.DB) error {
 			Protocol:         model.ProtocolWaveSpeedV3,
 			ProviderModelId:  "wavespeed-ai/flux-dev",
 			QualityTier:      "QUALITY",
-			Status:           model.RouteStatusCredentialRequired,
-			Enabled:          true,
+			Status:           model.RouteStatusDraft, // Draft per Queue 2H (complex input mapping pending dedicated canary)
+			Enabled:          false,
 			PricingStrategy:  "DYNAMIC_API",
 			BaseCostUSD:      0.018,
 			EffectiveCostUSD: 0.018,
@@ -878,13 +906,13 @@ func SeedStudioCatalog(db *gorm.DB) error {
 			Protocol:         model.ProtocolKieJobsV1,
 			ProviderModelId:  "flux-dev",
 			QualityTier:      "QUALITY",
-			Status:           model.RouteStatusCredentialRequired,
-			Enabled:          true,
+			Status:           model.RouteStatusDraft, // Draft per Queue 2H Section 29 (unverified KIE market ID)
+			Enabled:          false,
 			PricingStrategy:  "FIXED_COGS",
 			BaseCostUSD:      0.020,
 			EffectiveCostUSD: 0.020,
-			PriceSource:      model.PriceSourceManualVerified,
-			PriceSourceRef:   "https://docs.kie.ai/market/flux-dev",
+			PriceSource:      model.PriceSourceUnknown,
+			PriceSourceRef:   "UNVERIFIED: KIE Market model ID pending verification",
 			PriceVerifiedAt:  now,
 			PricingVersion:   "v2_canonical",
 			Priority:         2,
@@ -897,7 +925,12 @@ func SeedStudioCatalog(db *gorm.DB) error {
 	for _, route := range modelRoutes {
 		route.CreatedAt = now
 		route.UpdatedAt = now
-		_ = db.Where("id = ?", route.Id).Assign(route).FirstOrCreate(&route)
+		var existing model.StudioModelRoute
+		if err := db.Where("id = ?", route.Id).First(&existing).Error; err != nil {
+			_ = db.Select("*").Create(&route)
+		} else {
+			_ = db.Model(&existing).Select("*").Updates(&route)
+		}
 	}
 
 	return nil

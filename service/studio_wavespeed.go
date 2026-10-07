@@ -3,6 +3,7 @@ package service
 import (
 	"bytes"
 	"context"
+	"crypto/md5"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -88,75 +89,96 @@ func (a *WaveSpeedAdapter) Probe(ctx context.Context, provider *model.StudioProv
 	return model.ProviderHealthDegraded, nil
 }
 
-// Quote evaluates provider pricing via WaveSpeed /model/price API with local caching (Section 10-12).
+// Quote evaluates provider pricing via WaveSpeed /model/price API with local caching (Queue 2H Sections 8-10).
 func (a *WaveSpeedAdapter) Quote(
 	ctx context.Context,
 	provider *model.StudioProviderConfig,
 	route *model.StudioModelRoute,
 	input *NormalizedMediaInput,
 ) (float64, error) {
-	// 1. Check bounded price cache
-	cacheKey := fmt.Sprintf("ws_price:%s:%s", route.ProviderModelId, input.AspectRatio)
+	// 1. Prepare mapped parameters and compute deterministic pricing hash
+	payloadMap, err := ApplyParameterMapping(input, route.InputMapping)
+	if err != nil {
+		payloadMap = make(map[string]interface{})
+	}
+	payloadBytes, _ := json.Marshal(payloadMap)
+	inputHash := fmt.Sprintf("%x", md5Sum(payloadBytes))[:8]
+
+	cacheKey := fmt.Sprintf("ws_price:%s:%s", route.ProviderModelId, inputHash)
 	if cached, ok := GetPriceCache().Get(cacheKey); ok {
 		return cached, nil
 	}
 
 	key := a.getAPIKey(provider)
-	if key == "" || route.PricingStrategy != "DYNAMIC_API" {
-		// Fallback to configured effective cost
-		if route.EffectiveCostUSD > 0 {
-			return route.EffectiveCostUSD, nil
+	if key != "" && route.PricingStrategy == "DYNAMIC_API" {
+		priceReqBody := map[string]interface{}{
+			"model_id": route.ProviderModelId,
+			"model":    route.ProviderModelId,
+			"inputs":   payloadMap,
 		}
-		return route.BaseCostUSD, nil
+		bodyBytes, _ := json.Marshal(priceReqBody)
+
+		url := fmt.Sprintf("%s/model/price", a.getBaseURL(provider))
+		req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(bodyBytes))
+		if err == nil {
+			req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", key))
+			req.Header.Set("Content-Type", "application/json")
+			req.Header.Set("Accept", "application/json")
+
+			resp, err := a.client.Do(req)
+			if err == nil {
+				defer resp.Body.Close()
+				if resp.StatusCode == http.StatusOK {
+					var priceResp struct {
+						Code int `json:"code"`
+						Data struct {
+							BasePrice       float64 `json:"base_price"`
+							DiscountedPrice float64 `json:"discounted_price"`
+							DiscountRate    float64 `json:"discount_rate"`
+							Price           float64 `json:"price"`
+							EstimatedCost   float64 `json:"estimated_cost"`
+							Currency        string  `json:"currency"`
+						} `json:"data"`
+					}
+					if err := json.NewDecoder(resp.Body).Decode(&priceResp); err == nil {
+						var effectivePrice float64
+						if priceResp.Data.DiscountedPrice > 0 {
+							effectivePrice = priceResp.Data.DiscountedPrice
+						} else if priceResp.Data.EstimatedCost > 0 {
+							effectivePrice = priceResp.Data.EstimatedCost
+						} else if priceResp.Data.Price > 0 {
+							effectivePrice = priceResp.Data.Price
+						} else if priceResp.Data.BasePrice > 0 {
+							effectivePrice = priceResp.Data.BasePrice
+						}
+
+						if effectivePrice > 0 {
+							GetPriceCache().Set(cacheKey, effectivePrice, 5*time.Minute)
+							route.EffectiveCostUSD = effectivePrice
+							route.PriceVerifiedAt = time.Now().Unix()
+							route.PriceSource = model.PriceSourceRemoteDynamic
+							return effectivePrice, nil
+						}
+					}
+				}
+			}
+		}
 	}
 
-	// 2. Query WaveSpeed dynamic price preview
-	payloadMap, err := ApplyParameterMapping(input, route.InputMapping)
-	if err != nil {
-		payloadMap = make(map[string]interface{})
+	// 3. Fallback Static Cost (Queue 2H Section 9)
+	// Allowed fallback only if a recently verified provider catalog price exists within freshness TTL (7 days)
+	const PriceFreshnessTTL = int64(7 * 24 * 3600)
+	now := time.Now().Unix()
+	if route.EffectiveCostUSD > 0 && route.PriceVerifiedAt > 0 && (now-route.PriceVerifiedAt) <= PriceFreshnessTTL {
+		// Apply conservative safety multiplier of 1.20x to protect customer margin
+		return route.EffectiveCostUSD * 1.20, nil
 	}
 
-	priceReqBody := map[string]interface{}{
-		"model":  route.ProviderModelId,
-		"inputs": payloadMap,
-	}
-	bodyBytes, _ := json.Marshal(priceReqBody)
+	return 0, fmt.Errorf("%w: route '%s' lacks verified fresh catalog pricing", ErrPriceUnavailable, route.Id)
+}
 
-	url := fmt.Sprintf("%s/model/price", a.getBaseURL(provider))
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(bodyBytes))
-	if err != nil {
-		return route.EffectiveCostUSD, nil
-	}
-	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", key))
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := a.client.Do(req)
-	if err != nil {
-		return route.EffectiveCostUSD, nil
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return route.EffectiveCostUSD, nil
-	}
-
-	var priceResp struct {
-		Code int `json:"code"`
-		Data struct {
-			BasePrice       float64 `json:"base_price"`
-			DiscountedPrice float64 `json:"discounted_price"`
-			DiscountRate    float64 `json:"discount_rate"`
-			Currency        string  `json:"currency"`
-		} `json:"data"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&priceResp); err == nil && priceResp.Data.DiscountedPrice > 0 {
-		effectivePrice := priceResp.Data.DiscountedPrice
-		// Cache for 5 minutes
-		GetPriceCache().Set(cacheKey, effectivePrice, 5*time.Minute)
-		return effectivePrice, nil
-	}
-
-	return route.EffectiveCostUSD, nil
+func md5Sum(b []byte) [16]byte {
+	return md5.Sum(b)
 }
 
 // Submit launches an asynchronous task with WaveSpeed API (Section 13).

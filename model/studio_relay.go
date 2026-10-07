@@ -74,7 +74,7 @@ type StudioModelRoute struct {
 	ProviderModelId  string  `json:"provider_model_id" gorm:"type:varchar(128);not null"`
 	QualityTier      string  `json:"quality_tier" gorm:"type:varchar(32);default:'QUALITY';index"` // FAST, QUALITY, PREMIUM
 	Status           string  `json:"status" gorm:"type:varchar(32);default:'ACTIVE';index"` // DRAFT, CONTRACT_VERIFIED, CREDENTIAL_REQUIRED, READY_FOR_CANARY, ACTIVE, DEGRADED, BILLING_BLOCKED, DISABLED
-	Enabled          bool    `json:"enabled" gorm:"default:true;index"`
+	Enabled          bool    `json:"enabled" gorm:"index"`
 	InputMapping     string  `json:"input_mapping" gorm:"type:text"` // JSON mapping rules
 	OutputMapping    string  `json:"output_mapping" gorm:"type:text"` // JSON mapping rules
 	Capabilities     string  `json:"capabilities" gorm:"type:text"` // JSON array e.g. ["aspect_ratio", "seed"]

@@ -106,15 +106,7 @@ func (r *StudioRouter) SelectRoute(
 			IsEligible:       true,
 		}
 
-		// A. Check Route enabled flag
-		if !route.Enabled {
-			cand.IsEligible = false
-			cand.SkipReason = "route disabled"
-			candidates = append(candidates, cand)
-			continue
-		}
-
-		// A2. Check Route Status (Queue 2G Section 22)
+		// A. Check Route Status (Queue 2G Section 22 / Queue 2H)
 		if route.Status == model.RouteStatusDisabled {
 			cand.IsEligible = false
 			cand.SkipReason = "route disabled"
@@ -136,6 +128,20 @@ func (r *StudioRouter) SelectRoute(
 		if route.Status == model.RouteStatusCredentialRequired {
 			cand.IsEligible = false
 			cand.SkipReason = "route credential required (unconfigured)"
+			candidates = append(candidates, cand)
+			continue
+		}
+
+		// A2. Check Route enabled flag
+		if !route.Enabled {
+			cand.IsEligible = false
+			cand.SkipReason = "route disabled"
+			candidates = append(candidates, cand)
+			continue
+		}
+		if route.Status == model.RouteStatusContractVerified {
+			cand.IsEligible = false
+			cand.SkipReason = "route contract verified only (canary verification required)"
 			candidates = append(candidates, cand)
 			continue
 		}
@@ -207,7 +213,14 @@ func (r *StudioRouter) SelectRoute(
 		// E. Dynamic Quote Lookup if DYNAMIC_API configured (Section 10 & 27)
 		costUSD := route.EffectiveCostUSD
 		if route.PricingStrategy == "DYNAMIC_API" && normInput != nil {
-			if q, qErr := adapter.Quote(ctx, providerCfg, &route, normInput); qErr == nil && q > 0 {
+			q, qErr := adapter.Quote(ctx, providerCfg, &route, normInput)
+			if qErr != nil {
+				cand.IsEligible = false
+				cand.SkipReason = fmt.Sprintf("pricing unavailable: %v", qErr)
+				candidates = append(candidates, cand)
+				continue
+			}
+			if q > 0 {
 				costUSD = q
 			}
 		}
