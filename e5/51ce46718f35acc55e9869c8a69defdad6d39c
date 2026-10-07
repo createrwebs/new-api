@@ -1,0 +1,40 @@
+web/public/images/model-claude.svg
+  h_f97827f62b0fea 1-59
+web/public/images/model-gemini.svg
+  h_f97827f62b0fea 1-52
+web/public/images/tool-assistant.svg
+  h_f97827f62b0fea 1-77
+web/public/images/tool-bg-remove.svg
+  h_f97827f62b0fea 1-60
+web/public/images/tool-upscale.svg
+  h_f97827f62b0fea 1-79
+web/public/images/tool-video.svg
+  h_f97827f62b0fea 1-80
+web/src/features/home/components/index.ts
+  h_f97827f62b0fea 1,3-4,8,10
+web/src/features/home/components/sections/about-us.tsx
+  h_f97827f62b0fea 1-144
+web/src/features/home/components/sections/faq.tsx
+  h_f97827f62b0fea 1-131
+web/src/features/home/components/sections/featured-models.tsx
+  h_f97827f62b0fea 1-216
+web/src/features/home/components/sections/hero.tsx
+  h_f97827f62b0fea 1,6-12,15-16,20,29-30,34-35,38-47,49-56,58-65,67-74,76-78,86,91-92,99,102-103,109-110,113,117,121,123-126,128-130,132,135-136,138,142,146,149-150,154,157-158,161-169,175,177,182-205,208-247,251,253-257,259-260,263-312,315
+web/src/features/home/components/sections/model-list.tsx
+  h_f97827f62b0fea 1-273
+web/src/features/home/components/sections/tool-set.tsx
+  h_f97827f62b0fea 1-235
+web/src/features/home/index.tsx
+  h_f97827f62b0fea 29-37,134-138
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.3",
+  "base_commit_sha": "e551ce46718f35acc55e9869c8a69defdad6d39c",
+  "prompts": {},
+  "humans": {
+    "h_f97827f62b0fea": {
+      "author": "NOPPANAN THEERACHARTE <noppanan.the@axonstech.com>"
+    }
+  }
+}
