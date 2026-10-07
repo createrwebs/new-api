@@ -1,0 +1,50 @@
+controller/studio_assistant.go
+  h_f97827f62b0fea 1-263
+docs/ai/TORA_CREATOR_ASSISTANT_REPORT.md
+  h_f97827f62b0fea 1-92
+docs/ai/TORA_STUDIO_MULTI_PROVIDER_REPORT.md
+  h_f97827f62b0fea 1-118
+docs/ai/TORA_STUDIO_SCALE_ECONOMICS.md
+  h_f97827f62b0fea 1-153
+model/studio.go
+  h_f97827f62b0fea 274,314-333
+model/studio_workflow.go
+  h_f97827f62b0fea 1-75
+router/api-router.go
+  h_f97827f62b0fea 389-395
+service/studio_assistant.go
+  h_f97827f62b0fea 1-649
+service/studio_assistant_test.go
+  h_f97827f62b0fea 1-316
+service/studio_replicate.go
+  h_f97827f62b0fea 1-280
+service/studio_router.go
+  h_f97827f62b0fea 1-335
+service/studio_router_test.go
+  h_f97827f62b0fea 1-226
+service/studio_scale.go
+  h_f97827f62b0fea 1-450
+service/studio_scale_test.go
+  h_f97827f62b0fea 1-216
+service/studio_service.go
+  h_f97827f62b0fea 24-27,35,39-41,49,66-79,122-128,131-136,259-269,358,360-363
+web/src/features/studio/components/CreatorAssistant.tsx
+  h_f97827f62b0fea 1-629
+web/src/features/studio/index.tsx
+  h_f97827f62b0fea 2,11,19,24,27,100,104-107,124-126
+web/src/routeTree.gen.ts
+  h_f97827f62b0fea 40,226-231,526,598,674,749,821,896,1156-1162,1573,1607
+web/src/routes/_authenticated/assistant/index.tsx
+  h_f97827f62b0fea 1-11
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.3",
+  "base_commit_sha": "3c2f515207bac5e35a392d76d9533f0e0d28bb4b",
+  "prompts": {},
+  "humans": {
+    "h_f97827f62b0fea": {
+      "author": "NOPPANAN THEERACHARTE <noppanan.the@axonstech.com>"
+    }
+  }
+}
