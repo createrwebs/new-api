@@ -1,0 +1,19 @@
+model/studio.go
+  s_8b4544554b557a::t_d50ac299ebdc9c 136,218,227-236,307-309
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.3",
+  "base_commit_sha": "563d6456d14e121c11e9e18163e0f748b865fb88",
+  "prompts": {},
+  "sessions": {
+    "s_8b4544554b557a": {
+      "agent_id": {
+        "tool": "cline",
+        "id": "conv_1791362568588_5ojyv4f",
+        "model": "unknown"
+      },
+      "human_author": "NOPPANAN THEERACHARTE <noppanan.the@axonstech.com>"
+    }
+  }
+}
