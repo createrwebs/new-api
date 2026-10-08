@@ -1,0 +1,22 @@
+docs/ai/TORA_N4_1_PRODUCTION_ACCEPTANCE.md
+  h_f97827f62b0fea 1-133
+docs/ai/TORA_N4_1_SOURCE_ALIGNMENT.md
+  h_f97827f62b0fea 1-57
+docs/ai/TORA_STUDIO_QUEUE_N4_REPORT.md
+  h_f97827f62b0fea 21-25
+docs/ai/TORA_STUDIO_QUEUE_N5_REPORT.md
+  h_f97827f62b0fea 6-7,13-40,147-156
+scripts/run_n4_1_canary.py
+  h_f97827f62b0fea 1-269
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.3",
+  "base_commit_sha": "2fe659ca9daf495b94ee3fe6eff594eca97de2b6",
+  "prompts": {},
+  "humans": {
+    "h_f97827f62b0fea": {
+      "author": "NOPPANAN THEERACHARTE <noppanan.the@axonstech.com>"
+    }
+  }
+}
