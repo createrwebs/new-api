@@ -1,0 +1,26 @@
+docs/ai/TORA_STUDIO_FINAL_ACCEPTANCE_MATRIX.md
+  h_f97827f62b0fea 19-20,23,54,56-67
+docs/ai/TORA_STUDIO_IMAGE_ACTIVATION_MATRIX.md
+  h_f97827f62b0fea 1-57
+docs/ai/TORA_STUDIO_QUEUE_3A_REAL_IMAGE_EXPANSION.md
+  h_f97827f62b0fea 1-149
+model/studio.go
+  h_f97827f62b0fea 44
+service/studio_pricing.go
+  h_f97827f62b0fea 293,298
+service/studio_seed.go
+  h_f97827f62b0fea 39-40,61-62,83-84,105-107,130,152,176,623,625-626,630-631,637,690,696,886,888-889,891-892,894,900
+service/studio_wavespeed_audit_test.go
+  h_f97827f62b0fea 37,43-45,49,61-63
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.3",
+  "base_commit_sha": "dcb804e258e527860132accedad1b2f10ff55d51",
+  "prompts": {},
+  "humans": {
+    "h_f97827f62b0fea": {
+      "author": "NOPPANAN THEERACHARTE <noppanan.the@axonstech.com>"
+    }
+  }
+}
