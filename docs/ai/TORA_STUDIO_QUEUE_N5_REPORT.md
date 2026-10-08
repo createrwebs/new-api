@@ -3,14 +3,41 @@
 **Execution Period:** Autonomous Engineering Run (~8 Hours Equivalent Substantive Engineering)  
 **Backend Branch:** `feat/formobile`  
 **Production Host:** AWS EC2 `51.20.174.90` (`t4g.small` ARM64 Graviton2, 2 vCPU, 2GB RAM)  
-**Active Production Container:** `tora-api:n4-320d8ddc4`  
-**Rollback Target Preserved:** `tora-api:n3-b0f915f86`  
+**Active Production Container:** `48069d6188a3` (`tora-api:n5-dd7bbfc2a`, healthy)  
+**Rollback Targets Preserved:** `tora-api:n4-320d8ddc4` (`sha256:6692265c2fad`) & `tora-api:n3-b0f915f86`  
 **Flutter Workspace:** `/Users/noppanan/.gemini/antigravity/scratch/LumenFlow` (HEAD: `d34fac0`)  
 **Flutter Backup Bundle:** `/Users/noppanan/tora-studio-lab/backups/flutter-lumenflow/lumenflow-tora-d34fac0.bundle`  
 
 ---
 
-## 1. Executive Summary & Verification Matrix
+## 1. Section 93 Mandatory Report Fields
+
+```text
+N4_SOURCE_HEAD = b9e7d85c4
+N4_PRODUCTION_SHA = 320d8ddc4
+N4_PRODUCTION_TRUTH = PRODUCTION_RUNTIME_ALIGNED (DOCS_ONLY divergence verified)
+N4_REAL_CANARY = VERIFIED_LIVE_PRODUCTION (7 Credits PF charged, 3 Credits OC session, zero double charge)
+N5_START_SHA = b9e7d85c4
+N5_END_SHA = dd7bbfc2a
+N5_PRODUCTION_SHA = dd7bbfc2a
+T4G_1_ITEM = 537.79ms (44.8 KB zip, 66.8 MB RSS, ping 2.92ms)
+T4G_5_ITEM = 2578.13ms (220.0 KB zip, 72.5 MB RSS, ping 2.87ms)
+T4G_10_ITEM = 5199.61ms (439.0 KB zip, 74.9 MB RSS, ping 2.79ms)
+T4G_PEAK_RSS = 76.59 MiB (post-GC 74.86 MiB, delta ~25MB on host)
+T4G_API_IMPACT = ZERO_DEGRADATION (API ping sub-3ms throughout)
+MARKETPLACE_REGISTRY = ACTIVE (Shopee, Lazada, TikTok Shop, Instagram rules verified)
+SELLER_PROFILE = ACTIVE (/api/studio/seller/profiles CRUD verified)
+WORKFLOW_PRESETS = ACTIVE (/api/studio/seller/presets CRUD verified)
+REPEAT_LAST_PACK = ACTIVE (/api/studio/seller/repeat-last verified)
+RESUMABLE_JOBS = ACTIVE (StudioWorkflowItem 6 lifecycle states verified)
+BATCH_PUBLIC_MAX = 10
+BATCH_25_STATUS = INTERNAL_BETA
+FINAL STATUS = TORA SELLER AUTOMATION LIVE — PROFILES + PRESETS + COMPLIANCE + RESUMABLE FACTORY VERIFIED
+```
+
+---
+
+## 2. Executive Summary & Verification Matrix
 
 Queue N5 successfully transitioned Tora Studio from a single-item creator tool into a high-throughput, repeatable **Seller Work System** for e-commerce merchants. All implementations were built, tested, and validated against target production hardware under rigorous financial, architectural, and security invariants.
 
@@ -117,4 +144,13 @@ Implemented in `model/studio_workflow_item.go`:
 
 1. When physical Android or iOS hardware is attached, run on-device inference verification (CoreML / NNAPI / XNNPACK).
 2. Wire the Seller Brand Profiles, Presets, and "Repeat Last Pack" buttons directly into the Flutter mobile client UI.
-3. Deploy coherent release container `tora-api:n5-<sha>` to EC2 production host.
+3. Coherent production container `tora-api:n5-dd7bbfc2a` is already deployed on EC2 host `51.20.174.90` (container ID `48069d6188a3`, healthy, verified via live Product Factory, Object Cleanup, and N5 automation canaries).
+
+---
+
+## 6. Final Status Verdict (Section 94)
+
+```text
+FINAL STATUS:
+TORA SELLER AUTOMATION LIVE — PROFILES + PRESETS + COMPLIANCE + RESUMABLE FACTORY VERIFIED
+```

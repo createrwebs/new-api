@@ -18,7 +18,11 @@ Overnight Queue N4 successfully executed the transformation of Tora Studio from 
 4. **Marketplace Template Packs**: Implemented standardized, aspect-preserving framing for 6 channels (Shopee, Lazada, TikTok Shop, Instagram Feed, Instagram Story, and Generic Marketplace) with zero distortion.
 5. **Deterministic Object Cleanup V1**: Evaluated Fast Marching Method (Telea) vs Navier-Stokes across 12 product cases. Telea won on boundary gradient continuity ($<5.3\text{ms}$ latency). Truthfully scoped as *"optimized for small objects, blemishes, scratches, and cables"*.
 6. **Interactive Session Billing**: Replaced predatory per-stroke charges with a 30-minute session ticket for **3 Tora Credits** (3,000 Quota) allowing up to 5 exports, image hash binding, and fair zero-credit retries.
-7. **Seller Factory V2 Batch Engine**: Built hybrid on-device matting + server compositing pipeline. Max batch 10 items, 3-item chunking. Benchmarked: 10 items complete in **1.35 seconds** using only **12.2 MB heap delta** on `t4g.small`.
+7. **Seller Factory V2 Batch Engine**: Built hybrid on-device matting + server compositing pipeline. Max batch 10 items, 3-item chunking.
+   > [!IMPORTANT]
+   > **ERRATUM — HARDWARE BENCHMARK CONTEXT**:
+   > The preliminary benchmark (10 items in 1.35s / 12.2MB heap delta) was measured on a local development host (Apple Silicon M-series) and is classified as **`DEVELOPMENT_HOST_LOAD_EVIDENCE`**.
+   > Authoritative target production hardware evidence measured directly on AWS EC2 `t4g.small` ARM64 Graviton2 is documented in [`docs/ai/TORA_T4G_FACTORY_LOAD_ACCEPTANCE.md`](file:///Users/noppanan/new-api/docs/ai/TORA_T4G_FACTORY_LOAD_ACCEPTANCE.md) (10 items / 60 assets complete in 5.19s, peak RSS 76.59 MiB, zero ping degradation).
 8. **Security & Archive Integrity**: Enforced 25MB payload ceilings, 4096px decompression bomb defenses, sanitized relative ZIP paths, transparent cutout preservation, and clean `manifest.json`.
 9. **Zero Footprint Inflation**: `NEW_SERVER_COUNT = 0`, `NEW_GPU_SERVER_COUNT = 0`, `NEW_PROVIDER_COUNT = 0`. Commercial research licenses (LaMa, MAT) remained strictly excluded.
 
