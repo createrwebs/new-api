@@ -1,0 +1,70 @@
+controller/studio_marketplace.go
+  h_f97827f62b0fea 1-37
+controller/studio_native.go
+  h_f97827f62b0fea 4,505-506,536-547
+controller/studio_seller_profile.go
+  h_f97827f62b0fea 1-210
+docs/ai/TORA_BATCH_25_ACCEPTANCE.md
+  h_f97827f62b0fea 1-59
+docs/ai/TORA_FACTORY_RESUMABLE_JOBS.md
+  h_f97827f62b0fea 1-50
+docs/ai/TORA_FLUTTER_SOURCE_CONTROL_STATUS.md
+  h_f97827f62b0fea 65-86
+docs/ai/TORA_MARKETPLACE_COMPLIANCE_REGISTRY.md
+  h_f97827f62b0fea 1-121
+docs/ai/TORA_N5_OVERNIGHT_BASELINE.md
+  h_f97827f62b0fea 1-36
+docs/ai/TORA_N5_OVERNIGHT_CHECKPOINT.md
+  h_f97827f62b0fea 1-22
+docs/ai/TORA_N5_SOURCE_PRODUCTION_ALIGNMENT.md
+  h_f97827f62b0fea 1-49
+docs/ai/TORA_QUEUE_N6_PREP.md
+  h_f97827f62b0fea 1-40
+docs/ai/TORA_SELLER_PROFILE_ARCHITECTURE.md
+  h_f97827f62b0fea 1-56
+docs/ai/TORA_SELLER_WORKFLOW_PRESETS.md
+  h_f97827f62b0fea 1-72
+docs/ai/TORA_STUDIO_QUEUE_N5_REPORT.md
+  h_f97827f62b0fea 1-120
+docs/ai/TORA_T4G_FACTORY_LOAD_ACCEPTANCE.md
+  h_f97827f62b0fea 1-55
+model/main.go
+  h_f97827f62b0fea 419-427
+model/studio_marketplace.go
+  h_f97827f62b0fea 1-59
+model/studio_preset.go
+  h_f97827f62b0fea 1-123
+model/studio_seller_profile.go
+  h_f97827f62b0fea 1-78
+model/studio_seller_profile_test.go
+  h_f97827f62b0fea 1-167
+model/studio_workflow_item.go
+  h_f97827f62b0fea 1-167
+model/studio_workflow_item_test.go
+  h_f97827f62b0fea 1-100
+router/api-router.go
+  h_f97827f62b0fea 382-383,414-426
+service/studio_marketplace.go
+  h_f97827f62b0fea 1-277
+service/studio_marketplace_test.go
+  h_f97827f62b0fea 1-107
+service/studio_native.go
+  h_f97827f62b0fea 424,443,445-448
+service/studio_native_test.go
+  h_f97827f62b0fea 571-582,586-587
+service/studio_seller_factory.go
+  h_f97827f62b0fea 531
+service/studio_seller_factory_test.go
+  h_f97827f62b0fea 314
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.3",
+  "base_commit_sha": "dd7bbfc2add0eea6781f845fa63bb5b7610fa19c",
+  "prompts": {},
+  "humans": {
+    "h_f97827f62b0fea": {
+      "author": "NOPPANAN THEERACHARTE <noppanan.the@axonstech.com>"
+    }
+  }
+}
