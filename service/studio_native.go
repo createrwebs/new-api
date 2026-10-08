@@ -173,12 +173,25 @@ type NativeQuoteResult struct {
 	FallbackProvider string                     `json:"fallback_provider,omitempty"`
 }
 
+// getTicketSigningKey returns a domain-separated cryptographic secret for ticket authorization.
+func getTicketSigningKey() []byte {
+	if secret := os.Getenv("STUDIO_TICKET_SECRET"); secret != "" {
+		mac := hmac.New(sha256.New, []byte("tora-studio-native-ticket-v2-salt"))
+		mac.Write([]byte(secret))
+		return mac.Sum(nil)
+	}
+	baseSecret := common.SessionSecret
+	if baseSecret == "" {
+		baseSecret = common.CryptoSecret
+	}
+	mac := hmac.New(sha256.New, []byte("tora-studio-native-ticket-v2"))
+	mac.Write([]byte(baseSecret))
+	return mac.Sum(nil)
+}
+
 // GenerateTicketAuthToken creates a tamper-resistant HMAC signature for client execution authorization.
 func GenerateTicketAuthToken(ticket *model.NativeExecutionTicket) string {
-	secret := os.Getenv("STUDIO_TICKET_SECRET")
-	if secret == "" {
-		secret = "tora_native_secret_salt_2026"
-	}
+	key := getTicketSigningKey()
 	payload := fmt.Sprintf("%s|%d|%s|%s|%s|%s|%s|%s|%s|%s|%d|%d|%d|%d|%s",
 		ticket.TicketId,
 		ticket.UserId,
@@ -196,7 +209,7 @@ func GenerateTicketAuthToken(ticket *model.NativeExecutionTicket) string {
 		ticket.RetryUntil,
 		ticket.Nonce,
 	)
-	mac := hmac.New(sha256.New, []byte(secret))
+	mac := hmac.New(sha256.New, key)
 	mac.Write([]byte(payload))
 	return hex.EncodeToString(mac.Sum(nil))
 }

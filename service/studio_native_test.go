@@ -294,13 +294,31 @@ func TestStudioNative_HMACSignature_TamperResistance(t *testing.T) {
 	assert.NotEmpty(t, validToken)
 	assert.True(t, VerifyTicketAuthToken(ticket, validToken))
 
-	// Tampering test: Attacker changes tool or charged quota
-	ticket.ToolId = "image-upscale-4x"
-	assert.False(t, VerifyTicketAuthToken(ticket, validToken), "Tampered tool must fail signature verification")
+	// Tampering tests: verify altering any single signed field fails verification
+	tamperCases := []struct {
+		name   string
+		mutate func(tkt *model.NativeExecutionTicket)
+	}{
+		{"tampered tool", func(tkt *model.NativeExecutionTicket) { tkt.ToolId = "image-upscale-4x" }},
+		{"tampered quota (zero free)", func(tkt *model.NativeExecutionTicket) { tkt.ChargedQuota = 0 }},
+		{"tampered user ID", func(tkt *model.NativeExecutionTicket) { tkt.UserId = 999 }},
+		{"tampered ticket ID", func(tkt *model.NativeExecutionTicket) { tkt.TicketId = "tkt_other_id" }},
+		{"tampered model hash", func(tkt *model.NativeExecutionTicket) { tkt.ModelVersionHash = "tampered_hash_abc" }},
+		{"tampered input hash", func(tkt *model.NativeExecutionTicket) { tkt.NormalizedInputHash = "tampered_input" }},
+		{"tampered execution class", func(tkt *model.NativeExecutionTicket) { tkt.ExecutionClass = model.ExecutionClassDeterministicServer }},
+		{"tampered billing policy", func(tkt *model.NativeExecutionTicket) { tkt.BillingPolicy = model.BillingPolicySuccessSettlement }},
+		{"tampered expiry", func(tkt *model.NativeExecutionTicket) { tkt.ExpiresAt = now + 99999 }},
+		{"tampered retry window", func(tkt *model.NativeExecutionTicket) { tkt.RetryUntil = now + 99999 }},
+		{"tampered nonce", func(tkt *model.NativeExecutionTicket) { tkt.Nonce = "nonce_spoof" }},
+	}
 
-	ticket.ToolId = "background-remove"
-	ticket.ChargedQuota = 0 // Attempting free execution
-	assert.False(t, VerifyTicketAuthToken(ticket, validToken), "Tampered quota must fail signature verification")
+	for _, tc := range tamperCases {
+		t.Run(tc.name, func(t *testing.T) {
+			mutated := *ticket
+			tc.mutate(&mutated)
+			assert.False(t, VerifyTicketAuthToken(&mutated, validToken), "Tampering %s must fail signature verification", tc.name)
+		})
+	}
 }
 
 // Test 8: Deterministic Marketplace Product Pack Pipeline (Section 48)
