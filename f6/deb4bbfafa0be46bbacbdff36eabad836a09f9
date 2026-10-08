@@ -1,0 +1,46 @@
+model/studio.go
+  h_f97827f62b0fea 314
+docs/ai/TORA_OBJECT_CLEANUP_DETERMINISTIC_BENCHMARK.md
+  h_f97827f62b0fea 1-61
+docs/ai/TORA_TEMPLATE_RENDERING_ACCEPTANCE.md
+  h_f97827f62b0fea 1-62
+docs/ai/TORA_STUDIO_QUEUE_N4A_REPORT.md
+  h_f97827f62b0fea 1-105
+THIRD_PARTY_NOTICES_NATIVE_TOOLS.md
+  h_f97827f62b0fea 1-49
+service/studio_seller_factory.go
+  h_f97827f62b0fea 1-697
+docs/ai/TORA_OBJECT_CLEANUP_LICENSE_AUDIT.md
+  h_f97827f62b0fea 22-25,29-39
+router/api-router.go
+  h_f97827f62b0fea 381,408-411
+docs/ai/TORA_FLUTTER_SOURCE_CONTROL_STATUS.md
+  h_f97827f62b0fea 1-64
+docs/ai/TORA_SELLER_FACTORY_V2.md
+  h_f97827f62b0fea 1-80
+docs/ai/TORA_NATIVE_GITHUB_PATTERN_HARVEST.md
+  h_f97827f62b0fea 24-26
+docs/ai/TORA_OBJECT_CLEANUP_SESSION_BILLING.md
+  h_f97827f62b0fea 1-94
+service/studio_seller_factory_test.go
+  h_f97827f62b0fea 1-291
+model/studio_native.go
+  h_f97827f62b0fea 245-306,316
+controller/studio_native.go
+  h_f97827f62b0fea 5,382-544
+service/studio_native.go
+  h_f97827f62b0fea 153-164,220-229,240-249,842-942
+docs/ai/TORA_SMART_SHADOW_ACCEPTANCE.md
+  h_f97827f62b0fea 1-54
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.3",
+  "base_commit_sha": "f6deb4bbfafa0be46bbacbdff36eabad836a09f9",
+  "prompts": {},
+  "humans": {
+    "h_f97827f62b0fea": {
+      "author": "NOPPANAN THEERACHARTE <noppanan.the@axonstech.com>"
+    }
+  }
+}
