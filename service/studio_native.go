@@ -32,6 +32,7 @@ type NativeModelMeta struct {
 	License      string `json:"license"`
 	ExecutionEnv string `json:"execution_env"`
 	InputShape   string `json:"input_shape"`
+	DownloadURL  string `json:"download_url"`
 }
 
 // NativeModels holds the authoritative verified digests and licenses of harvested models.
@@ -46,6 +47,7 @@ var NativeModels = map[string]NativeModelMeta{
 		License:      "Apache-2.0",
 		ExecutionEnv: "NATIVE_BROWSER",
 		InputShape:   "1x3x320x320",
+		DownloadURL:  "/api/studio/native/models/u2netp",
 	},
 	"modnet": {
 		ModelId:      "modnet",
@@ -57,6 +59,7 @@ var NativeModels = map[string]NativeModelMeta{
 		License:      "Apache-2.0",
 		ExecutionEnv: "NATIVE_BROWSER",
 		InputShape:   "1x3x512x512",
+		DownloadURL:  "/api/studio/native/models/modnet",
 	},
 	"realesrgan_2x": {
 		ModelId:      "realesrgan_2x",
@@ -68,6 +71,7 @@ var NativeModels = map[string]NativeModelMeta{
 		License:      "BSD-3-Clause",
 		ExecutionEnv: "NATIVE_BROWSER",
 		InputShape:   "dynamic (tiled)",
+		DownloadURL:  "/api/studio/native/models/realesrgan_2x",
 	},
 	"realesrgan_4x": {
 		ModelId:      "realesrgan_4x",
@@ -79,6 +83,7 @@ var NativeModels = map[string]NativeModelMeta{
 		License:      "BSD-3-Clause",
 		ExecutionEnv: "NATIVE_BROWSER",
 		InputShape:   "dynamic (tiled)",
+		DownloadURL:  "/api/studio/native/models/realesrgan_4x",
 	},
 	"isnet": {
 		ModelId:      "isnet",
@@ -90,6 +95,7 @@ var NativeModels = map[string]NativeModelMeta{
 		License:      "MIT",
 		ExecutionEnv: "NATIVE_LOCAL_CPU",
 		InputShape:   "1x3x1024x1024",
+		DownloadURL:  "/api/studio/native/models/isnet",
 	},
 }
 

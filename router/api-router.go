@@ -376,6 +376,7 @@ func SetApiRouter(router *gin.Engine) {
 			studioPublicRoute.POST("/webhook/:provider", controller.StudioWebhook)
 			studioPublicRoute.GET("/assets/:filename", controller.ServeStudioAsset)
 			studioPublicRoute.POST("/native/quote", controller.QuoteNativeTool)
+			studioPublicRoute.GET("/native/models/:modelId", controller.ServeNativeModel)
 		}
 
 		studioUserRoute := apiRouter.Group("/studio")

@@ -4,6 +4,8 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/QuantumNous/new-api/model"
@@ -320,4 +322,34 @@ func GenerateMarketplaceProductPack(c *gin.Context) {
 		"message": "marketplace product pack generated successfully",
 		"data":    packResult,
 	})
+}
+
+// ServeNativeModel serves open-weight model artifacts with content-addressed cache headers.
+func ServeNativeModel(c *gin.Context) {
+	modelId := c.Param("modelId")
+	meta, ok := service.NativeModels[modelId]
+	if !ok {
+		c.JSON(http.StatusNotFound, gin.H{"success": false, "message": "model not recognized in manifest"})
+		return
+	}
+
+	modelsDir := os.Getenv("STUDIO_MODELS_DIR")
+	if modelsDir == "" {
+		modelsDir = "/data/models"
+	}
+	modelPath := filepath.Join(modelsDir, meta.Filename)
+	if _, err := os.Stat(modelPath); os.IsNotExist(err) {
+		// Fallback check in current working directory / models
+		modelPath = filepath.Join("data", "models", meta.Filename)
+		if _, err := os.Stat(modelPath); os.IsNotExist(err) {
+			c.JSON(http.StatusNotFound, gin.H{"success": false, "message": "model artifact not found on server"})
+			return
+		}
+	}
+
+	c.Header("Content-Type", "application/octet-stream")
+	c.Header("Cache-Control", "public, max-age=31536000, immutable")
+	c.Header("ETag", `"`+meta.SHA256+`"`)
+	c.Header("Access-Control-Allow-Origin", "*")
+	c.File(modelPath)
 }

@@ -14,21 +14,20 @@
 
 ## 2. Browser Environment Support Matrix
 
-| Browser | Operating System | WebGPU Kernel | WASM SIMD Fallback | Verified Models | Peak Memory (RAM) | Max Safe Input Resolution | Production Compatibility Status |
-|---|---|---|---|---|---|---|---|
-| **Chrome / Chromium (v113+)** | macOS 14+ / Windows 11 | ✅ Supported | ✅ Supported | `u2netp`, `modnet`, `realesrgan_2x`, `realesrgan_4x` | 380 MB | 4096 × 4096 (Tiled) | ✅ **VERIFIED** |
-| **Microsoft Edge (v113+)** | Windows 10/11 | ✅ Supported | ✅ Supported | `u2netp`, `modnet`, `realesrgan_2x` | 370 MB | 4096 × 4096 (Tiled) | ✅ **VERIFIED** |
-| **Safari (v17+)** | macOS Sonoma+ | ✅ Supported (Metal) | ✅ Supported | `u2netp`, `modnet`, `realesrgan_2x` | 320 MB | 3072 × 3072 | ✅ **VERIFIED** |
-| **Mozilla Firefox (v120+)** | macOS / Windows / Linux | ⚠️ Nightly / Flag | ✅ Supported | `u2netp`, `modnet` | 420 MB | 2048 × 2048 | ⚠️ **FALLBACK_VERIFIED (WASM)** |
-| **Mobile Chrome** | Android 13+ (Snapdragon 8 Gen 2) | ⚠️ WebGPU (Vulkan) | ✅ Supported | `u2netp` (4.4MB) | ~260 MB | 2048 × 2048 | ⏳ **REAL_ANDROID_DEVICE = PENDING** |
-| **Mobile Safari** | iOS 17+ (iPhone 14/15) | ⚠️ WebGPU experimental | ✅ Supported | `u2netp` (4.4MB) | ~250 MB | 2048 × 2048 | ⏳ **REAL_IOS_DEVICE = PENDING** |
-| **Legacy Browsers (No WASM SIMD)** | Any | ❌ Unavailable | ❌ Too slow | None | N/A | N/A | 🚫 **UNSUPPORTED** (Auto-Relay) |
+| Browser & OS | Official ORT Web WebGPU EP | Official ORT Web WASM EP | Tora Execution Provider Order | Tora Production Verified Status | Notes / Limitations |
+|---|---|---|---|---|---|
+| **Chrome / Chromium (macOS / Windows)** | ✅ Officially Supported (v113+) | ✅ Officially Supported | `webgpu` → `wasm` | ✅ **TORA_PRODUCTION_VERIFIED (WebGPU)** | Primary recommended browser. Tested on Apple Silicon and Windows 11. |
+| **Microsoft Edge (Windows / macOS)** | ✅ Officially Supported (v113+) | ✅ Officially Supported | `webgpu` → `wasm` | ✅ **TORA_PRODUCTION_VERIFIED (WebGPU)** | Chromium-based parity with Chrome. |
+| **Chrome Android** | ⚠️ Supported (v121+ / Vulkan) | ✅ Officially Supported | `webgpu` → `wasm` | ⏳ **CONTROLLED_BENCHMARK_ONLY** | Tested in local mobile harness; pending public production device field run. |
+| **Safari macOS (v17+)** | ❌ **UNSUPPORTED_BY_CURRENT_ORT_WEB_MATRIX** | ✅ Officially Supported | `wasm` (CPU SIMD) | ⚠️ **ORT_WEBGPU_UNSUPPORTED / WASM_SUPPORTED** | WebKit WebGPU is not officially supported by ORT Web. Must use WASM fallback. |
+| **Safari iOS (iPhone / iPad)** | ❌ **UNSUPPORTED_BY_CURRENT_ORT_WEB_MATRIX** | ✅ Officially Supported | `wasm` (CPU SIMD) | ⏳ **NOT_TESTED_IN_PRODUCTION** | ORT Web WebGPU disabled. WASM single-thread/SIMD viable for lightweight models only. |
+| **Mozilla Firefox (v120+)** | ❌ Not standard in ORT Web | ✅ Officially Supported | `wasm` (CPU SIMD) | ⏳ **FIREFOX_WASM = NOT_TESTED** | WebGPU flag-only; official ORT execution is WASM SIMD. |
+| **Legacy Browsers (No WASM SIMD)** | ❌ Unavailable | ❌ Too slow | None | 🚫 **UNSUPPORTED** | Blocked at client capability preflight; no credits charged. |
 
 ---
 
-## 3. End-to-End Latency Breakdown (Not Inference-Only)
-
-True user wait time consists of the entire pipeline from user click to final rendered canvas. We report all lifecycle phases on a clean 2026 MacBook Pro (M-series, Desktop Chrome WebGPU):
+## 3. End-to-End Latency Breakdown (Controlled Local Benchmark)
+*Note: The following metrics reflect **`CONTROLLED_BROWSER_BENCHMARK`** on a developer workstation (MacBook Pro M-series, Chrome Desktop WebGPU). Production telemetry is recorded separately in `TORA_NATIVE_REAL_PRODUCTION_MATRIX.md`.*
 
 ### A. Background Remove (`u2netp.onnx` — 4.36 MB)
 - **Model Download (Cold, Broadband 100Mbps)**: ~380 ms

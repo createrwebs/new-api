@@ -153,6 +153,7 @@ export interface NativeQuoteResult {
     format: string
     license: string
     execution_env: string
+    download_url?: string
   }
   route_version: string
   expires_at: number
