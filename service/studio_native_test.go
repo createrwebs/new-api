@@ -491,3 +491,122 @@ func TestStudioNative_NativeMobile_QuoteAndPrepaidExecution(t *testing.T) {
 	assert.Equal(t, int64(450), completed.ClientExecutionMs)
 }
 
+// Test 10: Product Factory Batch Quote Model & Economics (Sections 32-35)
+func TestStudioNative_ProductFactoryBatchQuote_PerItemAndBundleDiscount(t *testing.T) {
+	// 1. Single Item (Normal price: 7 Credits base, 10 Credits enhanced)
+	singleBase, err := CalculateProductFactoryBatchQuote(ProductFactoryBatchQuoteRequest{
+		InputCount:       1,
+		Enable2xUpscale:  false,
+		ClientAppVersion: "2.4.1",
+	})
+	require.NoError(t, err)
+	assert.Equal(t, model.PriceScopePerItem, singleBase.PriceScope)
+	assert.Equal(t, 1, singleBase.InputCount)
+	assert.Equal(t, 7, singleBase.PerItemCredits)
+	assert.Equal(t, 0, singleBase.BundleDiscountCredits)
+	assert.Equal(t, 7, singleBase.TotalCredits)
+	assert.Equal(t, 7000, singleBase.TotalQuota)
+	assert.Equal(t, 0.014, singleBase.USDEquivalent)
+	assert.Equal(t, "v2_batch_bundle", singleBase.PricingVersion)
+
+	singleEnhanced, err := CalculateProductFactoryBatchQuote(ProductFactoryBatchQuoteRequest{
+		InputCount:       1,
+		Enable2xUpscale:  true,
+		ClientAppVersion: "2.4.1",
+	})
+	require.NoError(t, err)
+	assert.Equal(t, 10, singleEnhanced.PerItemCredits)
+	assert.Equal(t, 0, singleEnhanced.BundleDiscountCredits)
+	assert.Equal(t, 10, singleEnhanced.TotalCredits)
+	assert.Equal(t, 10000, singleEnhanced.TotalQuota)
+	assert.Equal(t, 0.020, singleEnhanced.USDEquivalent)
+
+	// 2. 5 Items (5% bundle discount: 35 -> 33 Credits base, 50 -> 47 Credits enhanced)
+	batch5Base, err := CalculateProductFactoryBatchQuote(ProductFactoryBatchQuoteRequest{
+		InputCount:       5,
+		Enable2xUpscale:  false,
+		ClientAppVersion: "2.4.1",
+	})
+	require.NoError(t, err)
+	assert.Equal(t, model.PriceScopeBundle, batch5Base.PriceScope)
+	assert.Equal(t, 5, batch5Base.InputCount)
+	assert.Equal(t, 7, batch5Base.PerItemCredits)
+	assert.Equal(t, 1, batch5Base.BundleDiscountCredits) // 35 * 5% = 1 credit discount
+	assert.Equal(t, 34, batch5Base.TotalCredits)         // 35 - 1 = 34 credits
+
+	batch5Enhanced, err := CalculateProductFactoryBatchQuote(ProductFactoryBatchQuoteRequest{
+		InputCount:       5,
+		Enable2xUpscale:  true,
+		ClientAppVersion: "2.4.1",
+	})
+	require.NoError(t, err)
+	assert.Equal(t, model.PriceScopeBundle, batch5Enhanced.PriceScope)
+	assert.Equal(t, 2, batch5Enhanced.BundleDiscountCredits) // 50 * 5% = 2 credits discount
+	assert.Equal(t, 48, batch5Enhanced.TotalCredits)         // 50 - 2 = 48 credits
+
+	// 3. 10 Items (10% bundle discount: 70 -> 63 Credits base, 100 -> 90 Credits enhanced)
+	batch10Base, err := CalculateProductFactoryBatchQuote(ProductFactoryBatchQuoteRequest{
+		InputCount:       10,
+		Enable2xUpscale:  false,
+		ClientAppVersion: "2.4.1",
+	})
+	require.NoError(t, err)
+	assert.Equal(t, model.PriceScopeBundle, batch10Base.PriceScope)
+	assert.Equal(t, 10, batch10Base.InputCount)
+	assert.Equal(t, 7, batch10Base.BundleDiscountCredits) // 70 * 10% = 7 credits discount
+	assert.Equal(t, 63, batch10Base.TotalCredits)         // 70 - 7 = 63 credits
+	assert.Equal(t, 63000, batch10Base.TotalQuota)
+
+	batch10Enhanced, err := CalculateProductFactoryBatchQuote(ProductFactoryBatchQuoteRequest{
+		InputCount:       10,
+		Enable2xUpscale:  true,
+		ClientAppVersion: "2.4.1",
+	})
+	require.NoError(t, err)
+	assert.Equal(t, model.PriceScopeBundle, batch10Enhanced.PriceScope)
+	assert.Equal(t, 10, batch10Enhanced.BundleDiscountCredits) // 100 * 10% = 10 credits discount
+	assert.Equal(t, 90, batch10Enhanced.TotalCredits)          // 100 - 10 = 90 credits
+	assert.Equal(t, 90000, batch10Enhanced.TotalQuota)
+
+	// 4. Batch boundary validation (0 items and >10 items rejected)
+	_, errZero := CalculateProductFactoryBatchQuote(ProductFactoryBatchQuoteRequest{InputCount: 0})
+	assert.ErrorIs(t, errZero, ErrProductFactoryInvalidBatchSize)
+
+	_, errEleven := CalculateProductFactoryBatchQuote(ProductFactoryBatchQuoteRequest{InputCount: 11})
+	assert.ErrorIs(t, errEleven, ErrProductFactoryInvalidBatchSize)
+}
+
+// Test 11: Remote Kill Switch & Minimum App Version Gate (Sections 44-45)
+func TestStudioNative_RemoteKillSwitch_And_MinimumAppVersion(t *testing.T) {
+	// 1. App version comparison
+	assert.Equal(t, 0, compareSemVer("2.4.0", "2.4.0"))
+	assert.Equal(t, 1, compareSemVer("2.4.1", "2.4.0"))
+	assert.Equal(t, -1, compareSemVer("2.3.9", "2.4.0"))
+	assert.Equal(t, 1, compareSemVer("v2.4.1+241", "2.4.0"))
+
+	// 2. Outdated client rejection in batch quote
+	_, errOld := CalculateProductFactoryBatchQuote(ProductFactoryBatchQuoteRequest{
+		InputCount:       1,
+		ClientAppVersion: "2.3.9",
+	})
+	assert.ErrorIs(t, errOld, ErrAppVersionUnsupported)
+
+	// 3. Remote kill switch toggle
+	SetKillSwitch("native_mobile_u2netp", false)
+	quoteBefore, err := GetNativeToolQuote("background-remove", model.ExecutionClassNativeMobile)
+	require.NoError(t, err)
+	assert.True(t, quoteBefore.RouteActive)
+	assert.Equal(t, "2.4.0", quoteBefore.MinimumMobileAppVersion)
+
+	// Activate kill switch
+	SetKillSwitch("native_mobile_u2netp", true)
+	_, errKilled := GetNativeToolQuote("background-remove", model.ExecutionClassNativeMobile)
+	assert.ErrorIs(t, errKilled, ErrNativeRouteDisabled)
+
+	// Restore kill switch
+	SetKillSwitch("native_mobile_u2netp", false)
+	quoteRestored, err := GetNativeToolQuote("background-remove", model.ExecutionClassNativeMobile)
+	require.NoError(t, err)
+	assert.True(t, quoteRestored.RouteActive)
+}
+

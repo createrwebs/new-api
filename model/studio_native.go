@@ -41,9 +41,18 @@ const (
 type NativeBillingPolicy string
 
 const (
-	BillingPolicyPrepaidExecution        NativeBillingPolicy = "PREPAID_EXECUTION"         // NATIVE_BROWSER: Charged at activation
+	BillingPolicyPrepaidExecution        NativeBillingPolicy = "PREPAID_EXECUTION"         // NATIVE_BROWSER / NATIVE_MOBILE: Charged at activation
 	BillingPolicySuccessSettlement       NativeBillingPolicy = "SUCCESS_SETTLEMENT"        // DETERMINISTIC_SERVER, NATIVE_SERVER, NATIVE_SERVERLESS
 	BillingPolicyAmbiguousReconciliation NativeBillingPolicy = "AMBIGUOUS_RECONCILIATION" // EXTERNAL_RELAY
+)
+
+// ProductFactoryPriceScope defines explicit pricing granularity for e-commerce processing (Section 33).
+type ProductFactoryPriceScope string
+
+const (
+	PriceScopePerItem  ProductFactoryPriceScope = "PER_ITEM"
+	PriceScopePerBatch ProductFactoryPriceScope = "PER_BATCH"
+	PriceScopeBundle   ProductFactoryPriceScope = "BUNDLE"
 )
 
 // NativeTicketStatus manages the deterministic lifecycle of an execution ticket (Section 5).
@@ -133,7 +142,7 @@ func CreateNativeTicket(ticket *NativeExecutionTicket) error {
 	if ticket.ExpiresAt == 0 {
 		ticket.ExpiresAt = now + 300 // 5-minute standard TTL
 	}
-	if ticket.RetryUntil == 0 && ticket.ExecutionClass == ExecutionClassNativeBrowser {
+	if ticket.RetryUntil == 0 && (ticket.ExecutionClass == ExecutionClassNativeBrowser || ticket.ExecutionClass == ExecutionClassNativeMobile) {
 		ticket.RetryUntil = now + 1800 // 30-minute fair retry window
 	}
 	return DB.Create(ticket).Error

@@ -376,6 +376,7 @@ func SetApiRouter(router *gin.Engine) {
 			studioPublicRoute.POST("/webhook/:provider", controller.StudioWebhook)
 			studioPublicRoute.GET("/assets/:filename", controller.ServeStudioAsset)
 			studioPublicRoute.POST("/native/quote", controller.QuoteNativeTool)
+			studioPublicRoute.POST("/native/product-factory/quote", controller.QuoteProductFactoryBatch)
 			studioPublicRoute.GET("/native/models/:modelId", controller.ServeNativeModel)
 		}
 
@@ -403,6 +404,7 @@ func SetApiRouter(router *gin.Engine) {
 			studioUserRoute.POST("/native/retry", controller.RetryNativeTicket)
 			studioUserRoute.POST("/native/refund", controller.RefundNativeTicket)
 			studioUserRoute.POST("/native/product-pack", controller.GenerateMarketplaceProductPack)
+			studioUserRoute.POST("/native/product-factory/quote", controller.QuoteProductFactoryBatch)
 		}
 
 		studioAdminRoute := apiRouter.Group("/admin/studio")

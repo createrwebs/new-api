@@ -8,6 +8,8 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -16,10 +18,61 @@ import (
 )
 
 var (
-	ErrNativeToolNotSupported = errors.New("unsupported native tool or execution class")
-	ErrNativeUnauthorized     = errors.New("unauthorized access to native ticket")
-	ErrPreExecutionRefundOnly = errors.New("automatic refund is permitted only for pre-activation tickets; charged browser executions use fair retry")
+	ErrNativeToolNotSupported         = errors.New("unsupported native tool or execution class")
+	ErrNativeUnauthorized             = errors.New("unauthorized access to native ticket")
+	ErrPreExecutionRefundOnly         = errors.New("automatic refund is permitted only for pre-activation tickets; charged browser executions use fair retry")
+	ErrNativeRouteDisabled            = errors.New("native route temporarily disabled by remote kill switch")
+	ErrAppVersionUnsupported          = errors.New("mobile app version unsupported; please upgrade to the latest release")
+	ErrProductFactoryInvalidBatchSize = errors.New("product factory batch size must be between 1 and 10 items")
 )
+
+var (
+	MinimumMobileAppVersion = "2.4.0"
+	killSwitchMutex         sync.RWMutex
+	killSwitches            = map[string]bool{
+		"native_mobile_u2netp":        false,
+		"native_mobile_realesrgan2x": false,
+	}
+)
+
+// SetKillSwitch updates the remote kill switch status for a route key.
+func SetKillSwitch(routeKey string, disabled bool) {
+	killSwitchMutex.Lock()
+	defer killSwitchMutex.Unlock()
+	killSwitches[routeKey] = disabled
+}
+
+// IsKillSwitchActive queries if a route key has been disabled remotely.
+func IsKillSwitchActive(routeKey string) bool {
+	killSwitchMutex.RLock()
+	defer killSwitchMutex.RUnlock()
+	return killSwitches[routeKey]
+}
+
+// compareSemVer compares semantic version strings v1 and v2.
+// Returns -1 if v1 < v2, 1 if v1 > v2, 0 if v1 == v2.
+func compareSemVer(v1, v2 string) int {
+	clean1 := strings.TrimPrefix(strings.Split(v1, "+")[0], "v")
+	clean2 := strings.TrimPrefix(strings.Split(v2, "+")[0], "v")
+	parts1 := strings.Split(clean1, ".")
+	parts2 := strings.Split(clean2, ".")
+	for i := 0; i < len(parts1) || i < len(parts2); i++ {
+		n1, n2 := 0, 0
+		if i < len(parts1) {
+			n1, _ = strconv.Atoi(parts1[i])
+		}
+		if i < len(parts2) {
+			n2, _ = strconv.Atoi(parts2[i])
+		}
+		if n1 < n2 {
+			return -1
+		}
+		if n1 > n2 {
+			return 1
+		}
+	}
+	return 0
+}
 
 // NativeModelMeta details an open-weight model verified and cached for native inference.
 type NativeModelMeta struct {
@@ -166,17 +219,45 @@ var NativeToolCatalog = map[string]NativeToolSpec{
 
 // NativeQuoteResult contains quote details for a client execution request.
 type NativeQuoteResult struct {
-	QuoteId          string                     `json:"quote_id"`
-	ToolId           string                     `json:"tool_id"`
-	ExecutionClass   model.NativeExecutionClass `json:"execution_class"`
-	BillingPolicy    model.NativeBillingPolicy  `json:"billing_policy"`
-	Credits          int                        `json:"credits"`
-	Quota            int                        `json:"quota"`
-	USDEquivalent    float64                    `json:"usd_equivalent"`
-	Model            NativeModelMeta            `json:"model"`
-	RouteVersion     string                     `json:"route_version"`
-	ExpiresAt        int64                      `json:"expires_at"`
-	FallbackProvider string                     `json:"fallback_provider,omitempty"`
+	QuoteId                 string                     `json:"quote_id"`
+	ToolId                  string                     `json:"tool_id"`
+	ExecutionClass          model.NativeExecutionClass `json:"execution_class"`
+	BillingPolicy           model.NativeBillingPolicy  `json:"billing_policy"`
+	Credits                 int                        `json:"credits"`
+	Quota                   int                        `json:"quota"`
+	USDEquivalent           float64                    `json:"usd_equivalent"`
+	Model                   NativeModelMeta            `json:"model"`
+	RouteVersion            string                     `json:"route_version"`
+	ExpiresAt               int64                      `json:"expires_at"`
+	FallbackProvider        string                     `json:"fallback_provider,omitempty"`
+	MinimumMobileAppVersion string                     `json:"minimum_mobile_app_version,omitempty"`
+	RouteActive             bool                       `json:"route_active"`
+}
+
+// ProductFactoryBatchQuoteRequest specifies batch input size, tier, and app version for e-commerce quotes.
+type ProductFactoryBatchQuoteRequest struct {
+	InputCount       int    `json:"input_count"`
+	Enable2xUpscale  bool   `json:"enable_2x_upscale"`
+	ClientAppVersion string `json:"client_app_version,omitempty"`
+	Platform         string `json:"platform,omitempty"`
+}
+
+// ProductFactoryBatchQuoteResult represents unambiguous server-authoritative batch pricing (Section 33).
+type ProductFactoryBatchQuoteResult struct {
+	QuoteId               string                         `json:"quote_id"`
+	PriceScope            model.ProductFactoryPriceScope `json:"price_scope"`
+	InputCount            int                            `json:"input_count"`
+	Enable2xUpscale       bool                           `json:"enable_2x_upscale"`
+	PerItemCredits        int                            `json:"per_item_credits"`
+	BundleDiscountCredits int                            `json:"bundle_discount_credits"`
+	LocalStepsTotal       int                            `json:"local_steps_total"`
+	ServerStepsTotal      int                            `json:"server_steps_total"`
+	TotalCredits          int                            `json:"total_credits"`
+	TotalQuota            int                            `json:"total_quota"`
+	USDEquivalent         float64                        `json:"usd_equivalent"`
+	PricingVersion        string                         `json:"pricing_version"`
+	MinimumAppVersion     string                         `json:"minimum_app_version"`
+	ExpiresAt             int64                          `json:"expires_at"`
 }
 
 // getTicketSigningKey returns a domain-separated cryptographic secret for ticket authorization.
@@ -266,6 +347,14 @@ func GetNativeToolQuote(toolId string, reqClass model.NativeExecutionClass) (*Na
 		execClass = spec.DefaultClass
 	}
 
+	routeActive := true
+	if execClass == model.ExecutionClassNativeMobile {
+		routeKey := fmt.Sprintf("native_mobile_%s", spec.ModelKey)
+		if IsKillSwitchActive(routeKey) {
+			return nil, ErrNativeRouteDisabled
+		}
+	}
+
 	billingPolicy := spec.BillingPolicy
 	if execClass == model.ExecutionClassNativeBrowser || execClass == model.ExecutionClassNativeMobile {
 		billingPolicy = model.BillingPolicyPrepaidExecution
@@ -282,17 +371,73 @@ func GetNativeToolQuote(toolId string, reqClass model.NativeExecutionClass) (*Na
 	quoteId := fmt.Sprintf("qte_native_%d_%s", now, common.GetUUID()[:8])
 
 	return &NativeQuoteResult{
-		QuoteId:          quoteId,
-		ToolId:           spec.ToolId,
-		ExecutionClass:   execClass,
-		BillingPolicy:    billingPolicy,
-		Credits:          spec.Credits,
-		Quota:            spec.Quota,
-		USDEquivalent:    spec.USDEquivalent,
-		Model:            modelMeta,
-		RouteVersion:     spec.RouteVersion,
-		ExpiresAt:        now + 300, // 5 min TTL
-		FallbackProvider: "wavespeed",
+		QuoteId:                 quoteId,
+		ToolId:                  spec.ToolId,
+		ExecutionClass:          execClass,
+		BillingPolicy:           billingPolicy,
+		Credits:                 spec.Credits,
+		Quota:                   spec.Quota,
+		USDEquivalent:           spec.USDEquivalent,
+		Model:                   modelMeta,
+		RouteVersion:            spec.RouteVersion,
+		ExpiresAt:               now + 300, // 5 min TTL
+		FallbackProvider:        "wavespeed",
+		MinimumMobileAppVersion: MinimumMobileAppVersion,
+		RouteActive:             routeActive,
+	}, nil
+}
+
+// CalculateProductFactoryBatchQuote computes explicit server-authoritative batch quotes (Sections 32-35).
+func CalculateProductFactoryBatchQuote(req ProductFactoryBatchQuoteRequest) (*ProductFactoryBatchQuoteResult, error) {
+	if req.InputCount < 1 || req.InputCount > 10 {
+		return nil, ErrProductFactoryInvalidBatchSize
+	}
+	if req.ClientAppVersion != "" && compareSemVer(req.ClientAppVersion, MinimumMobileAppVersion) < 0 {
+		return nil, ErrAppVersionUnsupported
+	}
+
+	perItemCredits := 7 // Base: 2 cutout (local) + 5 pack (server)
+	localStepsPerItem := 2
+	if req.Enable2xUpscale {
+		perItemCredits = 10 // Enhanced: 2 cutout + 3 upscale (local) + 5 pack (server)
+		localStepsPerItem = 5
+	}
+	serverStepsPerItem := 5
+
+	grossCredits := req.InputCount * perItemCredits
+	discountCredits := 0
+	priceScope := model.PriceScopePerItem
+
+	if req.InputCount >= 10 {
+		priceScope = model.PriceScopeBundle
+		discountCredits = grossCredits * 10 / 100 // 10% bundle discount for 10 items
+	} else if req.InputCount >= 5 {
+		priceScope = model.PriceScopeBundle
+		discountCredits = grossCredits * 5 / 100 // 5% bundle discount for 5-9 items
+	}
+
+	totalCredits := grossCredits - discountCredits
+	totalQuota := totalCredits * 1000
+	usdEquivalent := float64(totalCredits) * 0.002 // Canonical $0.002 per credit
+
+	now := common.GetTimestamp()
+	quoteId := fmt.Sprintf("qte_pf_batch_%d_%s", now, common.GetUUID()[:8])
+
+	return &ProductFactoryBatchQuoteResult{
+		QuoteId:               quoteId,
+		PriceScope:            priceScope,
+		InputCount:            req.InputCount,
+		Enable2xUpscale:       req.Enable2xUpscale,
+		PerItemCredits:        perItemCredits,
+		BundleDiscountCredits: discountCredits,
+		LocalStepsTotal:       localStepsPerItem * req.InputCount,
+		ServerStepsTotal:      serverStepsPerItem * req.InputCount,
+		TotalCredits:          totalCredits,
+		TotalQuota:            totalQuota,
+		USDEquivalent:         usdEquivalent,
+		PricingVersion:        "v2_batch_bundle",
+		MinimumAppVersion:     MinimumMobileAppVersion,
+		ExpiresAt:             now + 300,
 	}, nil
 }
 

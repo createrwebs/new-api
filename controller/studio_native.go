@@ -74,6 +74,31 @@ func QuoteNativeTool(c *gin.Context) {
 	})
 }
 
+// QuoteProductFactoryBatch handles POST /api/studio/native/product-factory/quote (Section 33).
+func QuoteProductFactoryBatch(c *gin.Context) {
+	var req service.ProductFactoryBatchQuoteRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "invalid request parameters: " + err.Error()})
+		return
+	}
+
+	quote, err := service.CalculateProductFactoryBatchQuote(req)
+	if err != nil {
+		status := http.StatusBadRequest
+		if errors.Is(err, service.ErrAppVersionUnsupported) {
+			status = http.StatusUpgradeRequired
+		}
+		c.JSON(status, gin.H{"success": false, "message": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"message": "",
+		"data":    quote,
+	})
+}
+
 // CreateNativeTicket handles POST /api/studio/native/ticket.
 func CreateNativeTicket(c *gin.Context) {
 	userId := c.GetInt("id")
