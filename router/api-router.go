@@ -404,7 +404,6 @@ func SetApiRouter(router *gin.Engine) {
 			studioUserRoute.POST("/native/retry", controller.RetryNativeTicket)
 			studioUserRoute.POST("/native/refund", controller.RefundNativeTicket)
 			studioUserRoute.POST("/native/product-pack", controller.GenerateMarketplaceProductPack)
-			studioUserRoute.POST("/native/product-factory/quote", controller.QuoteProductFactoryBatch)
 		}
 
 		studioAdminRoute := apiRouter.Group("/admin/studio")
