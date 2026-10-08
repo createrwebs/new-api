@@ -26,8 +26,8 @@ Queue N4A transitions Tora Studio from generic AI inference into proprietary e-c
 ## 2. Section 56 Mandatory Report Fields
 
 ```text
-BACKEND_HEAD = 31b879976
-PRODUCTION_SHA = 31b879976
+BACKEND_HEAD = 1d79f475b
+PRODUCTION_SHA = 1d79f475b
 FLUTTER_HEAD = d34fac0
 FLUTTER_DURABLE_REMOTE = TORA_FLUTTER_REMOTE_REQUIRED (Local bundle: /Users/noppanan/tora-studio-lab/backups/flutter-lumenflow/lumenflow-tora-d34fac0.bundle)
 FLUTTER_PUSH_STATUS = AHEAD_2_COMMITS_UNPUSHED (Protected against upstream HuanMeng-official/LumenFlow.git)
