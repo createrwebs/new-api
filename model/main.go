@@ -416,6 +416,15 @@ func migrateDB() error {
 		&StudioJobEvent{},
 		&StudioAsset{},
 		&StudioCostSnapshot{},
+		&NativeExecutionTicket{},
+		&StudioBatchJob{},
+		&StudioBatchItem{},
+		&ObjectCleanupSession{},
+		&SellerBrandProfile{},
+		&SellerWorkflowPreset{},
+		&SellerLastPackExecution{},
+		&StudioWorkflowItem{},
+		&ResumableWorkflowJob{},
 	)
 	if err != nil {
 		return err

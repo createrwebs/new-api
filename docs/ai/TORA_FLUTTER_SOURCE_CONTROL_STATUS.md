@@ -62,3 +62,25 @@ f75a31f chore: 调整默认窗口大小
 
 All LumenFlow MIT licenses and original copyrights remain intact in root `LICENSE` and headers.
 
+---
+
+## 4. Operator Action: Remote Provisioning Template (`TORA_FLUTTER_REMOTE_REQUIRED`)
+
+When an authoritative Tora repository is provisioned on GitHub, the operator should execute the following sequence:
+
+```bash
+cd /Users/noppanan/.gemini/antigravity/scratch/LumenFlow
+
+# 1. Add authoritative private Tora remote
+git remote add tora git@github.com:createrwebs/tora-mobile.git
+
+# 2. Push current feature branch
+git push -u tora tora/main:main
+
+# 3. Verify remote HEAD matches d34fac0
+git ls-remote tora refs/heads/main
+```
+
+Until this remote is configured, the local bundle `/Users/noppanan/tora-studio-lab/backups/flutter-lumenflow/lumenflow-tora-d34fac0.bundle` and associated patches serve as the authoritative off-scratch backup.
+
+

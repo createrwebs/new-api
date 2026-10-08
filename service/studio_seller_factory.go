@@ -528,7 +528,7 @@ func GenerateSellerFactoryV2Batch(userId int, req ProductFactoryV2Request) (*Pro
 	if len(req.Items) == 0 {
 		return nil, errors.New("no items provided in batch")
 	}
-	if len(req.Items) > 10 {
+	if len(req.Items) > 25 {
 		return nil, ErrProductFactoryInvalidBatchSize
 	}
 

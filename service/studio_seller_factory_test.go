@@ -311,6 +311,7 @@ func TestSellerFactory_LoadBenchmark_Scenarios(t *testing.T) {
 		{"1_Item_Batch", 1},
 		{"5_Item_Batch", 5},
 		{"10_Item_Batch", 10},
+		{"25_Item_Batch", 25},
 	}
 
 	for _, sc := range scenarios {

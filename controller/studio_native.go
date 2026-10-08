@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -501,8 +502,8 @@ func ExecuteProductFactoryV2BatchHandler(c *gin.Context) {
 	}
 
 	itemCount := len(req.Items)
-	if itemCount == 0 || itemCount > 10 {
-		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "batch size must be between 1 and 10 items"})
+	if itemCount == 0 || itemCount > 25 {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "batch size must be between 1 and 25 items"})
 		return
 	}
 
@@ -531,6 +532,18 @@ func ExecuteProductFactoryV2BatchHandler(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "failed executing seller factory batch: " + err.Error()})
 		return
 	}
+
+	// Persist last pack execution configuration for 1-click repetition
+	tplBytes, _ := json.Marshal(req.SelectedTemplates)
+	_ = model.SaveLastPackExecution(
+		userId,
+		string(tplBytes),
+		string(req.BgPreset),
+		string(req.ShadowPreset),
+		req.BrandHex,
+		req.IncludeZip,
+		len(req.Items),
+	)
 
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,

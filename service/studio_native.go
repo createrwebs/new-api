@@ -421,7 +421,7 @@ func GetNativeToolQuote(toolId string, reqClass model.NativeExecutionClass) (*Na
 
 // CalculateProductFactoryBatchQuote computes explicit server-authoritative batch quotes (Sections 32-35).
 func CalculateProductFactoryBatchQuote(req ProductFactoryBatchQuoteRequest) (*ProductFactoryBatchQuoteResult, error) {
-	if req.InputCount < 1 || req.InputCount > 10 {
+	if req.InputCount < 1 || req.InputCount > 25 {
 		return nil, ErrProductFactoryInvalidBatchSize
 	}
 	if req.ClientAppVersion != "" && compareSemVer(req.ClientAppVersion, MinimumMobileAppVersion) < 0 {
@@ -440,9 +440,12 @@ func CalculateProductFactoryBatchQuote(req ProductFactoryBatchQuoteRequest) (*Pr
 	discountCredits := 0
 	priceScope := model.PriceScopePerItem
 
-	if req.InputCount >= 10 {
+	if req.InputCount >= 25 {
 		priceScope = model.PriceScopeBundle
-		discountCredits = grossCredits * 10 / 100 // 10% bundle discount for 10 items
+		discountCredits = grossCredits * 15 / 100 // 15% volume discount for 25 items
+	} else if req.InputCount >= 10 {
+		priceScope = model.PriceScopeBundle
+		discountCredits = grossCredits * 10 / 100 // 10% bundle discount for 10-24 items
 	} else if req.InputCount >= 5 {
 		priceScope = model.PriceScopeBundle
 		discountCredits = grossCredits * 5 / 100 // 5% bundle discount for 5-9 items

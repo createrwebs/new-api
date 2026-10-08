@@ -379,6 +379,8 @@ func SetApiRouter(router *gin.Engine) {
 			studioPublicRoute.POST("/native/product-factory/quote", controller.QuoteProductFactoryBatch)
 			studioPublicRoute.GET("/native/models/:modelId", controller.ServeNativeModel)
 			studioPublicRoute.GET("/native/seller-templates", controller.GetSellerTemplatesHandler)
+			studioPublicRoute.GET("/marketplace/rules", controller.GetMarketplaceRulesHandler)
+			studioPublicRoute.POST("/marketplace/validate", controller.ValidateMarketplaceComplianceHandler)
 		}
 
 		studioUserRoute := apiRouter.Group("/studio")
@@ -409,6 +411,19 @@ func SetApiRouter(router *gin.Engine) {
 			studioUserRoute.POST("/native/object-cleanup/session", controller.StartObjectCleanupSessionHandler)
 			studioUserRoute.POST("/native/object-cleanup/session/validate", controller.ValidateObjectCleanupSessionHandler)
 			studioUserRoute.POST("/native/object-cleanup/session/export", controller.RecordObjectCleanupExportHandler)
+
+			// Seller Brand Profiles & Saved Workflow Presets (Queue N5)
+			studioUserRoute.GET("/seller/profiles", controller.ListSellerProfilesHandler)
+			studioUserRoute.POST("/seller/profiles", controller.CreateSellerProfileHandler)
+			studioUserRoute.PUT("/seller/profiles/:id", controller.UpdateSellerProfileHandler)
+			studioUserRoute.DELETE("/seller/profiles/:id", controller.DeleteSellerProfileHandler)
+
+			studioUserRoute.GET("/seller/presets", controller.ListSellerPresetsHandler)
+			studioUserRoute.POST("/seller/presets", controller.CreateSellerPresetHandler)
+			studioUserRoute.PUT("/seller/presets/:id", controller.UpdateSellerPresetHandler)
+			studioUserRoute.DELETE("/seller/presets/:id", controller.DeleteSellerPresetHandler)
+
+			studioUserRoute.GET("/seller/repeat-last", controller.GetRepeatLastPackHandler)
 		}
 
 		studioAdminRoute := apiRouter.Group("/admin/studio")

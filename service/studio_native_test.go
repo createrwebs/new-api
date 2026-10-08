@@ -568,12 +568,23 @@ func TestStudioNative_ProductFactoryBatchQuote_PerItemAndBundleDiscount(t *testi
 	assert.Equal(t, 90, batch10Enhanced.TotalCredits)          // 100 - 10 = 90 credits
 	assert.Equal(t, 90000, batch10Enhanced.TotalQuota)
 
-	// 4. Batch boundary validation (0 items and >10 items rejected)
+	// 4. Batch 25 Volume Bundle (15% discount)
+	batch25Enhanced, err := CalculateProductFactoryBatchQuote(ProductFactoryBatchQuoteRequest{
+		InputCount:      25,
+		Enable2xUpscale: true,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, model.PriceScopeBundle, batch25Enhanced.PriceScope)
+	assert.Equal(t, 37, batch25Enhanced.BundleDiscountCredits) // 250 * 15% = 37 credits discount
+	assert.Equal(t, 213, batch25Enhanced.TotalCredits)         // 250 - 37 = 213 credits
+	assert.Equal(t, 213000, batch25Enhanced.TotalQuota)
+
+	// 5. Batch boundary validation (0 items and >25 items rejected)
 	_, errZero := CalculateProductFactoryBatchQuote(ProductFactoryBatchQuoteRequest{InputCount: 0})
 	assert.ErrorIs(t, errZero, ErrProductFactoryInvalidBatchSize)
 
-	_, errEleven := CalculateProductFactoryBatchQuote(ProductFactoryBatchQuoteRequest{InputCount: 11})
-	assert.ErrorIs(t, errEleven, ErrProductFactoryInvalidBatchSize)
+	_, errTwentySix := CalculateProductFactoryBatchQuote(ProductFactoryBatchQuoteRequest{InputCount: 26})
+	assert.ErrorIs(t, errTwentySix, ErrProductFactoryInvalidBatchSize)
 }
 
 // Test 11: Remote Kill Switch & Minimum App Version Gate (Sections 44-45)
