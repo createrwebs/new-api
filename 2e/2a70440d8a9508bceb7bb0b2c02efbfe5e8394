@@ -1,0 +1,18 @@
+model/studio_native.go
+  h_f97827f62b0fea 29
+service/studio_native.go
+  h_f97827f62b0fea 48,60,72,270,300,321,344,360,522-523
+service/studio_native_test.go
+  h_f97827f62b0fea 436-493
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.3",
+  "base_commit_sha": "2e2a70440d8a9508bceb7bb0b2c02efbfe5e8394",
+  "prompts": {},
+  "humans": {
+    "h_f97827f62b0fea": {
+      "author": "NOPPANAN THEERACHARTE <noppanan.the@axonstech.com>"
+    }
+  }
+}
