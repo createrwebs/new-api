@@ -254,3 +254,60 @@ export async function generateProductPack(formDataOrPayload: FormData | { image_
   return data?.data
 }
 
+// --- Seller Factory V2 & Object Cleanup Endpoints ---
+
+export async function getSellerTemplates() {
+  const res = await api.get('/api/studio/native/seller-templates')
+  const data = requireServerSuccess(res.data)
+  return data?.data
+}
+
+export async function quoteProductFactoryBatch(payload: {
+  input_count: number
+  enable_2x_upscale?: boolean
+  client_app_version?: string
+}) {
+  const res = await api.post('/api/studio/native/product-factory/quote', payload)
+  const data = requireServerSuccess(res.data)
+  return data?.data
+}
+
+export async function executeSellerFactoryV2Batch(payload: Record<string, unknown>) {
+  const res = await api.post('/api/studio/native/product-factory/v2/batch', payload)
+  const data = requireServerSuccess(res.data)
+  return data?.data
+}
+
+export async function startObjectCleanupSession(payload: {
+  source_hash: string
+  width: number
+  height: number
+  image_format?: string
+}) {
+  const res = await api.post('/api/studio/native/object-cleanup/session', payload)
+  const data = requireServerSuccess(res.data)
+  return data?.data
+}
+
+export async function validateObjectCleanupSession(payload: {
+  session_id: string
+  source_hash: string
+  mask_data?: string
+}) {
+  const res = await api.post('/api/studio/native/object-cleanup/session/validate', payload)
+  const data = requireServerSuccess(res.data)
+  return data?.data
+}
+
+export async function exportObjectCleanupSession(payload: {
+  session_id: string
+  source_hash: string
+  mask_data?: string
+  algorithm?: string
+}) {
+  const res = await api.post('/api/studio/native/object-cleanup/session/export', payload)
+  const data = requireServerSuccess(res.data)
+  return data?.data
+}
+
+

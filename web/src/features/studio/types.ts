@@ -166,3 +166,127 @@ export interface SavedPendingJob {
   input_params: Record<string, unknown>
   timestamp: number
 }
+
+// --- Seller Factory V2 & Object Cleanup Types ---
+
+export type SmartShadowPreset =
+  | 'SOFT_STUDIO'
+  | 'MARKETPLACE'
+  | 'FLOATING'
+  | 'GROUND_CONTACT'
+  | 'NO_SHADOW'
+
+export type SellerBgPreset =
+  | 'PURE_WHITE'
+  | 'WARM_WHITE'
+  | 'LIGHT_GRAY'
+  | 'BRAND_COLOR'
+  | 'SOFT_GRADIENT'
+  | 'STUDIO_VIGNETTE'
+  | 'TRANSPARENT'
+
+export interface SellerTemplateConfig {
+  template_id: string
+  version: string
+  marketplace: string
+  filename: string
+  width: number
+  height: number
+  aspect_ratio: string
+  padding_pct: number
+  default_bg: SellerBgPreset
+  default_shadow: SmartShadowPreset
+  format: 'jpg' | 'png'
+  quality: number
+  subject_anchor_y: number
+  description: string
+}
+
+export interface SellerTemplatesCatalog {
+  templates: SellerTemplateConfig[]
+  shadow_presets: SmartShadowPreset[]
+  bg_presets: SellerBgPreset[]
+}
+
+export interface ProductFactoryBatchQuoteRequest {
+  input_count: number
+  enable_2x_upscale?: boolean
+  client_app_version?: string
+}
+
+export interface ProductFactoryBatchQuoteResult {
+  quote_id: string
+  price_scope: 'PER_ITEM' | 'BUNDLE'
+  input_count: number
+  enable_2x_upscale: boolean
+  per_item_credits: number
+  bundle_discount_credits: number
+  local_steps_total: number
+  server_steps_total: number
+  total_credits: number
+  total_quota: number
+  usd_equivalent: number
+  pricing_version: string
+  minimum_app_version: string
+  expires_at: number
+}
+
+export interface ProductFactoryV2ItemRequest {
+  index: number
+  cutout_png_base64?: string
+  original_name?: string
+}
+
+export interface ProductFactoryV2BatchRequest {
+  batch_id?: string
+  items: ProductFactoryV2ItemRequest[]
+  selected_templates: string[]
+  bg_preset?: SellerBgPreset
+  brand_hex?: string
+  shadow_preset?: SmartShadowPreset
+  include_zip?: boolean
+}
+
+export interface ProductFactoryV2ItemResult {
+  index: number
+  status: 'SUCCESS' | 'FAILED'
+  error_reason?: string
+  duration_ms?: number
+  variants: Array<{
+    key: string
+    marketplace: string
+    width: number
+    height: number
+    file_size: number
+    sha256: string
+    url?: string
+  }>
+}
+
+export interface ProductFactoryV2BatchResult {
+  batch_id: string
+  total_items: number
+  success_items: number
+  failed_items: number
+  items: ProductFactoryV2ItemResult[]
+  zip_package?: {
+    key: string
+    marketplace: string
+    file_size: number
+    sha256: string
+    url?: string
+  }
+  execution_time: number
+}
+
+export interface ObjectCleanupSessionResult {
+  session_id: string
+  ticket_id: string
+  source_hash: string
+  credits_deducted: number
+  remaining_quota: number
+  expires_at: string
+  max_exports: number
+  exports_used: number
+}
+

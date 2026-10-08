@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"image"
@@ -569,6 +570,7 @@ func GenerateSellerFactoryV2Batch(userId int, req ProductFactoryV2Request) (*Pro
 	zipBuf := new(bytes.Buffer)
 	zipWriter := zip.NewWriter(zipBuf)
 	hasZipEntries := false
+	manifestItems := make([]map[string]interface{}, 0, len(req.Items))
 
 	successCount := 0
 	failedCount := 0
@@ -601,6 +603,15 @@ func GenerateSellerFactoryV2Batch(userId int, req ProductFactoryV2Request) (*Pro
 			continue
 		}
 
+		// Security limit: reject huge decompressed payload (>25MB)
+		if len(cutoutBytes) > 25*1024*1024 {
+			res.Status = "FAILED"
+			res.ErrorReason = "cutout payload exceeds 25MB security limit"
+			failedCount++
+			itemResults = append(itemResults, res)
+			continue
+		}
+
 		cutoutImg, _, err := image.Decode(bytes.NewReader(cutoutBytes))
 		if err != nil {
 			res.Status = "FAILED"
@@ -610,8 +621,29 @@ func GenerateSellerFactoryV2Batch(userId int, req ProductFactoryV2Request) (*Pro
 			continue
 		}
 
+		// Security limit: reject decompression bomb (>4096x4096)
+		b := cutoutImg.Bounds()
+		if b.Dx() > 4096 || b.Dy() > 4096 {
+			res.Status = "FAILED"
+			res.ErrorReason = "image dimensions exceed 4096x4096 security limit"
+			failedCount++
+			itemResults = append(itemResults, res)
+			continue
+		}
+
+		// Add transparent cutout to ZIP archive
+		if req.IncludeZip {
+			cutoutZipPath := fmt.Sprintf("item_%02d/00_transparent_cutout.png", item.Index)
+			if zf, zErr := zipWriter.Create(cutoutZipPath); zErr == nil {
+				_, _ = zf.Write(cutoutBytes)
+				hasZipEntries = true
+			}
+		}
+
 		subjectBox := FindSubjectBoundingBox(cutoutImg)
 		cropped := CropImage(cutoutImg, subjectBox)
+
+		variantManifests := make([]map[string]interface{}, 0, len(templates))
 
 		for _, tpl := range templates {
 			composed := ComposeSellerCanvas(cropped, tpl, bgPreset, shadowPreset, req.BrandHex)
@@ -644,8 +676,17 @@ func GenerateSellerFactoryV2Batch(userId int, req ProductFactoryV2Request) (*Pro
 			}
 
 			res.Variants = append(res.Variants, asset)
+			variantManifests = append(variantManifests, map[string]interface{}{
+				"template_id": tpl.TemplateId,
+				"marketplace": tpl.Marketplace,
+				"filename":    tpl.Filename,
+				"width":       tpl.Width,
+				"height":      tpl.Height,
+				"file_size":   len(outBytes),
+				"sha256":      hash,
+			})
 
-			// Add to ZIP package
+			// Add to ZIP package with strictly sanitized, safe relative path
 			if req.IncludeZip {
 				zipPath := fmt.Sprintf("item_%02d/%s", item.Index, tpl.Filename)
 				zf, zErr := zipWriter.Create(zipPath)
@@ -659,10 +700,35 @@ func GenerateSellerFactoryV2Batch(userId int, req ProductFactoryV2Request) (*Pro
 		res.DurationMs = (time.Now().UnixNano() - itemStart) / 1000000
 		successCount++
 		itemResults = append(itemResults, res)
+
+		manifestItems = append(manifestItems, map[string]interface{}{
+			"index":          item.Index,
+			"original_name":  filepath.Base(item.OriginalName),
+			"variants_count": len(res.Variants),
+			"variants":       variantManifests,
+		})
 	}
 
 	var zipAsset ProductPackGeneratedAsset
 	if req.IncludeZip && hasZipEntries {
+		manifestData := map[string]interface{}{
+			"batch_id":         batchId,
+			"workflow_version": "v2.0_seller_factory",
+			"generated_at":     time.Now().UTC().Format(time.RFC3339),
+			"total_items":      len(req.Items),
+			"success_items":    successCount,
+			"failed_items":     failedCount,
+			"bg_preset":        string(bgPreset),
+			"shadow_preset":    string(shadowPreset),
+			"templates":        req.SelectedTemplates,
+			"items":            manifestItems,
+		}
+		if manifestBytes, mErr := json.MarshalIndent(manifestData, "", "  "); mErr == nil {
+			if mf, zErr := zipWriter.Create("manifest.json"); zErr == nil {
+				_, _ = mf.Write(manifestBytes)
+			}
+		}
+
 		_ = zipWriter.Close()
 		zipBytes := zipBuf.Bytes()
 		sum := sha256.Sum256(zipBytes)

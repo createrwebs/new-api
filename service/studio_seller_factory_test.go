@@ -6,7 +6,9 @@ import (
 	"image"
 	"image/color"
 	"image/png"
+	"runtime"
 	"testing"
+	"time"
 
 	"github.com/QuantumNous/new-api/model"
 )
@@ -289,3 +291,71 @@ func TestSellerFactory_V2BatchExecution_PartialFailureIsolation(t *testing.T) {
 		t.Fatalf("expected items 0 and 2 to succeed despite item 1 failure")
 	}
 }
+
+func TestSellerFactory_LoadBenchmark_Scenarios(t *testing.T) {
+	userId := 105
+	cutout := createTestCutoutPNG(400, 400)
+	templates := []string{
+		"shopee_standard",
+		"lazada_hd",
+		"tiktok_shop",
+		"instagram_feed",
+		"instagram_story",
+		"generic_marketplace",
+	}
+
+	scenarios := []struct {
+		name      string
+		itemCount int
+	}{
+		{"1_Item_Batch", 1},
+		{"5_Item_Batch", 5},
+		{"10_Item_Batch", 10},
+	}
+
+	for _, sc := range scenarios {
+		var memBefore runtime.MemStats
+		runtime.GC()
+		runtime.ReadMemStats(&memBefore)
+
+		items := make([]ProductFactoryV2ItemRequest, sc.itemCount)
+		for i := 0; i < sc.itemCount; i++ {
+			items[i] = ProductFactoryV2ItemRequest{
+				Index:          i,
+				RawCutoutBytes: cutout,
+			}
+		}
+
+		req := ProductFactoryV2Request{
+			BatchId:           "load_bench_" + sc.name,
+			Items:             items,
+			SelectedTemplates: templates,
+			BgPreset:          BgPureWhite,
+			ShadowPreset:      ShadowMarketplace,
+			IncludeZip:        true,
+		}
+
+		start := time.Now()
+		res, err := GenerateSellerFactoryV2Batch(userId, req)
+		duration := time.Since(start)
+
+		var memAfter runtime.MemStats
+		runtime.ReadMemStats(&memAfter)
+
+		if err != nil {
+			t.Fatalf("scenario %s failed: %v", sc.name, err)
+		}
+		if res.SuccessItems != sc.itemCount {
+			t.Fatalf("scenario %s: expected %d successes, got %d", sc.name, sc.itemCount, res.SuccessItems)
+		}
+
+		heapAllocMB := float64(memAfter.Alloc-memBefore.Alloc) / (1024 * 1024)
+		if heapAllocMB < 0 {
+			heapAllocMB = float64(memAfter.Alloc) / (1024 * 1024)
+		}
+
+		t.Logf("BENCHMARK [%s]: items=%d | wall_time=%v | per_item=%v | zip_size=%d bytes | heap_delta=%.2f MB",
+			sc.name, sc.itemCount, duration, duration/time.Duration(sc.itemCount), res.ZipPackage.FileSize, heapAllocMB)
+	}
+}
+
