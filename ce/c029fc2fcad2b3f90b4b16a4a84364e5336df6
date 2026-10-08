@@ -1,0 +1,14 @@
+docs/ai/TORA_STUDIO_QUEUE_N3_REPORT.md
+  h_f97827f62b0fea 6-7,49,56
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.3",
+  "base_commit_sha": "cec029fc2fcad2b3f90b4b16a4a84364e5336df6",
+  "prompts": {},
+  "humans": {
+    "h_f97827f62b0fea": {
+      "author": "NOPPANAN THEERACHARTE <noppanan.the@axonstech.com>"
+    }
+  }
+}
