@@ -1,6 +1,16 @@
 # TORA STUDIO — QUEUE N1-GH COMPREHENSIVE MILESTONE REPORT
 **GITHUB NATIVE TOOL HARVEST & ON-DEVICE / DETERMINISTIC TRANSITION**
-**Milestone:** QUEUE N1-GH | **Status:** 100% COMPLETE & VERIFIED | **Date:** 2026-10-08
+**Milestone:** QUEUE N1-GH | **Status:** LOCAL_BENCHMARK_VERIFIED / UNIT_TEST_VERIFIED (PRODUCTION_GATES_PENDING_QUEUE_N2) | **Date:** 2026-10-08
+**Verification Taxonomy:**
+- `REFERENCE_HARVEST_VERIFIED`: ✅ PASS
+- `LICENSE_AUDIT_VERIFIED`: ✅ PASS
+- `LOCAL_BENCHMARK_VERIFIED`: ✅ PASS
+- `CODE_IMPLEMENTED`: ✅ PASS
+- `UNIT_TEST_VERIFIED`: ✅ PASS
+- `REAL_BROWSER_VERIFIED`: ⏳ PENDING (Queue N2)
+- `REAL_PUBLIC_PATH_VERIFIED`: ⏳ PENDING (Queue N2)
+- `REAL_CREDIT_CHARGE_VERIFIED`: ⏳ PENDING (Queue N2)
+- `PRODUCTION_ACTIVE`: ⏳ PENDING (Queue N2)
 **Repository:** `/Users/noppanan/new-api` (`feat/formobile`) | **Lab:** `/Users/noppanan/tora-studio-lab`
 
 ---
@@ -129,3 +139,23 @@ Inference was benchmarked across our 14-category synthetic evaluation dataset in
 
 All changes compiled cleanly and verified via tests.
 Ready for production integration and deployment.
+
+---
+
+## 9. Queue N1-GH Errata & Precision Corrections
+
+1. **Production Status Erratum**:
+   - *Previous Text*: "100% COMPLETE & VERIFIED"
+   - *Correction*: The N1-GH phase completed reference harvesting, license forensics, local ONNX benchmarking, data models, and Go service unit tests in branch `feat/formobile` (commit `775da8c05`). However, production deployment, real browser client execution, and real user wallet deductions were not yet performed on `https://www.toraapi.com`. Real production verification is strictly deferred to Queue N2.
+
+2. **Sub-200ms Latency Wording Erratum**:
+   - *Previous Text*: "sub-200ms latency across client-side edge execution"
+   - *Correction*: Sub-200ms warm latency applies specifically to lightweight background removal models (`u2netp` at 84.7ms and `modnet` at 176.9ms on Apple Silicon). Super-resolution models take significantly longer: `realesrgan_2x` takes 330.2ms and `RealESRGAN_x4plus` takes 1,130.5ms. Furthermore, total end-user wait time includes initial model download, session creation, shader compilation, and post-processing canvas encoding.
+
+3. **Platform Margin & Cost Wording Erratum**:
+   - *Previous Text*: "Native Platform Margin >98–99%"
+   - *Correction*: While third-party upstream compute costs are eliminated (`PROVIDER_COGS ≈ $0.0000`), the true `FULLY_ALLOCATED_COST` is not yet mature. Fully allocated unit economics must account for CDN model weight egress (especially for 25MB–64MB models on initial fetch), S3 asset storage for history persistence, and server API traffic. Platform gross margin cannot be classified as >98% without live production accounting evidence.
+
+4. **Browser Billing Semantics & Security Vulnerability Erratum**:
+   - *Vulnerability Identified*: The initial V1 ticket lifecycle (reserve quota $\to$ client runs local inference $\to$ client calls `/complete` $\to$ settle, or refund on timeout) contains a critical exploit. A client running open-weight models locally can obtain the completed cutout, intentionally suppress the `/complete` call, wait 5 minutes for ticket expiration, and receive a full quota refund, thus obtaining free inference.
+   - *Remediation*: As specified in Queue N2, `NATIVE_BROWSER` execution must use **`PREPAID_EXECUTION`**, where the charge is settled atomically *at ticket activation*, before client inference begins. Charged tickets are never automatically refunded upon timeout, and same-ticket retries are permitted within a bounded 15–30 minute window at 0 additional cost.

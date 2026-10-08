@@ -1,8 +1,13 @@
 package service
 
 import (
+	"crypto/hmac"
+	"crypto/rand"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
+	"os"
 	"sync"
 	"time"
 
@@ -13,6 +18,7 @@ import (
 var (
 	ErrNativeToolNotSupported = errors.New("unsupported native tool or execution class")
 	ErrNativeUnauthorized     = errors.New("unauthorized access to native ticket")
+	ErrPreExecutionRefundOnly = errors.New("automatic refund is permitted only for pre-activation tickets; charged browser executions use fair retry")
 )
 
 // NativeModelMeta details an open-weight model verified and cached for native inference.
@@ -91,6 +97,7 @@ var NativeModels = map[string]NativeModelMeta{
 type NativeToolSpec struct {
 	ToolId         string                     `json:"tool_id"`
 	DefaultClass   model.NativeExecutionClass `json:"default_class"`
+	BillingPolicy  model.NativeBillingPolicy  `json:"billing_policy"`
 	ModelKey       string                     `json:"model_key"`
 	Credits        int                        `json:"credits"`
 	Quota          int                        `json:"quota"`
@@ -102,6 +109,7 @@ var NativeToolCatalog = map[string]NativeToolSpec{
 	"background-remove": {
 		ToolId:        "background-remove",
 		DefaultClass:  model.ExecutionClassNativeBrowser,
+		BillingPolicy: model.BillingPolicyPrepaidExecution,
 		ModelKey:      "u2netp",
 		Credits:       2,
 		Quota:         2000,
@@ -111,6 +119,7 @@ var NativeToolCatalog = map[string]NativeToolSpec{
 	"portrait-matting": {
 		ToolId:        "portrait-matting",
 		DefaultClass:  model.ExecutionClassNativeBrowser,
+		BillingPolicy: model.BillingPolicyPrepaidExecution,
 		ModelKey:      "modnet",
 		Credits:       2,
 		Quota:         2000,
@@ -120,6 +129,7 @@ var NativeToolCatalog = map[string]NativeToolSpec{
 	"image-upscale-2x": {
 		ToolId:        "image-upscale-2x",
 		DefaultClass:  model.ExecutionClassNativeBrowser,
+		BillingPolicy: model.BillingPolicyPrepaidExecution,
 		ModelKey:      "realesrgan_2x",
 		Credits:       3,
 		Quota:         3000,
@@ -129,6 +139,7 @@ var NativeToolCatalog = map[string]NativeToolSpec{
 	"image-upscale": {
 		ToolId:        "image-upscale",
 		DefaultClass:  model.ExecutionClassNativeBrowser,
+		BillingPolicy: model.BillingPolicyPrepaidExecution,
 		ModelKey:      "realesrgan_4x",
 		Credits:       5,
 		Quota:         5000,
@@ -137,7 +148,8 @@ var NativeToolCatalog = map[string]NativeToolSpec{
 	},
 	"product-pack": {
 		ToolId:        "product-pack",
-		DefaultClass:  model.ExecutionClassDeterministicProcess,
+		DefaultClass:  model.ExecutionClassDeterministicServer,
+		BillingPolicy: model.BillingPolicySuccessSettlement,
 		ModelKey:      "u2netp",
 		Credits:       5,
 		Quota:         5000,
@@ -151,6 +163,7 @@ type NativeQuoteResult struct {
 	QuoteId          string                     `json:"quote_id"`
 	ToolId           string                     `json:"tool_id"`
 	ExecutionClass   model.NativeExecutionClass `json:"execution_class"`
+	BillingPolicy    model.NativeBillingPolicy  `json:"billing_policy"`
 	Credits          int                        `json:"credits"`
 	Quota            int                        `json:"quota"`
 	USDEquivalent    float64                    `json:"usd_equivalent"`
@@ -160,12 +173,51 @@ type NativeQuoteResult struct {
 	FallbackProvider string                     `json:"fallback_provider,omitempty"`
 }
 
+// GenerateTicketAuthToken creates a tamper-resistant HMAC signature for client execution authorization.
+func GenerateTicketAuthToken(ticket *model.NativeExecutionTicket) string {
+	secret := os.Getenv("STUDIO_TICKET_SECRET")
+	if secret == "" {
+		secret = "tora_native_secret_salt_2026"
+	}
+	payload := fmt.Sprintf("%s|%d|%s|%s|%s|%s|%s|%s|%s|%s|%d|%d|%d|%d|%s",
+		ticket.TicketId,
+		ticket.UserId,
+		ticket.ToolId,
+		ticket.ToolVersion,
+		ticket.ExecutionClass,
+		ticket.BillingPolicy,
+		ticket.ModelId,
+		ticket.ModelVersionHash,
+		ticket.NormalizedInputHash,
+		ticket.QuoteId,
+		ticket.ChargedQuota,
+		ticket.IssuedAt,
+		ticket.ExpiresAt,
+		ticket.RetryUntil,
+		ticket.Nonce,
+	)
+	mac := hmac.New(sha256.New, []byte(secret))
+	mac.Write([]byte(payload))
+	return hex.EncodeToString(mac.Sum(nil))
+}
+
+// VerifyTicketAuthToken validates that a client-presented authorization token was signed by the server.
+func VerifyTicketAuthToken(ticket *model.NativeExecutionTicket, token string) bool {
+	expected := GenerateTicketAuthToken(ticket)
+	return hmac.Equal([]byte(expected), []byte(token))
+}
+
+func generateRandomNonce() string {
+	b := make([]byte, 16)
+	_, _ = rand.Read(b)
+	return hex.EncodeToString(b)
+}
+
 // ResolveNativeToolSpec finds the tool specification or matching alias.
 func ResolveNativeToolSpec(toolId string) (*NativeToolSpec, bool) {
 	if spec, ok := NativeToolCatalog[toolId]; ok {
 		return &spec, true
 	}
-	// Aliases
 	switch toolId {
 	case "bg-remove", "bg-remove-native", "background-remove-native":
 		spec := NativeToolCatalog["background-remove"]
@@ -195,6 +247,13 @@ func GetNativeToolQuote(toolId string, reqClass model.NativeExecutionClass) (*Na
 		execClass = spec.DefaultClass
 	}
 
+	billingPolicy := spec.BillingPolicy
+	if execClass == model.ExecutionClassNativeBrowser {
+		billingPolicy = model.BillingPolicyPrepaidExecution
+	} else if execClass == model.ExecutionClassDeterministicServer || execClass == model.ExecutionClassNativeServer {
+		billingPolicy = model.BillingPolicySuccessSettlement
+	}
+
 	modelMeta, ok := NativeModels[spec.ModelKey]
 	if !ok {
 		modelMeta = NativeModels["u2netp"]
@@ -207,6 +266,7 @@ func GetNativeToolQuote(toolId string, reqClass model.NativeExecutionClass) (*Na
 		QuoteId:          quoteId,
 		ToolId:           spec.ToolId,
 		ExecutionClass:   execClass,
+		BillingPolicy:    billingPolicy,
 		Credits:          spec.Credits,
 		Quota:            spec.Quota,
 		USDEquivalent:    spec.USDEquivalent,
@@ -217,8 +277,17 @@ func GetNativeToolQuote(toolId string, reqClass model.NativeExecutionClass) (*Na
 	}, nil
 }
 
-// CreateNativeExecutionTicket issues an authorized execution ticket with atomic wallet quota reservation.
-func CreateNativeExecutionTicket(userId int, toolId string, reqClass model.NativeExecutionClass, inputs map[string]interface{}, clientDeviceClass string) (*model.NativeExecutionTicket, error) {
+// CreateNativeExecutionTicket authorizes and provisions an execution ticket.
+// For NATIVE_BROWSER (PREPAID_EXECUTION), wallet quota is atomically reserved and charged BEFORE authorization.
+// For DETERMINISTIC_SERVER (SUCCESS_SETTLEMENT), quota is reserved in escrow and settled upon success.
+func CreateNativeExecutionTicket(userId int, toolId string, reqClass model.NativeExecutionClass, inputs map[string]interface{}, clientDeviceClass string, idempotencyKey string) (*model.NativeExecutionTicket, error) {
+	// 1. Idempotency Check (Section 12)
+	if idempotencyKey != "" {
+		if existing, err := model.GetNativeTicketByIdempotencyKey(userId, idempotencyKey); err == nil && existing != nil {
+			return existing, nil
+		}
+	}
+
 	spec, found := ResolveNativeToolSpec(toolId)
 	if !found {
 		return nil, ErrNativeToolNotSupported
@@ -229,22 +298,49 @@ func CreateNativeExecutionTicket(userId int, toolId string, reqClass model.Nativ
 		execClass = spec.DefaultClass
 	}
 
+	billingPolicy := spec.BillingPolicy
+	if execClass == model.ExecutionClassNativeBrowser {
+		billingPolicy = model.BillingPolicyPrepaidExecution
+	}
+
 	modelMeta, ok := NativeModels[spec.ModelKey]
 	if !ok {
 		modelMeta = NativeModels["u2netp"]
 	}
 
-	// 1. Quota Pre-Consume from authoritative Tora wallet
 	now := common.GetTimestamp()
 	ticketId := fmt.Sprintf("tkt_%d_%s", now, common.GetUUID()[:8])
 	requestId := fmt.Sprintf("req_native_%s", ticketId)
 
+	// 2. Authoritative Wallet Operation
 	if err := model.PreConsumeUserWallet(requestId, userId, spec.Quota); err != nil {
-		return nil, fmt.Errorf("wallet reservation failed: %w", err)
+		return nil, fmt.Errorf("wallet quota reservation failed: %w", err)
 	}
 
-	// 2. Hash normalized inputs
+	status := model.TicketStatusReserved
+	chargedQuota := 0
+	chargedCredits := 0
+	var chargedAt int64 = 0
+
+	// 3. For NATIVE_BROWSER: Commit the charge immediately (Section 4 PREPAID_EXECUTION)
+	if billingPolicy == model.BillingPolicyPrepaidExecution {
+		if err := model.SettleUserWalletPreConsume(requestId); err != nil {
+			_ = model.RefundUserWalletPreConsume(requestId)
+			return nil, fmt.Errorf("failed committing prepaid wallet charge: %w", err)
+		}
+		status = model.TicketStatusCharged
+		chargedQuota = spec.Quota
+		chargedCredits = spec.Credits
+		chargedAt = now
+	}
+
 	inputHash := model.ComputeNormalizedInputHash(inputs)
+	nonce := generateRandomNonce()
+
+	retryUntil := now + 300 // 5-minute default
+	if execClass == model.ExecutionClassNativeBrowser {
+		retryUntil = now + 1800 // 30-minute fair retry window (Section 7)
+	}
 
 	ticket := &model.NativeExecutionTicket{
 		Id:                  ticketId,
@@ -254,30 +350,48 @@ func CreateNativeExecutionTicket(userId int, toolId string, reqClass model.Nativ
 		ToolVersion:         "v1.0.0",
 		RouteVersion:        spec.RouteVersion,
 		ExecutionClass:      execClass,
+		BillingPolicy:       billingPolicy,
+		ModelId:             modelMeta.ModelId,
+		ModelVersion:        "1.0.0",
 		ModelVersionHash:    modelMeta.SHA256,
 		QuoteId:             fmt.Sprintf("qte_%s", ticketId),
 		RequestId:           requestId,
+		IdempotencyKey:      idempotencyKey,
 		ReservedQuota:       spec.Quota,
 		ReservedCredits:     spec.Credits,
+		ChargedQuota:        chargedQuota,
+		ChargedCredits:      chargedCredits,
 		NormalizedInputHash: inputHash,
-		Status:              model.TicketStatusReserved,
+		Status:              status,
+		Nonce:               nonce,
 		IssuedAt:            now,
-		ExpiresAt:           now + 300, // 5 minute execution window
+		ExpiresAt:           now + 300,
+		ChargedAt:           chargedAt,
+		SettledAt:           chargedAt,
+		RetryUntil:          retryUntil,
+		RetryCount:          0,
 		ClientDeviceClass:   clientDeviceClass,
 		CreatedAt:           now,
 		UpdatedAt:           now,
 	}
 
+	ticket.AuthToken = GenerateTicketAuthToken(ticket)
+
 	if err := model.CreateNativeTicket(ticket); err != nil {
-		// Rollback wallet reservation if ticket creation fails
-		_ = model.RefundUserWalletPreConsume(requestId)
-		return nil, fmt.Errorf("failed creating native ticket: %w", err)
+		if billingPolicy == model.BillingPolicyPrepaidExecution {
+			_ = model.RefundUserWalletPreConsume(requestId)
+		} else {
+			_ = model.RefundUserWalletPreConsume(requestId)
+		}
+		return nil, fmt.Errorf("failed creating native ticket record: %w", err)
 	}
 
 	return ticket, nil
 }
 
-// CompleteNativeExecutionTicket settles the wallet reservation once client execution succeeds.
+// CompleteNativeExecutionTicket marks client-side completion or settles server-side execution.
+// For NATIVE_BROWSER (PREPAID_EXECUTION): Records telemetry and hashes; billing was already committed at activation.
+// For DETERMINISTIC_SERVER (SUCCESS_SETTLEMENT): Settles escrow quota upon successful generation.
 func CompleteNativeExecutionTicket(userId int, ticketId string, outputAssetHash string, clientExecutionMs int64, clientDeviceClass string) (*model.NativeExecutionTicket, error) {
 	ticket, err := model.GetNativeTicket(ticketId)
 	if err != nil {
@@ -288,62 +402,71 @@ func CompleteNativeExecutionTicket(userId int, ticketId string, outputAssetHash 
 		return nil, ErrNativeUnauthorized
 	}
 
-	// Idempotency check: already settled
-	if ticket.Status == model.TicketStatusSettled {
+	// Idempotency: already completed or settled
+	if ticket.Status == model.TicketStatusCompleted {
 		return ticket, nil
 	}
-	if ticket.Status == model.TicketStatusRefunded {
+	if ticket.Status == model.TicketStatusSupportRefunded {
 		return nil, model.ErrNativeTicketAlreadyRefunded
-	}
-	if ticket.Status == model.TicketStatusExpired {
-		return nil, model.ErrNativeTicketExpired
 	}
 
 	now := common.GetTimestamp()
 
-	// Check if ticket has expired
-	if now > ticket.ExpiresAt {
-		_ = model.RefundUserWalletPreConsume(ticket.RequestId)
-		_ = model.UpdateNativeTicketStatus(ticket.TicketId, model.TicketStatusExpired, map[string]interface{}{
-			"refunded_at":  now,
-			"error_reason": "ticket expired before completion was reported",
-		})
-		return nil, model.ErrNativeTicketExpired
+	if ticket.BillingPolicy == model.BillingPolicyPrepaidExecution {
+		// NATIVE_BROWSER flow: Ticket was charged upfront. Settle is already finalized.
+		updates := map[string]interface{}{
+			"completed_at":        now,
+			"output_asset_hash":   outputAssetHash,
+			"client_execution_ms": clientExecutionMs,
+		}
+		if clientDeviceClass != "" {
+			updates["client_device_class"] = clientDeviceClass
+		}
+		if err := model.UpdateNativeTicketStatus(ticket.TicketId, model.TicketStatusCompleted, updates); err != nil {
+			return nil, fmt.Errorf("failed recording completion: %w", err)
+		}
+		ticket.Status = model.TicketStatusCompleted
+		ticket.CompletedAt = now
+		ticket.OutputAssetHash = outputAssetHash
+		ticket.ClientExecutionMs = clientExecutionMs
+		return ticket, nil
 	}
 
-	// Settle wallet reservation
+	// SUCCESS_SETTLEMENT flow (DETERMINISTIC_SERVER):
 	if err := model.SettleUserWalletPreConsume(ticket.RequestId); err != nil {
 		return nil, fmt.Errorf("failed settling wallet reservation: %w", err)
 	}
 
 	updates := map[string]interface{}{
 		"completed_at":        now,
+		"charged_at":          now,
 		"settled_at":          now,
+		"charged_quota":       ticket.ReservedQuota,
+		"charged_credits":     ticket.ReservedCredits,
 		"output_asset_hash":   outputAssetHash,
 		"client_execution_ms": clientExecutionMs,
 	}
 	if clientDeviceClass != "" {
 		updates["client_device_class"] = clientDeviceClass
 	}
-
-	if err := model.UpdateNativeTicketStatus(ticket.TicketId, model.TicketStatusSettled, updates); err != nil {
+	if err := model.UpdateNativeTicketStatus(ticket.TicketId, model.TicketStatusCompleted, updates); err != nil {
 		return nil, fmt.Errorf("failed updating settled ticket state: %w", err)
 	}
 
-	ticket.Status = model.TicketStatusSettled
-	ticket.SettledAt = now
+	ticket.Status = model.TicketStatusCompleted
 	ticket.CompletedAt = now
+	ticket.ChargedAt = now
+	ticket.SettledAt = now
+	ticket.ChargedQuota = ticket.ReservedQuota
+	ticket.ChargedCredits = ticket.ReservedCredits
 	ticket.OutputAssetHash = outputAssetHash
 	ticket.ClientExecutionMs = clientExecutionMs
-	if clientDeviceClass != "" {
-		ticket.ClientDeviceClass = clientDeviceClass
-	}
 
 	return ticket, nil
 }
 
-// RefundNativeExecutionTicket idempotently refunds a failed or aborted execution ticket.
-func RefundNativeExecutionTicket(userId int, ticketId string, reason string) (*model.NativeExecutionTicket, error) {
+// FailNativeExecutionTicket records client-side runtime failure without refunding charged browser tickets (Section 7).
+func FailNativeExecutionTicket(userId int, ticketId string, reason string) (*model.NativeExecutionTicket, error) {
 	ticket, err := model.GetNativeTicket(ticketId)
 	if err != nil {
 		return nil, err
@@ -353,12 +476,73 @@ func RefundNativeExecutionTicket(userId int, ticketId string, reason string) (*m
 		return nil, ErrNativeUnauthorized
 	}
 
-	if ticket.Status == model.TicketStatusSettled {
-		return nil, model.ErrNativeTicketAlreadySettled
+	// Update ticket to FAILED_CLIENT
+	updates := map[string]interface{}{
+		"error_reason": reason,
 	}
-	if ticket.Status == model.TicketStatusRefunded {
-		// Idempotent success
-		return ticket, nil
+	if err := model.UpdateNativeTicketStatus(ticket.TicketId, model.TicketStatusFailedClient, updates); err != nil {
+		return nil, err
+	}
+
+	ticket.Status = model.TicketStatusFailedClient
+	ticket.ErrorReason = reason
+	return ticket, nil
+}
+
+// RetryNativeExecutionTicket allows fair same-ticket retry within the 30-minute window with ZERO additional credits (Sections 7 & 8).
+func RetryNativeExecutionTicket(userId int, ticketId string) (*model.NativeExecutionTicket, error) {
+	ticket, err := model.GetNativeTicket(ticketId)
+	if err != nil {
+		return nil, err
+	}
+
+	if ticket.UserId != userId {
+		return nil, ErrNativeUnauthorized
+	}
+
+	if ticket.ExecutionClass != model.ExecutionClassNativeBrowser {
+		return nil, errors.New("same-ticket fair retry applies to NATIVE_BROWSER executions")
+	}
+
+	now := common.GetTimestamp()
+	if now > ticket.RetryUntil {
+		return nil, model.ErrNativeTicketRetryExceeded
+	}
+
+	// Refresh nonce and authorization token
+	ticket.RetryCount++
+	ticket.Nonce = generateRandomNonce()
+	ticket.AuthToken = GenerateTicketAuthToken(ticket)
+
+	updates := map[string]interface{}{
+		"status":      model.TicketStatusCharged,
+		"retry_count": ticket.RetryCount,
+		"nonce":       ticket.Nonce,
+		"auth_token":  ticket.AuthToken,
+	}
+
+	if err := model.UpdateNativeTicketStatus(ticket.TicketId, model.TicketStatusCharged, updates); err != nil {
+		return nil, fmt.Errorf("failed updating retry state: %w", err)
+	}
+
+	ticket.Status = model.TicketStatusCharged
+	return ticket, nil
+}
+
+// RefundPreExecutionTicket refunds quota ONLY if failure occurred before execution authorization (Section 6).
+func RefundPreExecutionTicket(userId int, ticketId string, reason string) (*model.NativeExecutionTicket, error) {
+	ticket, err := model.GetNativeTicket(ticketId)
+	if err != nil {
+		return nil, err
+	}
+
+	if ticket.UserId != userId {
+		return nil, ErrNativeUnauthorized
+	}
+
+	// Security Gate: If ticket was already CHARGED, automatic refund is prohibited
+	if ticket.Status == model.TicketStatusCharged || ticket.Status == model.TicketStatusStarted || ticket.Status == model.TicketStatusCompleted {
+		return nil, ErrPreExecutionRefundOnly
 	}
 
 	now := common.GetTimestamp()
@@ -370,18 +554,48 @@ func RefundNativeExecutionTicket(userId int, ticketId string, reason string) (*m
 		"refunded_at":  now,
 		"error_reason": reason,
 	}
-	if err := model.UpdateNativeTicketStatus(ticket.TicketId, model.TicketStatusRefunded, updates); err != nil {
+	if err := model.UpdateNativeTicketStatus(ticket.TicketId, model.TicketStatusSupportRefunded, updates); err != nil {
 		return nil, fmt.Errorf("failed updating refunded ticket state: %w", err)
 	}
 
-	ticket.Status = model.TicketStatusRefunded
+	ticket.Status = model.TicketStatusSupportRefunded
 	ticket.RefundedAt = now
 	ticket.ErrorReason = reason
 
 	return ticket, nil
 }
 
-// ReconcileExpiredNativeTickets safely scans and refunds all abandoned tickets past their TTL.
+// SupportRefundTicket enables manual administrator/support refund for genuine verified system failures.
+func SupportRefundTicket(userId int, ticketId string, reason string) (*model.NativeExecutionTicket, error) {
+	ticket, err := model.GetNativeTicket(ticketId)
+	if err != nil {
+		return nil, err
+	}
+
+	now := common.GetTimestamp()
+	// Compensate user quota
+	if ticket.ChargedQuota > 0 {
+		_ = model.IncreaseUserQuota(ticket.UserId, ticket.ChargedQuota, false)
+	} else if ticket.ReservedQuota > 0 && ticket.Status == model.TicketStatusReserved {
+		_ = model.RefundUserWalletPreConsume(ticket.RequestId)
+	}
+
+	updates := map[string]interface{}{
+		"refunded_at":  now,
+		"error_reason": "support_refund: " + reason,
+	}
+	_ = model.UpdateNativeTicketStatus(ticket.TicketId, model.TicketStatusSupportRefunded, updates)
+	ticket.Status = model.TicketStatusSupportRefunded
+	ticket.RefundedAt = now
+	ticket.ErrorReason = "support_refund: " + reason
+
+	return ticket, nil
+}
+
+// ReconcileExpiredNativeTickets sweeps abandoned tickets past TTL.
+// CRITICAL SECURITY ENFORCEMENT:
+// - RESERVED tickets (pre-activation): Safe to refund.
+// - CHARGED / FAILED_CLIENT / STARTED tickets: Transition to EXPIRED past RetryUntil, DO NOT AUTO-REFUND WALLET (Sections 5 & 71).
 func ReconcileExpiredNativeTickets(olderThanSeconds int64) (int, error) {
 	if model.DB == nil {
 		return 0, errors.New("database not initialized")
@@ -393,23 +607,37 @@ func ReconcileExpiredNativeTickets(olderThanSeconds int64) (int, error) {
 		cutoff = now - olderThanSeconds
 	}
 
-	var expiredTickets []model.NativeExecutionTicket
-	err := model.DB.Where("status IN (?) AND expires_at <= ?", []string{
-		string(model.TicketStatusReserved),
-		string(model.TicketStatusStarted),
-	}, cutoff).Limit(200).Find(&expiredTickets).Error
-	if err != nil {
-		return 0, err
+	reconciled := 0
+
+	// 1. Clean abandoned pre-activation reservations (Safe to refund)
+	var reservedTickets []model.NativeExecutionTicket
+	err := model.DB.Where("status = ? AND expires_at <= ?", string(model.TicketStatusReserved), cutoff).
+		Limit(200).Find(&reservedTickets).Error
+	if err == nil {
+		for _, t := range reservedTickets {
+			_ = model.RefundUserWalletPreConsume(t.RequestId)
+			_ = model.UpdateNativeTicketStatus(t.TicketId, model.TicketStatusExpired, map[string]interface{}{
+				"refunded_at":  now,
+				"error_reason": "pre-activation reservation expired",
+			})
+			reconciled++
+		}
 	}
 
-	reconciled := 0
-	for _, t := range expiredTickets {
-		_ = model.RefundUserWalletPreConsume(t.RequestId)
-		_ = model.UpdateNativeTicketStatus(t.TicketId, model.TicketStatusExpired, map[string]interface{}{
-			"refunded_at":  now,
-			"error_reason": "ticket expired past TTL without client completion",
-		})
-		reconciled++
+	// 2. Clean charged browser tickets whose fair retry window has fully elapsed (DO NOT REFUND)
+	var chargedTickets []model.NativeExecutionTicket
+	err = model.DB.Where("status IN (?) AND retry_until <= ?", []string{
+		string(model.TicketStatusCharged),
+		string(model.TicketStatusStarted),
+		string(model.TicketStatusFailedClient),
+	}, cutoff).Limit(200).Find(&chargedTickets).Error
+	if err == nil {
+		for _, t := range chargedTickets {
+			_ = model.UpdateNativeTicketStatus(t.TicketId, model.TicketStatusExpired, map[string]interface{}{
+				"error_reason": "fair retry window closed without completion",
+			})
+			reconciled++
+		}
 	}
 
 	return reconciled, nil
@@ -428,7 +656,7 @@ func StartNativeTicketReconciliationWorker() {
 				if err != nil {
 					common.SysError(fmt.Sprintf("[NativeTicketWorker] error reconciling expired tickets: %v", err))
 				} else if count > 0 {
-					common.SysLog(fmt.Sprintf("[NativeTicketWorker] reconciled and refunded %d expired native tickets", count))
+					common.SysLog(fmt.Sprintf("[NativeTicketWorker] swept %d expired native tickets (billing secured)", count))
 				}
 			}
 		}()

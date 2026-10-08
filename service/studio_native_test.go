@@ -23,7 +23,7 @@ import (
 )
 
 func setupNativeTestDB(t *testing.T) *gorm.DB {
-	dsn := fmt.Sprintf("file:test_native_%d?mode=memory&cache=shared", time.Now().UnixNano())
+	dsn := fmt.Sprintf("file:test_native_v2_%d?mode=memory&cache=shared", time.Now().UnixNano())
 	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
 	require.NoError(t, err)
 
@@ -43,6 +43,7 @@ func TestStudioNative_QuotesAndCatalogSpecs(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "background-remove", quote.ToolId)
 	assert.Equal(t, model.ExecutionClassNativeBrowser, quote.ExecutionClass)
+	assert.Equal(t, model.BillingPolicyPrepaidExecution, quote.BillingPolicy)
 	assert.Equal(t, 2, quote.Credits, "Native bg-remove should cost 2 Tora Credits")
 	assert.Equal(t, 2000, quote.Quota, "2 Credits must strictly equal 2,000 Quota units")
 	assert.InDelta(t, 0.0040, quote.USDEquivalent, 0.0001)
@@ -53,21 +54,23 @@ func TestStudioNative_QuotesAndCatalogSpecs(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, 3, upscaleQuote.Credits)
 	assert.Equal(t, 3000, upscaleQuote.Quota)
+	assert.Equal(t, model.BillingPolicyPrepaidExecution, upscaleQuote.BillingPolicy)
 	assert.Equal(t, "c4c0b7430ebb554f3939a720f9e8445fdeca3d15edb69979c7ace39b997f3483", upscaleQuote.Model.SHA256)
 
-	packQuote, err := GetNativeToolQuote("product-pack", model.ExecutionClassDeterministicProcess)
+	packQuote, err := GetNativeToolQuote("product-pack", model.ExecutionClassDeterministicServer)
 	require.NoError(t, err)
 	assert.Equal(t, 5, packQuote.Credits)
 	assert.Equal(t, 5000, packQuote.Quota)
-	assert.Equal(t, model.ExecutionClassDeterministicProcess, packQuote.ExecutionClass)
+	assert.Equal(t, model.ExecutionClassDeterministicServer, packQuote.ExecutionClass)
+	assert.Equal(t, model.BillingPolicySuccessSettlement, packQuote.BillingPolicy)
 }
 
-// Test 2: Native Ticket Lifecycle (Reserve -> Complete -> Settle)
-func TestStudioNative_TicketLifecycle_ReserveAndComplete(t *testing.T) {
+// Test 2: Prepaid Execution - Charge Committed at Activation BEFORE Client Runs Local Inference (Sections 4 & 5)
+func TestStudioNative_PrepaidExecution_ReserveAndSettleAtActivation(t *testing.T) {
 	db := setupNativeTestDB(t)
 
 	user := model.User{
-		Username: "native_creator",
+		Username: "native_prepaid_user",
 		Quota:    50000, // 50 Tora Credits ($0.10)
 	}
 	require.NoError(t, db.Create(&user).Error)
@@ -78,111 +81,229 @@ func TestStudioNative_TicketLifecycle_ReserveAndComplete(t *testing.T) {
 		"height": 512,
 	}
 
-	// 1. Issue Ticket (Wallet Pre-consume 2,000 Quota)
-	ticket, err := CreateNativeExecutionTicket(user.Id, "background-remove", model.ExecutionClassNativeBrowser, inputs, "iphone_safari_webgpu")
+	// 1. Issue & Activate Ticket -> Quota Charged Atomically at Activation
+	ticket, err := CreateNativeExecutionTicket(user.Id, "background-remove", model.ExecutionClassNativeBrowser, inputs, "mac_safari_webgpu", "")
 	require.NoError(t, err)
 	assert.NotEmpty(t, ticket.TicketId)
-	assert.Equal(t, 2000, ticket.ReservedQuota)
-	assert.Equal(t, 2, ticket.ReservedCredits)
-	assert.Equal(t, model.TicketStatusReserved, ticket.Status)
-	assert.Equal(t, "309c8469258dda742793dce0ebea8e6dd393174f89934733ecc8b14c76f4ddd8", ticket.ModelVersionHash)
+	assert.Equal(t, model.TicketStatusCharged, ticket.Status, "NATIVE_BROWSER ticket must be in CHARGED status upon issuance")
+	assert.Equal(t, 2000, ticket.ChargedQuota)
+	assert.Equal(t, 2, ticket.ChargedCredits)
+	assert.NotEmpty(t, ticket.AuthToken, "Server must issue a signed cryptographic authorization token")
+	assert.True(t, VerifyTicketAuthToken(ticket, ticket.AuthToken), "Token signature must verify against server secret")
 
-	// Verify User Quota dropped by 2,000
+	// Quota is ALREADY deducted from user's wallet
 	userQuota, err := model.GetUserQuota(user.Id, false)
 	require.NoError(t, err)
-	assert.Equal(t, 48000, userQuota, "User quota must be reserved during ticket issuance")
+	assert.Equal(t, 48000, userQuota, "User quota must be charged permanently at ticket activation")
 
-	// 2. Client Completes Inference (85ms latency)
+	// 2. Client runs inference locally and calls /complete -> Records telemetry, quota does NOT change
 	outputHash := "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
-	completedTicket, err := CompleteNativeExecutionTicket(user.Id, ticket.TicketId, outputHash, 85, "iphone_safari_webgpu")
+	completedTicket, err := CompleteNativeExecutionTicket(user.Id, ticket.TicketId, outputHash, 85, "mac_safari_webgpu")
 	require.NoError(t, err)
-	assert.Equal(t, model.TicketStatusSettled, completedTicket.Status)
+	assert.Equal(t, model.TicketStatusCompleted, completedTicket.Status)
 	assert.Equal(t, int64(85), completedTicket.ClientExecutionMs)
 	assert.Equal(t, outputHash, completedTicket.OutputAssetHash)
 
-	// User Quota remains 48,000 (spent permanently)
+	// User Quota remains exactly 48,000 (no double-deduction)
 	userQuota, err = model.GetUserQuota(user.Id, false)
 	require.NoError(t, err)
 	assert.Equal(t, 48000, userQuota)
-
-	// 3. Idempotent Completion
-	reCompleted, err := CompleteNativeExecutionTicket(user.Id, ticket.TicketId, outputHash, 85, "iphone_safari_webgpu")
-	require.NoError(t, err)
-	assert.Equal(t, model.TicketStatusSettled, reCompleted.Status)
 }
 
-// Test 3: Native Ticket Refund on Client Failure
-func TestStudioNative_TicketLifecycle_Refund(t *testing.T) {
+// Test 3: Idempotency - Same Key Yields Existing Ticket With Zero Double-Charge (Section 12)
+func TestStudioNative_Idempotency_NoDoubleCharge(t *testing.T) {
 	db := setupNativeTestDB(t)
 
 	user := model.User{
-		Username: "refund_tester",
+		Username: "idempotency_tester",
 		Quota:    50000,
 	}
 	require.NoError(t, db.Create(&user).Error)
 
-	inputs := map[string]interface{}{"upscale": 2}
-	ticket, err := CreateNativeExecutionTicket(user.Id, "image-upscale-2x", model.ExecutionClassNativeBrowser, inputs, "android_chrome")
+	inputs := map[string]interface{}{"mode": "portrait"}
+	idempotencyKey := "idem_key_unique_998877"
+
+	// Call 1: Provisions ticket
+	ticket1, err := CreateNativeExecutionTicket(user.Id, "portrait-matting", model.ExecutionClassNativeBrowser, inputs, "chrome_desktop", idempotencyKey)
 	require.NoError(t, err)
-	assert.Equal(t, 3000, ticket.ReservedQuota)
+	assert.Equal(t, model.TicketStatusCharged, ticket1.Status)
 
-	// Verify quota reserved
-	q, _ := model.GetUserQuota(user.Id, false)
-	assert.Equal(t, 47000, q)
+	// Balance drops from 50,000 to 48,000 (2 credits)
+	q1, _ := model.GetUserQuota(user.Id, false)
+	assert.Equal(t, 48000, q1)
 
-	// Client encounters WebGPU out of memory and reports refund
-	refunded, err := RefundNativeExecutionTicket(user.Id, ticket.TicketId, "WebGPU OOM shader allocation failed")
+	// Call 2: Repeated call with SAME idempotency key
+	ticket2, err := CreateNativeExecutionTicket(user.Id, "portrait-matting", model.ExecutionClassNativeBrowser, inputs, "chrome_desktop", idempotencyKey)
 	require.NoError(t, err)
-	assert.Equal(t, model.TicketStatusRefunded, refunded.Status)
-	assert.Equal(t, "WebGPU OOM shader allocation failed", refunded.ErrorReason)
+	assert.Equal(t, ticket1.TicketId, ticket2.TicketId, "Idempotent call must return the exact same ticket")
 
-	// Quota is restored
-	q, _ = model.GetUserQuota(user.Id, false)
-	assert.Equal(t, 50000, q, "User quota must be refunded back to original balance")
-
-	// Attempting to settle a refunded ticket must be blocked
-	_, err = CompleteNativeExecutionTicket(user.Id, ticket.TicketId, "dummyhash", 100, "android_chrome")
-	assert.ErrorIs(t, err, model.ErrNativeTicketAlreadyRefunded)
+	// Balance MUST NOT drop again
+	q2, _ := model.GetUserQuota(user.Id, false)
+	assert.Equal(t, 48000, q2, "Balance must not be double-charged on idempotent replay")
 }
 
-// Test 4: Expired Ticket Sweep & Reconciliation
-func TestStudioNative_Reconciliation_ExpiredTickets(t *testing.T) {
+// Test 4: Abuse Test - Old Exploit Fixed (Section 2 & 71)
+// Attack: User activates ticket, obtains local cutout, blocks /complete, waits past TTL.
+// Verification: Wallet remains charged, server NEVER auto-refunds charged browser tickets!
+func TestStudioNative_AbuseTest_OldExploitFixed(t *testing.T) {
 	db := setupNativeTestDB(t)
 
 	user := model.User{
-		Username: "abandon_user",
-		Quota:    20000,
+		Username: "attacker_account",
+		Quota:    30000, // 30 Credits
 	}
 	require.NoError(t, db.Create(&user).Error)
 
-	ticket, err := CreateNativeExecutionTicket(user.Id, "background-remove", model.ExecutionClassNativeBrowser, nil, "desktop_firefox")
+	inputs := map[string]interface{}{"exploit_attempt": true}
+	ticket, err := CreateNativeExecutionTicket(user.Id, "background-remove", model.ExecutionClassNativeBrowser, inputs, "headless_chromium", "")
 	require.NoError(t, err)
+	assert.Equal(t, model.TicketStatusCharged, ticket.Status)
 
+	// User wallet charged 2 Credits (28,000 left)
 	q, _ := model.GetUserQuota(user.Id, false)
-	assert.Equal(t, 18000, q)
+	assert.Equal(t, 28000, q)
 
-	// Simulate ticket expiry by backdating expires_at in database
-	past := common.GetTimestamp() - 60
+	// Attacker intentionally suppresses /complete and waits past TTL (retry window also elapses)
+	past := common.GetTimestamp() - 3600
 	require.NoError(t, db.Model(&model.NativeExecutionTicket{}).
 		Where("ticket_id = ?", ticket.TicketId).
-		Update("expires_at", past).Error)
+		Updates(map[string]interface{}{
+			"expires_at":  past,
+			"retry_until": past,
+		}).Error)
 
-	// Run reconciliation worker sweep
-	reconciledCount, err := ReconcileExpiredNativeTickets(0)
+	// Run background reconciliation worker sweep
+	sweptCount, err := ReconcileExpiredNativeTickets(0)
 	require.NoError(t, err)
-	assert.Equal(t, 1, reconciledCount, "Exactly 1 expired ticket should be reconciled")
+	assert.Equal(t, 1, sweptCount, "Ticket should be marked expired")
 
 	// Verify ticket status transitioned to EXPIRED
 	tkt, err := model.GetNativeTicket(ticket.TicketId)
 	require.NoError(t, err)
 	assert.Equal(t, model.TicketStatusExpired, tkt.Status)
 
-	// Verify user balance restored
-	q, _ = model.GetUserQuota(user.Id, false)
-	assert.Equal(t, 20000, q, "Quota must be fully refunded upon ticket expiration sweep")
+	// CRITICAL TEST ASSERTION: Wallet was NOT refunded! Attacker keeps 28,000 quota, NOT 30,000!
+	finalQuota, _ := model.GetUserQuota(user.Id, false)
+	assert.Equal(t, 28000, finalQuota, "SECURITY FIX: Charged browser ticket must NEVER auto-refund to prevent free-use exploit")
 }
 
-// Test 5: Deterministic Marketplace Product Pack Pipeline
+// Test 5: Pre-Execution Failure Safely Refunds Escrow Quota (Section 6 & 72)
+func TestStudioNative_PreActivationFailure_RefundsQuota(t *testing.T) {
+	db := setupNativeTestDB(t)
+
+	user := model.User{
+		Username: "preflight_fail_user",
+		Quota:    20000,
+	}
+	require.NoError(t, db.Create(&user).Error)
+
+	// Simulate ticket in pre-activation RESERVED state
+	now := common.GetTimestamp()
+	ticket := &model.NativeExecutionTicket{
+		Id:                  "tkt_preflight_1",
+		TicketId:            "tkt_preflight_1",
+		UserId:              user.Id,
+		ToolId:              "background-remove",
+		ExecutionClass:      model.ExecutionClassNativeBrowser,
+		BillingPolicy:       model.BillingPolicyPrepaidExecution,
+		RequestId:           "req_preflight_1",
+		ReservedQuota:       2000,
+		ReservedCredits:     2,
+		NormalizedInputHash: "hash123",
+		Status:              model.TicketStatusReserved,
+		IssuedAt:            now,
+		ExpiresAt:           now + 300,
+	}
+	// Reserve in wallet
+	require.NoError(t, model.PreConsumeUserWallet(ticket.RequestId, user.Id, ticket.ReservedQuota))
+	require.NoError(t, model.CreateNativeTicket(ticket))
+
+	// Balance dropped to 18,000 during pre-flight reservation
+	q, _ := model.GetUserQuota(user.Id, false)
+	assert.Equal(t, 18000, q)
+
+	// Compatibility preflight discovers device lacks WebGPU/WASM before activation
+	refundedTicket, err := RefundPreExecutionTicket(user.Id, ticket.TicketId, "device lacks required WebGPU/WASM shader capabilities")
+	require.NoError(t, err)
+	assert.Equal(t, model.TicketStatusSupportRefunded, refundedTicket.Status)
+
+	// Balance is safely restored to 20,000
+	q, _ = model.GetUserQuota(user.Id, false)
+	assert.Equal(t, 20000, q, "Pre-activation failures must safely refund reserved wallet quota")
+}
+
+// Test 6: Fair Same-Ticket Retry Policy with Zero Additional Credits (Sections 7 & 8 & 73)
+func TestStudioNative_FairRetry_ZeroCredits(t *testing.T) {
+	db := setupNativeTestDB(t)
+
+	user := model.User{
+		Username: "retry_beneficiary",
+		Quota:    50000,
+	}
+	require.NoError(t, db.Create(&user).Error)
+
+	// Issue ticket
+	ticket, err := CreateNativeExecutionTicket(user.Id, "image-upscale-2x", model.ExecutionClassNativeBrowser, nil, "android_firefox", "")
+	require.NoError(t, err)
+	assert.Equal(t, model.TicketStatusCharged, ticket.Status)
+
+	// User charged 3 Credits (47,000 balance remaining)
+	q1, _ := model.GetUserQuota(user.Id, false)
+	assert.Equal(t, 47000, q1)
+
+	// Browser tab crashes mid-inference -> client reports failure
+	failedTicket, err := FailNativeExecutionTicket(user.Id, ticket.TicketId, "WebGL context lost during tile 3")
+	require.NoError(t, err)
+	assert.Equal(t, model.TicketStatusFailedClient, failedTicket.Status)
+
+	// User retries execution using the same ticket
+	retriedTicket, err := RetryNativeExecutionTicket(user.Id, ticket.TicketId)
+	require.NoError(t, err)
+	assert.Equal(t, model.TicketStatusCharged, retriedTicket.Status)
+	assert.Equal(t, 1, retriedTicket.RetryCount)
+	assert.NotEmpty(t, retriedTicket.AuthToken)
+	assert.True(t, VerifyTicketAuthToken(retriedTicket, retriedTicket.AuthToken))
+
+	// CRITICAL ASSERTION: Zero additional wallet charge!
+	q2, _ := model.GetUserQuota(user.Id, false)
+	assert.Equal(t, 47000, q2, "Fair retry must cost exactly 0 additional Tora Credits")
+}
+
+// Test 7: Tamper-Resistant Cryptographic Signing (Section 11)
+func TestStudioNative_HMACSignature_TamperResistance(t *testing.T) {
+	now := common.GetTimestamp()
+	ticket := &model.NativeExecutionTicket{
+		TicketId:            "tkt_test_sign_123",
+		UserId:              101,
+		ToolId:              "background-remove",
+		ToolVersion:         "v1.0.0",
+		ExecutionClass:      model.ExecutionClassNativeBrowser,
+		BillingPolicy:       model.BillingPolicyPrepaidExecution,
+		ModelId:             "u2netp",
+		ModelVersionHash:    "309c8469258dda742793dce0ebea8e6dd393174f89934733ecc8b14c76f4ddd8",
+		NormalizedInputHash: "input_digest_abc",
+		QuoteId:             "qte_123",
+		ChargedQuota:        2000,
+		IssuedAt:            now,
+		ExpiresAt:           now + 300,
+		RetryUntil:          now + 1800,
+		Nonce:               "random_nonce_99",
+	}
+
+	validToken := GenerateTicketAuthToken(ticket)
+	assert.NotEmpty(t, validToken)
+	assert.True(t, VerifyTicketAuthToken(ticket, validToken))
+
+	// Tampering test: Attacker changes tool or charged quota
+	ticket.ToolId = "image-upscale-4x"
+	assert.False(t, VerifyTicketAuthToken(ticket, validToken), "Tampered tool must fail signature verification")
+
+	ticket.ToolId = "background-remove"
+	ticket.ChargedQuota = 0 // Attempting free execution
+	assert.False(t, VerifyTicketAuthToken(ticket, validToken), "Tampered quota must fail signature verification")
+}
+
+// Test 8: Deterministic Marketplace Product Pack Pipeline (Section 48)
 func TestStudioProductPack_DeterministicPipeline(t *testing.T) {
 	db := setupNativeTestDB(t)
 

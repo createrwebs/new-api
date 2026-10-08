@@ -395,9 +395,11 @@ func SetApiRouter(router *gin.Engine) {
 			studioUserRoute.POST("/assistant/plan/:id/retry", controller.RetryAssistantPlanStep)
 			studioUserRoute.POST("/assistant/plan/:id/requote", controller.RequoteAssistantPlan)
 
-			// Tora Native Tools & Execution Tickets (Queue N1-GH)
+			// Tora Native Tools & Execution Tickets (Queue N1-GH & Queue N2)
 			studioUserRoute.POST("/native/ticket", controller.CreateNativeTicket)
 			studioUserRoute.POST("/native/complete", controller.CompleteNativeTicket)
+			studioUserRoute.POST("/native/fail", controller.FailNativeTicket)
+			studioUserRoute.POST("/native/retry", controller.RetryNativeTicket)
 			studioUserRoute.POST("/native/refund", controller.RefundNativeTicket)
 			studioUserRoute.POST("/native/product-pack", controller.GenerateMarketplaceProductPack)
 		}

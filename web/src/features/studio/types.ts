@@ -99,6 +99,66 @@ export interface StudioTelemetrySummary {
   blocked_tools_count: number
 }
 
+export type NativeExecutionClass = 'NATIVE_BROWSER' | 'NATIVE_SERVER' | 'NATIVE_SERVERLESS' | 'EXTERNAL_RELAY' | 'DETERMINISTIC_SERVER'
+export type NativeBillingPolicy = 'PREPAID_EXECUTION' | 'SUCCESS_SETTLEMENT' | 'AMBIGUOUS_RECONCILIATION'
+export type NativeTicketStatus = 'QUOTED' | 'RESERVED' | 'ACTIVATING' | 'CHARGED' | 'STARTED' | 'COMPLETED' | 'FAILED_CLIENT' | 'EXPIRED' | 'SUPPORT_REFUNDED'
+
+export interface NativeExecutionTicket {
+  id: string
+  ticket_id: string
+  user_id: number
+  tool_id: string
+  tool_version: string
+  route_version: string
+  execution_class: NativeExecutionClass
+  billing_policy: NativeBillingPolicy
+  model_id: string
+  model_version: string
+  model_version_hash: string
+  quote_id: string
+  request_id: string
+  idempotency_key?: string
+  reserved_quota: number
+  reserved_credits: number
+  charged_quota: number
+  charged_credits: number
+  status: NativeTicketStatus
+  auth_token?: string
+  nonce?: string
+  issued_at: number
+  expires_at: number
+  charged_at: number
+  retry_until: number
+  retry_count: number
+  completed_at?: number
+  client_execution_ms?: number
+  output_asset_hash?: string
+  error_reason?: string
+}
+
+export interface NativeQuoteResult {
+  quote_id: string
+  tool_id: string
+  execution_class: NativeExecutionClass
+  billing_policy: NativeBillingPolicy
+  credits: number
+  quota: number
+  usd_equivalent: number
+  model: {
+    model_id: string
+    model_name: string
+    filename: string
+    sha256: string
+    size_bytes: number
+    format: string
+    license: string
+    execution_env: string
+  }
+  route_version: string
+  expires_at: number
+  fallback_provider?: string
+}
+
 export interface SavedPendingJob {
   tool_id: string
   template_id?: string

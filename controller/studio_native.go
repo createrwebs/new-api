@@ -17,15 +17,16 @@ type QuoteNativeToolRequest struct {
 	ExecutionClass model.NativeExecutionClass `json:"execution_class"`
 }
 
-// CreateNativeTicketRequest represents request to authorize and reserve quota for client inference.
+// CreateNativeTicketRequest represents request to authorize and provision an execution ticket.
 type CreateNativeTicketRequest struct {
 	ToolId            string                     `json:"tool_id" binding:"required"`
 	ExecutionClass    model.NativeExecutionClass `json:"execution_class"`
 	Inputs            map[string]interface{}     `json:"inputs"`
 	ClientDeviceClass string                     `json:"client_device_class"`
+	IdempotencyKey    string                     `json:"idempotency_key"`
 }
 
-// CompleteNativeTicketRequest reports successful client-side inference and settles quota.
+// CompleteNativeTicketRequest reports client-side inference completion with output digest.
 type CompleteNativeTicketRequest struct {
 	TicketId          string `json:"ticket_id" binding:"required"`
 	OutputAssetHash   string `json:"output_asset_hash"`
@@ -33,7 +34,18 @@ type CompleteNativeTicketRequest struct {
 	ClientDeviceClass string `json:"client_device_class"`
 }
 
-// RefundNativeTicketRequest reports client-side failure or cancellation to refund reserved quota.
+// FailNativeTicketRequest reports client-side runtime error.
+type FailNativeTicketRequest struct {
+	TicketId string `json:"ticket_id" binding:"required"`
+	Reason   string `json:"reason"`
+}
+
+// RetryNativeTicketRequest requests same-ticket fair retry authorization.
+type RetryNativeTicketRequest struct {
+	TicketId string `json:"ticket_id" binding:"required"`
+}
+
+// RefundNativeTicketRequest reports pre-activation failure to release reserved quota.
 type RefundNativeTicketRequest struct {
 	TicketId string `json:"ticket_id" binding:"required"`
 	Reason   string `json:"reason"`
@@ -74,7 +86,13 @@ func CreateNativeTicket(c *gin.Context) {
 		return
 	}
 
-	ticket, err := service.CreateNativeExecutionTicket(userId, req.ToolId, req.ExecutionClass, req.Inputs, req.ClientDeviceClass)
+	// Resolve Idempotency Key from header or body
+	idempotencyKey := strings.TrimSpace(c.GetHeader("Idempotency-Key"))
+	if idempotencyKey == "" {
+		idempotencyKey = strings.TrimSpace(req.IdempotencyKey)
+	}
+
+	ticket, err := service.CreateNativeExecutionTicket(userId, req.ToolId, req.ExecutionClass, req.Inputs, req.ClientDeviceClass, idempotencyKey)
 	if err != nil {
 		status := http.StatusInternalServerError
 		if errors.Is(err, model.ErrWalletQuotaInsufficient) || strings.Contains(err.Error(), "insufficient") {
@@ -88,7 +106,7 @@ func CreateNativeTicket(c *gin.Context) {
 
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
-		"message": "execution ticket authorized and wallet reserved",
+		"message": "execution ticket authorized and wallet debited",
 		"data":    ticket,
 	})
 }
@@ -116,8 +134,6 @@ func CompleteNativeTicket(c *gin.Context) {
 			status = http.StatusNotFound
 		} else if errors.Is(err, model.ErrNativeTicketExpired) {
 			status = http.StatusGone
-		} else if errors.Is(err, model.ErrNativeTicketAlreadySettled) {
-			status = http.StatusOK // Idempotent
 		}
 		c.JSON(status, gin.H{"success": false, "message": err.Error(), "data": ticket})
 		return
@@ -125,12 +141,80 @@ func CompleteNativeTicket(c *gin.Context) {
 
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
-		"message": "execution settled successfully",
+		"message": "execution completed and recorded successfully",
 		"data":    ticket,
 	})
 }
 
-// RefundNativeTicket handles POST /api/studio/native/refund.
+// FailNativeTicket handles POST /api/studio/native/fail (Reports client runtime error).
+func FailNativeTicket(c *gin.Context) {
+	userId := c.GetInt("id")
+	if userId <= 0 {
+		c.JSON(http.StatusUnauthorized, gin.H{"success": false, "message": "authentication required"})
+		return
+	}
+
+	var req FailNativeTicketRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "invalid request parameters: " + err.Error()})
+		return
+	}
+
+	ticket, err := service.FailNativeExecutionTicket(userId, req.TicketId, req.Reason)
+	if err != nil {
+		status := http.StatusInternalServerError
+		if errors.Is(err, service.ErrNativeUnauthorized) {
+			status = http.StatusForbidden
+		} else if errors.Is(err, model.ErrNativeTicketNotFound) {
+			status = http.StatusNotFound
+		}
+		c.JSON(status, gin.H{"success": false, "message": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"message": "client failure recorded; same-ticket retry is permitted within retry window",
+		"data":    ticket,
+	})
+}
+
+// RetryNativeTicket handles POST /api/studio/native/retry (Fair retry at 0 additional Credits).
+func RetryNativeTicket(c *gin.Context) {
+	userId := c.GetInt("id")
+	if userId <= 0 {
+		c.JSON(http.StatusUnauthorized, gin.H{"success": false, "message": "authentication required"})
+		return
+	}
+
+	var req RetryNativeTicketRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "invalid request parameters: " + err.Error()})
+		return
+	}
+
+	ticket, err := service.RetryNativeExecutionTicket(userId, req.TicketId)
+	if err != nil {
+		status := http.StatusInternalServerError
+		if errors.Is(err, service.ErrNativeUnauthorized) {
+			status = http.StatusForbidden
+		} else if errors.Is(err, model.ErrNativeTicketNotFound) {
+			status = http.StatusNotFound
+		} else if errors.Is(err, model.ErrNativeTicketRetryExceeded) {
+			status = http.StatusGone
+		}
+		c.JSON(status, gin.H{"success": false, "message": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"message": "same-ticket retry authorized at 0 additional credits",
+		"data":    ticket,
+	})
+}
+
+// RefundNativeTicket handles POST /api/studio/native/refund (Pre-activation failures only).
 func RefundNativeTicket(c *gin.Context) {
 	userId := c.GetInt("id")
 	if userId <= 0 {
@@ -144,15 +228,15 @@ func RefundNativeTicket(c *gin.Context) {
 		return
 	}
 
-	ticket, err := service.RefundNativeExecutionTicket(userId, req.TicketId, req.Reason)
+	ticket, err := service.RefundPreExecutionTicket(userId, req.TicketId, req.Reason)
 	if err != nil {
 		status := http.StatusInternalServerError
 		if errors.Is(err, service.ErrNativeUnauthorized) {
 			status = http.StatusForbidden
 		} else if errors.Is(err, model.ErrNativeTicketNotFound) {
 			status = http.StatusNotFound
-		} else if errors.Is(err, model.ErrNativeTicketAlreadySettled) {
-			status = http.StatusConflict
+		} else if errors.Is(err, service.ErrPreExecutionRefundOnly) {
+			status = http.StatusBadRequest
 		}
 		c.JSON(status, gin.H{"success": false, "message": err.Error()})
 		return
@@ -160,7 +244,7 @@ func RefundNativeTicket(c *gin.Context) {
 
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
-		"message": "execution ticket refunded",
+		"message": "pre-activation reservation refunded",
 		"data":    ticket,
 	})
 }
@@ -210,7 +294,13 @@ func GenerateMarketplaceProductPack(c *gin.Context) {
 		return
 	}
 
-	// Charge 5 Tora Credits (5000 Quota)
+	// Guard maximum image upload size (20MB) to protect host memory (Section 50)
+	if len(rawBytes) > 20*1024*1024 {
+		c.JSON(http.StatusRequestEntityTooLarge, gin.H{"success": false, "message": "image file exceeds maximum safe limit of 20MB"})
+		return
+	}
+
+	// Charge 5 Tora Credits (5000 Quota) via SUCCESS_SETTLEMENT
 	packQuota := 5000
 	hasQuota, err := model.TryReserveUserQuota(userId, packQuota)
 	if err != nil || !hasQuota {
@@ -220,7 +310,7 @@ func GenerateMarketplaceProductPack(c *gin.Context) {
 
 	packResult, err := service.GenerateMarketplaceProductPack(model.DB, userId, "", rawBytes)
 	if err != nil {
-		_ = model.IncreaseUserQuota(userId, packQuota, false) // refund
+		_ = model.IncreaseUserQuota(userId, packQuota, false) // refund on server processing failure
 		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "failed generating product pack: " + err.Error()})
 		return
 	}

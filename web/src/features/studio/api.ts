@@ -177,3 +177,80 @@ export async function recordStudioAttribution(
   }
 }
 
+// --- Tora Native Execution Client APIs (Queue N1-GH & Queue N2) ---
+
+export async function quoteNativeTool(payload: {
+  tool_id: string
+  execution_class?: string
+}) {
+  const res = await api.post('/api/studio/native/quote', payload)
+  const data = requireServerSuccess(res.data)
+  return data?.data
+}
+
+export async function createNativeTicket(payload: {
+  tool_id: string
+  execution_class?: string
+  inputs?: Record<string, unknown>
+  client_device_class?: string
+  idempotency_key?: string
+}) {
+  const headers: Record<string, string> = {}
+  if (payload.idempotency_key) {
+    headers['Idempotency-Key'] = payload.idempotency_key
+  }
+  const res = await api.post('/api/studio/native/ticket', payload, { headers })
+  const data = requireServerSuccess(res.data)
+  return data?.data
+}
+
+export async function completeNativeTicket(payload: {
+  ticket_id: string
+  output_asset_hash?: string
+  client_execution_ms?: number
+  client_device_class?: string
+}) {
+  const res = await api.post('/api/studio/native/complete', payload)
+  const data = requireServerSuccess(res.data)
+  return data?.data
+}
+
+export async function failNativeTicket(payload: {
+  ticket_id: string
+  reason?: string
+}) {
+  const res = await api.post('/api/studio/native/fail', payload)
+  const data = requireServerSuccess(res.data)
+  return data?.data
+}
+
+export async function retryNativeTicket(payload: {
+  ticket_id: string
+}) {
+  const res = await api.post('/api/studio/native/retry', payload)
+  const data = requireServerSuccess(res.data)
+  return data?.data
+}
+
+export async function refundNativeTicket(payload: {
+  ticket_id: string
+  reason?: string
+}) {
+  const res = await api.post('/api/studio/native/refund', payload)
+  const data = requireServerSuccess(res.data)
+  return data?.data
+}
+
+export async function generateProductPack(formDataOrPayload: FormData | { image_url: string }) {
+  const isFormData = typeof FormData !== 'undefined' && formDataOrPayload instanceof FormData
+  const res = await api.post(
+    '/api/studio/native/product-pack',
+    formDataOrPayload,
+    isFormData
+      ? { headers: { 'Content-Type': 'multipart/form-data' } }
+      : undefined
+  )
+  const data = requireServerSuccess(res.data)
+  return data?.data
+}
+
