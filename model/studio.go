@@ -41,6 +41,7 @@ const (
 	StudioToolStateBeta            StudioToolState = "BETA"
 	StudioToolStateComingSoon      StudioToolState = "COMING_SOON"
 	StudioToolStateOperatorBlocked StudioToolState = "OPERATOR_BLOCKED"
+	StudioToolStateDisabled        StudioToolState = "DISABLED"
 )
 
 // StudioToolDefinition defines a discrete creative tool in Tora Studio (Section 7).

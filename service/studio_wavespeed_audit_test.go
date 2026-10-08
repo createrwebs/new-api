@@ -34,18 +34,19 @@ func setupWaveSpeedAuditTestDB(t *testing.T) *gorm.DB {
 	return db
 }
 
-// 1. Queue 2H Section 6: Proves unverified WaveSpeed routes are disabled/draft.
+// 1. Queue 3A: Proves verified WaveSpeed routes are active.
 func TestStudio_WaveSpeed_RouteAudit_ReconciledCatalog(t *testing.T) {
 	db := setupWaveSpeedAuditTestDB(t)
 
 	var wsBirefnet model.StudioModelRoute
 	require.NoError(t, db.Where("id = ?", "ws-birefnet").First(&wsBirefnet).Error)
-	assert.Equal(t, model.RouteStatusDisabled, wsBirefnet.Status, "ws-birefnet must be DISABLED per Queue 2H Section 6")
-	assert.False(t, wsBirefnet.Enabled, "ws-birefnet must be disabled")
+	assert.Equal(t, model.RouteStatusActive, wsBirefnet.Status, "ws-birefnet must be ACTIVE per Queue 3A canary")
+	assert.True(t, wsBirefnet.Enabled, "ws-birefnet must be enabled")
+	assert.Equal(t, "wavespeed-ai/image-background-remover", wsBirefnet.ProviderModelId)
 
 	var wsUpscaler model.StudioModelRoute
 	require.NoError(t, db.Where("id = ?", "ws-upscaler").First(&wsUpscaler).Error)
-	assert.Equal(t, model.RouteStatusContractVerified, wsUpscaler.Status, "ws-upscaler must be CONTRACT_VERIFIED")
+	assert.Equal(t, model.RouteStatusActive, wsUpscaler.Status, "ws-upscaler must be ACTIVE per Queue 3A canary")
 	assert.True(t, wsUpscaler.Enabled)
 	assert.Equal(t, "wavespeed-ai/image-upscaler", wsUpscaler.ProviderModelId)
 
@@ -57,8 +58,9 @@ func TestStudio_WaveSpeed_RouteAudit_ReconciledCatalog(t *testing.T) {
 
 	var wsProductFlux model.StudioModelRoute
 	require.NoError(t, db.Where("id = ?", "ws-product-flux").First(&wsProductFlux).Error)
-	assert.Equal(t, model.RouteStatusDraft, wsProductFlux.Status, "ws-product-flux must remain in DRAFT pending canary")
-	assert.False(t, wsProductFlux.Enabled)
+	assert.Equal(t, model.RouteStatusActive, wsProductFlux.Status, "ws-product-flux must be ACTIVE per Queue 3A canary")
+	assert.True(t, wsProductFlux.Enabled)
+	assert.Equal(t, "wavespeed-ai/flux-kontext-dev", wsProductFlux.ProviderModelId)
 }
 
 // 2. Queue 2H Section 29 & 30: Proves unverified KIE routes are downgraded to DRAFT.
