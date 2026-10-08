@@ -1,0 +1,28 @@
+docs/ai/TORA_FLUTTER_ONNX_RUNTIME_AUDIT.md
+  h_f97827f62b0fea 1-51
+docs/ai/TORA_NATIVE_MOBILE_ARCHITECTURE.md
+  h_f97827f62b0fea 1-153
+docs/ai/TORA_NATIVE_MOBILE_BILLING.md
+  h_f97827f62b0fea 1-78
+docs/ai/TORA_NATIVE_MOBILE_MODEL_MANIFEST.md
+  h_f97827f62b0fea 1-42
+docs/ai/TORA_NATIVE_MOBILE_PRIVACY.md
+  h_f97827f62b0fea 1-62
+docs/ai/TORA_PRODUCT_FACTORY_ARCHITECTURE.md
+  h_f97827f62b0fea 1-87
+docs/ai/TORA_PRODUCT_FACTORY_BILLING.md
+  h_f97827f62b0fea 1-54
+docs/ai/TORA_STUDIO_QUEUE_N3_REPORT.md
+  h_f97827f62b0fea 1-196
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.3",
+  "base_commit_sha": "84d672f51522ab0775a401659bef1805e0603d63",
+  "prompts": {},
+  "humans": {
+    "h_f97827f62b0fea": {
+      "author": "NOPPANAN THEERACHARTE <noppanan.the@axonstech.com>"
+    }
+  }
+}
