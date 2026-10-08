@@ -1,0 +1,22 @@
+controller/studio_native.go
+  h_f97827f62b0fea 77-101
+model/studio_native.go
+  h_f97827f62b0fea 44,49-57,145
+router/api-router.go
+  h_f97827f62b0fea 379,407
+service/studio_native.go
+  h_f97827f62b0fea 11-12,21-26,29-76,222-260,350-357,374-440
+service/studio_native_test.go
+  h_f97827f62b0fea 494-612
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.3",
+  "base_commit_sha": "2e967e191dfb1a946c6915d59bbbc8983afcdc60",
+  "prompts": {},
+  "humans": {
+    "h_f97827f62b0fea": {
+      "author": "NOPPANAN THEERACHARTE <noppanan.the@axonstech.com>"
+    }
+  }
+}
