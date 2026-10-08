@@ -1,0 +1,34 @@
+web/src/features/studio/api.ts
+  h_f97827f62b0fea 257-313
+docs/ai/TORA_QUEUE_N5_PREP.md
+  h_f97827f62b0fea 1-27
+docs/ai/TORA_N4_OVERNIGHT_BASELINE.md
+  h_f97827f62b0fea 1-48
+docs/ai/TORA_STUDIO_QUEUE_N4_REPORT.md
+  h_f97827f62b0fea 1-89
+docs/ai/TORA_PRODUCT_FACTORY_V2_LOAD_TEST.md
+  h_f97827f62b0fea 1-43
+service/studio_seller_factory.go
+  h_f97827f62b0fea 9,573,606-614,624-642,646-647,679-687,689,703-709,714-731
+web/src/features/studio/types.ts
+  h_f97827f62b0fea 169-292
+docs/ai/TORA_SELLER_TEMPLATE_ACCEPTANCE.md
+  h_f97827f62b0fea 1-68
+docs/ai/TORA_PRODUCT_FACTORY_V2_BILLING.md
+  h_f97827f62b0fea 1-78
+docs/ai/TORA_N4_OVERNIGHT_CHECKPOINT.md
+  h_f97827f62b0fea 1-34
+service/studio_seller_factory_test.go
+  h_f97827f62b0fea 9,11,294-361
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.3",
+  "base_commit_sha": "320d8ddc4f27dc9060e2d1f23169da4001a44dc7",
+  "prompts": {},
+  "humans": {
+    "h_f97827f62b0fea": {
+      "author": "NOPPANAN THEERACHARTE <noppanan.the@axonstech.com>"
+    }
+  }
+}
