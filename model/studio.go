@@ -308,6 +308,9 @@ func EnsureStudioTables(db *gorm.DB) error {
 		&StudioProviderCatalogSnapshot{},
 		&StudioContractDriftEvent{},
 		&StudioPricingDriftAlert{},
+		&NativeExecutionTicket{},
+		&StudioBatchJob{},
+		&StudioBatchItem{},
 	)
 }
 

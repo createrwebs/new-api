@@ -375,6 +375,7 @@ func SetApiRouter(router *gin.Engine) {
 			studioPublicRoute.POST("/quote", controller.QuoteStudioJob)
 			studioPublicRoute.POST("/webhook/:provider", controller.StudioWebhook)
 			studioPublicRoute.GET("/assets/:filename", controller.ServeStudioAsset)
+			studioPublicRoute.POST("/native/quote", controller.QuoteNativeTool)
 		}
 
 		studioUserRoute := apiRouter.Group("/studio")
@@ -393,6 +394,12 @@ func SetApiRouter(router *gin.Engine) {
 			studioUserRoute.POST("/assistant/plan/:id/confirm", controller.ConfirmAssistantPlan)
 			studioUserRoute.POST("/assistant/plan/:id/retry", controller.RetryAssistantPlanStep)
 			studioUserRoute.POST("/assistant/plan/:id/requote", controller.RequoteAssistantPlan)
+
+			// Tora Native Tools & Execution Tickets (Queue N1-GH)
+			studioUserRoute.POST("/native/ticket", controller.CreateNativeTicket)
+			studioUserRoute.POST("/native/complete", controller.CompleteNativeTicket)
+			studioUserRoute.POST("/native/refund", controller.RefundNativeTicket)
+			studioUserRoute.POST("/native/product-pack", controller.GenerateMarketplaceProductPack)
 		}
 
 		studioAdminRoute := apiRouter.Group("/admin/studio")

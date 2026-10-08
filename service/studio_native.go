@@ -1,0 +1,436 @@
+package service
+
+import (
+	"errors"
+	"fmt"
+	"sync"
+	"time"
+
+	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/model"
+)
+
+var (
+	ErrNativeToolNotSupported = errors.New("unsupported native tool or execution class")
+	ErrNativeUnauthorized     = errors.New("unauthorized access to native ticket")
+)
+
+// NativeModelMeta details an open-weight model verified and cached for native inference.
+type NativeModelMeta struct {
+	ModelId      string `json:"model_id"`
+	ModelName    string `json:"model_name"`
+	Filename     string `json:"filename"`
+	SHA256       string `json:"sha256"`
+	SizeBytes    int64  `json:"size_bytes"`
+	Format       string `json:"format"`
+	License      string `json:"license"`
+	ExecutionEnv string `json:"execution_env"`
+	InputShape   string `json:"input_shape"`
+}
+
+// NativeModels holds the authoritative verified digests and licenses of harvested models.
+var NativeModels = map[string]NativeModelMeta{
+	"u2netp": {
+		ModelId:      "u2netp",
+		ModelName:    "U2Net-P Fast Mobile Cutout",
+		Filename:     "u2netp.onnx",
+		SHA256:       "309c8469258dda742793dce0ebea8e6dd393174f89934733ecc8b14c76f4ddd8",
+		SizeBytes:    4572242,
+		Format:       "onnx",
+		License:      "Apache-2.0",
+		ExecutionEnv: "NATIVE_BROWSER",
+		InputShape:   "1x3x320x320",
+	},
+	"modnet": {
+		ModelId:      "modnet",
+		ModelName:    "MODNet Portrait Matting",
+		Filename:     "modnet_photographic_portrait_matting.onnx",
+		SHA256:       "07c308cf0fc7e6e8b2065a12ed7fc07e1de8febb7dc7839d7b7f15dd66584df9",
+		SizeBytes:    25890000,
+		Format:       "onnx",
+		License:      "Apache-2.0",
+		ExecutionEnv: "NATIVE_BROWSER",
+		InputShape:   "1x3x512x512",
+	},
+	"realesrgan_2x": {
+		ModelId:      "realesrgan_2x",
+		ModelName:    "Real-ESRGAN x2plus",
+		Filename:     "2x-realesrgan-x2plus.onnx",
+		SHA256:       "c4c0b7430ebb554f3939a720f9e8445fdeca3d15edb69979c7ace39b997f3483",
+		SizeBytes:    67192664,
+		Format:       "onnx",
+		License:      "BSD-3-Clause",
+		ExecutionEnv: "NATIVE_BROWSER",
+		InputShape:   "dynamic (tiled)",
+	},
+	"realesrgan_4x": {
+		ModelId:      "realesrgan_4x",
+		ModelName:    "Real-ESRGAN x4plus",
+		Filename:     "RealESRGAN_x4plus.onnx",
+		SHA256:       "cd0ec097469c94c903e6f74d4f43f545683250ec0a54bc0c2ab1ff4c6364d8da",
+		SizeBytes:    67174378,
+		Format:       "onnx",
+		License:      "BSD-3-Clause",
+		ExecutionEnv: "NATIVE_BROWSER",
+		InputShape:   "dynamic (tiled)",
+	},
+	"isnet": {
+		ModelId:      "isnet",
+		ModelName:    "ISNet General Use Cutout",
+		Filename:     "isnet-general-use.onnx",
+		SHA256:       "60920e99c45464f2ba57bee2ad08c919a52bbf852739e96947fbb4358c0d964a",
+		SizeBytes:    178643896,
+		Format:       "onnx",
+		License:      "MIT",
+		ExecutionEnv: "NATIVE_LOCAL_CPU",
+		InputShape:   "1x3x1024x1024",
+	},
+}
+
+// NativeToolSpec defines billing, model bindings, and execution routing for native tools.
+type NativeToolSpec struct {
+	ToolId         string                     `json:"tool_id"`
+	DefaultClass   model.NativeExecutionClass `json:"default_class"`
+	ModelKey       string                     `json:"model_key"`
+	Credits        int                        `json:"credits"`
+	Quota          int                        `json:"quota"`
+	USDEquivalent  float64                    `json:"usd_equivalent"`
+	RouteVersion   string                     `json:"route_version"`
+}
+
+var NativeToolCatalog = map[string]NativeToolSpec{
+	"background-remove": {
+		ToolId:        "background-remove",
+		DefaultClass:  model.ExecutionClassNativeBrowser,
+		ModelKey:      "u2netp",
+		Credits:       2,
+		Quota:         2000,
+		USDEquivalent: 0.004,
+		RouteVersion:  "v1_native_u2netp",
+	},
+	"portrait-matting": {
+		ToolId:        "portrait-matting",
+		DefaultClass:  model.ExecutionClassNativeBrowser,
+		ModelKey:      "modnet",
+		Credits:       2,
+		Quota:         2000,
+		USDEquivalent: 0.004,
+		RouteVersion:  "v1_native_modnet",
+	},
+	"image-upscale-2x": {
+		ToolId:        "image-upscale-2x",
+		DefaultClass:  model.ExecutionClassNativeBrowser,
+		ModelKey:      "realesrgan_2x",
+		Credits:       3,
+		Quota:         3000,
+		USDEquivalent: 0.006,
+		RouteVersion:  "v1_native_realesrgan2x",
+	},
+	"image-upscale": {
+		ToolId:        "image-upscale",
+		DefaultClass:  model.ExecutionClassNativeBrowser,
+		ModelKey:      "realesrgan_4x",
+		Credits:       5,
+		Quota:         5000,
+		USDEquivalent: 0.010,
+		RouteVersion:  "v1_native_realesrgan4x",
+	},
+	"product-pack": {
+		ToolId:        "product-pack",
+		DefaultClass:  model.ExecutionClassDeterministicProcess,
+		ModelKey:      "u2netp",
+		Credits:       5,
+		Quota:         5000,
+		USDEquivalent: 0.010,
+		RouteVersion:  "v1_deterministic_pack",
+	},
+}
+
+// NativeQuoteResult contains quote details for a client execution request.
+type NativeQuoteResult struct {
+	QuoteId          string                     `json:"quote_id"`
+	ToolId           string                     `json:"tool_id"`
+	ExecutionClass   model.NativeExecutionClass `json:"execution_class"`
+	Credits          int                        `json:"credits"`
+	Quota            int                        `json:"quota"`
+	USDEquivalent    float64                    `json:"usd_equivalent"`
+	Model            NativeModelMeta            `json:"model"`
+	RouteVersion     string                     `json:"route_version"`
+	ExpiresAt        int64                      `json:"expires_at"`
+	FallbackProvider string                     `json:"fallback_provider,omitempty"`
+}
+
+// ResolveNativeToolSpec finds the tool specification or matching alias.
+func ResolveNativeToolSpec(toolId string) (*NativeToolSpec, bool) {
+	if spec, ok := NativeToolCatalog[toolId]; ok {
+		return &spec, true
+	}
+	// Aliases
+	switch toolId {
+	case "bg-remove", "bg-remove-native", "background-remove-native":
+		spec := NativeToolCatalog["background-remove"]
+		return &spec, true
+	case "upscale", "upscale-2x", "upscale-2x-native":
+		spec := NativeToolCatalog["image-upscale-2x"]
+		return &spec, true
+	case "upscale-4x", "upscale-4x-native":
+		spec := NativeToolCatalog["image-upscale"]
+		return &spec, true
+	case "product-photo-pack", "product_pack", "product-pack-native":
+		spec := NativeToolCatalog["product-pack"]
+		return &spec, true
+	}
+	return nil, false
+}
+
+// GetNativeToolQuote provides server-authoritative pricing for native execution.
+func GetNativeToolQuote(toolId string, reqClass model.NativeExecutionClass) (*NativeQuoteResult, error) {
+	spec, found := ResolveNativeToolSpec(toolId)
+	if !found {
+		return nil, ErrNativeToolNotSupported
+	}
+
+	execClass := reqClass
+	if execClass == "" {
+		execClass = spec.DefaultClass
+	}
+
+	modelMeta, ok := NativeModels[spec.ModelKey]
+	if !ok {
+		modelMeta = NativeModels["u2netp"]
+	}
+
+	now := common.GetTimestamp()
+	quoteId := fmt.Sprintf("qte_native_%d_%s", now, common.GetUUID()[:8])
+
+	return &NativeQuoteResult{
+		QuoteId:          quoteId,
+		ToolId:           spec.ToolId,
+		ExecutionClass:   execClass,
+		Credits:          spec.Credits,
+		Quota:            spec.Quota,
+		USDEquivalent:    spec.USDEquivalent,
+		Model:            modelMeta,
+		RouteVersion:     spec.RouteVersion,
+		ExpiresAt:        now + 300, // 5 min TTL
+		FallbackProvider: "wavespeed",
+	}, nil
+}
+
+// CreateNativeExecutionTicket issues an authorized execution ticket with atomic wallet quota reservation.
+func CreateNativeExecutionTicket(userId int, toolId string, reqClass model.NativeExecutionClass, inputs map[string]interface{}, clientDeviceClass string) (*model.NativeExecutionTicket, error) {
+	spec, found := ResolveNativeToolSpec(toolId)
+	if !found {
+		return nil, ErrNativeToolNotSupported
+	}
+
+	execClass := reqClass
+	if execClass == "" {
+		execClass = spec.DefaultClass
+	}
+
+	modelMeta, ok := NativeModels[spec.ModelKey]
+	if !ok {
+		modelMeta = NativeModels["u2netp"]
+	}
+
+	// 1. Quota Pre-Consume from authoritative Tora wallet
+	now := common.GetTimestamp()
+	ticketId := fmt.Sprintf("tkt_%d_%s", now, common.GetUUID()[:8])
+	requestId := fmt.Sprintf("req_native_%s", ticketId)
+
+	if err := model.PreConsumeUserWallet(requestId, userId, spec.Quota); err != nil {
+		return nil, fmt.Errorf("wallet reservation failed: %w", err)
+	}
+
+	// 2. Hash normalized inputs
+	inputHash := model.ComputeNormalizedInputHash(inputs)
+
+	ticket := &model.NativeExecutionTicket{
+		Id:                  ticketId,
+		TicketId:            ticketId,
+		UserId:              userId,
+		ToolId:              spec.ToolId,
+		ToolVersion:         "v1.0.0",
+		RouteVersion:        spec.RouteVersion,
+		ExecutionClass:      execClass,
+		ModelVersionHash:    modelMeta.SHA256,
+		QuoteId:             fmt.Sprintf("qte_%s", ticketId),
+		RequestId:           requestId,
+		ReservedQuota:       spec.Quota,
+		ReservedCredits:     spec.Credits,
+		NormalizedInputHash: inputHash,
+		Status:              model.TicketStatusReserved,
+		IssuedAt:            now,
+		ExpiresAt:           now + 300, // 5 minute execution window
+		ClientDeviceClass:   clientDeviceClass,
+		CreatedAt:           now,
+		UpdatedAt:           now,
+	}
+
+	if err := model.CreateNativeTicket(ticket); err != nil {
+		// Rollback wallet reservation if ticket creation fails
+		_ = model.RefundUserWalletPreConsume(requestId)
+		return nil, fmt.Errorf("failed creating native ticket: %w", err)
+	}
+
+	return ticket, nil
+}
+
+// CompleteNativeExecutionTicket settles the wallet reservation once client execution succeeds.
+func CompleteNativeExecutionTicket(userId int, ticketId string, outputAssetHash string, clientExecutionMs int64, clientDeviceClass string) (*model.NativeExecutionTicket, error) {
+	ticket, err := model.GetNativeTicket(ticketId)
+	if err != nil {
+		return nil, err
+	}
+
+	if ticket.UserId != userId {
+		return nil, ErrNativeUnauthorized
+	}
+
+	// Idempotency check: already settled
+	if ticket.Status == model.TicketStatusSettled {
+		return ticket, nil
+	}
+	if ticket.Status == model.TicketStatusRefunded {
+		return nil, model.ErrNativeTicketAlreadyRefunded
+	}
+	if ticket.Status == model.TicketStatusExpired {
+		return nil, model.ErrNativeTicketExpired
+	}
+
+	now := common.GetTimestamp()
+
+	// Check if ticket has expired
+	if now > ticket.ExpiresAt {
+		_ = model.RefundUserWalletPreConsume(ticket.RequestId)
+		_ = model.UpdateNativeTicketStatus(ticket.TicketId, model.TicketStatusExpired, map[string]interface{}{
+			"refunded_at":  now,
+			"error_reason": "ticket expired before completion was reported",
+		})
+		return nil, model.ErrNativeTicketExpired
+	}
+
+	// Settle wallet reservation
+	if err := model.SettleUserWalletPreConsume(ticket.RequestId); err != nil {
+		return nil, fmt.Errorf("failed settling wallet reservation: %w", err)
+	}
+
+	updates := map[string]interface{}{
+		"completed_at":        now,
+		"settled_at":          now,
+		"output_asset_hash":   outputAssetHash,
+		"client_execution_ms": clientExecutionMs,
+	}
+	if clientDeviceClass != "" {
+		updates["client_device_class"] = clientDeviceClass
+	}
+
+	if err := model.UpdateNativeTicketStatus(ticket.TicketId, model.TicketStatusSettled, updates); err != nil {
+		return nil, fmt.Errorf("failed updating settled ticket state: %w", err)
+	}
+
+	ticket.Status = model.TicketStatusSettled
+	ticket.SettledAt = now
+	ticket.CompletedAt = now
+	ticket.OutputAssetHash = outputAssetHash
+	ticket.ClientExecutionMs = clientExecutionMs
+	if clientDeviceClass != "" {
+		ticket.ClientDeviceClass = clientDeviceClass
+	}
+
+	return ticket, nil
+}
+
+// RefundNativeExecutionTicket idempotently refunds a failed or aborted execution ticket.
+func RefundNativeExecutionTicket(userId int, ticketId string, reason string) (*model.NativeExecutionTicket, error) {
+	ticket, err := model.GetNativeTicket(ticketId)
+	if err != nil {
+		return nil, err
+	}
+
+	if ticket.UserId != userId {
+		return nil, ErrNativeUnauthorized
+	}
+
+	if ticket.Status == model.TicketStatusSettled {
+		return nil, model.ErrNativeTicketAlreadySettled
+	}
+	if ticket.Status == model.TicketStatusRefunded {
+		// Idempotent success
+		return ticket, nil
+	}
+
+	now := common.GetTimestamp()
+	if err := model.RefundUserWalletPreConsume(ticket.RequestId); err != nil {
+		return nil, fmt.Errorf("failed refunding wallet reservation: %w", err)
+	}
+
+	updates := map[string]interface{}{
+		"refunded_at":  now,
+		"error_reason": reason,
+	}
+	if err := model.UpdateNativeTicketStatus(ticket.TicketId, model.TicketStatusRefunded, updates); err != nil {
+		return nil, fmt.Errorf("failed updating refunded ticket state: %w", err)
+	}
+
+	ticket.Status = model.TicketStatusRefunded
+	ticket.RefundedAt = now
+	ticket.ErrorReason = reason
+
+	return ticket, nil
+}
+
+// ReconcileExpiredNativeTickets safely scans and refunds all abandoned tickets past their TTL.
+func ReconcileExpiredNativeTickets(olderThanSeconds int64) (int, error) {
+	if model.DB == nil {
+		return 0, errors.New("database not initialized")
+	}
+
+	now := common.GetTimestamp()
+	cutoff := now
+	if olderThanSeconds > 0 {
+		cutoff = now - olderThanSeconds
+	}
+
+	var expiredTickets []model.NativeExecutionTicket
+	err := model.DB.Where("status IN (?) AND expires_at <= ?", []string{
+		string(model.TicketStatusReserved),
+		string(model.TicketStatusStarted),
+	}, cutoff).Limit(200).Find(&expiredTickets).Error
+	if err != nil {
+		return 0, err
+	}
+
+	reconciled := 0
+	for _, t := range expiredTickets {
+		_ = model.RefundUserWalletPreConsume(t.RequestId)
+		_ = model.UpdateNativeTicketStatus(t.TicketId, model.TicketStatusExpired, map[string]interface{}{
+			"refunded_at":  now,
+			"error_reason": "ticket expired past TTL without client completion",
+		})
+		reconciled++
+	}
+
+	return reconciled, nil
+}
+
+var nativeReconcileOnce sync.Once
+
+// StartNativeTicketReconciliationWorker runs a background cleaner for abandoned client executions.
+func StartNativeTicketReconciliationWorker() {
+	nativeReconcileOnce.Do(func() {
+		go func() {
+			ticker := time.NewTicker(2 * time.Minute)
+			defer ticker.Stop()
+			for range ticker.C {
+				count, err := ReconcileExpiredNativeTickets(0)
+				if err != nil {
+					common.SysError(fmt.Sprintf("[NativeTicketWorker] error reconciling expired tickets: %v", err))
+				} else if count > 0 {
+					common.SysLog(fmt.Sprintf("[NativeTicketWorker] reconciled and refunded %d expired native tickets", count))
+				}
+			}
+		}()
+	})
+}

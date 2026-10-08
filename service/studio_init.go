@@ -47,6 +47,7 @@ func InitStudio(db *gorm.DB) error {
 		GlobalStudioService = NewStudioService(mockProvider, falProvider, replicateProvider)
 		if db != nil {
 			StartStudioAssetCleanupWorker(db)
+			StartNativeTicketReconciliationWorker()
 		}
 		common.SysLog("Tora Studio V1 service & Generic Media Relay initialized successfully")
 	})
