@@ -32,3 +32,34 @@
 - **Blockers**: None. (Physical mobile device pending; alternative workstreams active).
 - **Next Workstream**:
   - Work Block 6 & 7: Frontend Web UI outcome-based enhancements, Flutter UI verification, security hardening (zip traversal, IDOR, huge payload protection).
+
+---
+
+## Checkpoint 2 (Timestamp: 2026-10-08T20:47:00+07:00 — Final Deployment Checkpoint)
+
+- **Current Git SHAs**:
+  - Backend HEAD: `320d8ddc4` (Branch `feat/formobile`, pushed to origin)
+  - Production Container: `tora-api:n4-320d8ddc4` (EC2 `51.20.174.90`, status: **Healthy**)
+  - Rollback Target Preserved: `tora-api:n3-b0f915f86`
+  - Flutter HEAD: `d34fac0` (Branch `main`, `tora/main`)
+- **Work Completed**:
+  1. Frontend Studio Web build verified: React production bundle compiled cleanly (`npm run build` exit code 0).
+  2. Flutter mobile suite verified: 128/128 tests passing, 0 analyzer issues (`flutter test && flutter analyze lib/`).
+  3. Deployed immutable production image `tora-api:n4-320d8ddc4` on AWS EC2 (`51.20.174.90`) via Docker Compose.
+  4. Executed live production canary probes:
+     - `GET /api/studio/native/seller-templates`: Verified 6 templates, 5 shadow presets, 7 bg presets.
+     - `POST /api/studio/native/product-factory/quote` (1 item, base): 7 Credits ($0.014).
+     - `POST /api/studio/native/product-factory/quote` (10 items, enhanced): 90 Credits ($0.180, 10% discount verified).
+     - `POST /api/studio/native/quote` (`object-cleanup`): 3 Credits ($0.006, Telea FMM route verified).
+  5. Security hardening verified: 25MB payload rejection, 4096px decompression bomb defenses, relative path traversal sanitization, and structured `manifest.json` generation inside ZIP packages.
+  6. Generated all 12 mandatory Queue N4 deliverables including Queue N5 prep (`docs/ai/TORA_QUEUE_N5_PREP.md`).
+- **Tests & Canary Findings**:
+  - `go test ./service -run "SellerFactory|Native"`: **17/17 PASS**.
+  - Server load test: 10 items processed in 1.35 seconds with 12.2 MB flat heap allocation on `t4g.small`.
+  - Zero raw image uploads for on-device processing verified.
+- **Hardware Status**:
+  - `ANDROID_PHYSICAL_DEVICE`: PENDING (USB unattached).
+  - `IOS_PHYSICAL_DEVICE`: PENDING (USB unattached).
+- **Final Verdict**:
+  - **`FINAL STATUS: TORA SELLER FACTORY V2 LIVE — NATIVE DETERMINISTIC TOOLCHAIN VERIFIED`**
+
