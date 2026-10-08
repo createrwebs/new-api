@@ -311,6 +311,7 @@ func EnsureStudioTables(db *gorm.DB) error {
 		&NativeExecutionTicket{},
 		&StudioBatchJob{},
 		&StudioBatchItem{},
+		&ObjectCleanupSession{},
 	)
 }
 

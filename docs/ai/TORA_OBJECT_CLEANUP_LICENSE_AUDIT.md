@@ -19,10 +19,23 @@ This audit establishes a strict commercial compliance boundary for the future **
 | **LaMa** (`advimman/lama`) | Apache-2.0 | **NON-COMMERCIAL RESEARCH ONLY** | Places2 (CC BY-NC 4.0) | **REJECTED (COMMERCIAL HARD GATE)** | Upstream weights are trained on Places2 / CC BY-NC data and explicitly released for non-commercial research purposes only. Commercial exploitation poses copyright liability. |
 | **MAT** (`fenglinglwb/MAT` Mask-Aware Transformer) | Research Only | Research Only | Places2 / CelebA (NC) | **REJECTED / RESEARCH_ONLY** | Author repository explicitly restricts usage to research/academic purposes. Commercial deployment prohibited. |
 | **MIGAN** / **AOT-GAN** | Non-Commercial | Non-Commercial | Places Challenge (NC) | **REJECTED** | Non-commercial academic license. |
-| **Fast Inpainting (OpenCV Telea / Navier-Stokes)** | BSD-3-Clause | Pure Algorithm (No Weights) | N/A | **COMMERCIAL SAFE (TIER 0)** | Deterministic pixel-diffusion inpainting; zero AI weights; ultra-fast for tiny scratches and logos. |
-| **Clean-Room ONNX Inpainting (CC0 / Apache Trained)** | Apache-2.0 | Commercial-Clean ONNX | Public Domain / CC0 | **UNDER EVALUATION FOR N4** | Requires explicit verifiable chain of custody on training datasets before release. |
+| **Fast Inpainting (OpenCV Telea / Navier-Stokes)** | Apache-2.0 (OpenCV >= 4.5, pinned 5.x `73a26a42`) | Pure Algorithm (No Weights) | N/A (Pure Math) | **COMMERCIAL SAFE (TIER 0 / V1 BASELINE)** | Deterministic pixel-diffusion inpainting; zero AI weights; ultra-fast for dust, scratches, logos. |
+| **Randomized PatchMatch (`younesse-cv/PatchMatch`)** | MIT (Pinned `64d9f3c6`) | Pure Algorithm (No Weights) | N/A (Exemplar synthesis) | **STUDY ONLY (MIT CODE / PATENTS EVALUATED)** | Barnes et al. 2009 algorithm; MIT reference implementation in C/C++; non-AI texture filling. |
+| **PyPatchMatch (`vacancy/PyPatchMatch`)** | MIT (Pinned `ee63e2a1`) | Pure Algorithm (No Weights) | N/A (Exemplar synthesis) | **STUDY ONLY (REFERENCE)** | Multi-scale C++ inpainting module; zero weights; CPU/thread bound. |
+| **Clean-Room ONNX Inpainting (CC0 / Apache Trained)** | Apache-2.0 | Commercial-Clean ONNX | Public Domain / CC0 | **UNDER EVALUATION FOR FUTURE N4+** | Requires explicit verifiable chain of custody on training datasets before release. |
 
 ---
+
+## 2.1 Intellectual Property & Legal Taxonomy
+
+Every inpainting candidate is evaluated across four decoupled layers:
+
+| Layer | Definition | Telea / Navier-Stokes | PatchMatch (MIT) | Neural (LaMa / MAT) |
+|---|---|---|---|---|
+| **1. ALGORITHM** | Mathematical concept | Fast Marching Method (Telea 2004) / Fluid PDE (Bertalmio et al. 2001) — **Public Domain Math** | Barnes et al. 2009 (SIGGRAPH) — **Academic / Prior Art** | GAN / Transformer architecture — **Open Literature** |
+| **2. IMPLEMENTATION** | Source code realizing algorithm | OpenCV 5.x C++ (`cv::inpaint`) — **Apache-2.0** | `younesse-cv` / `vacancy` — **MIT License** | PyTorch / Python runners — **Apache-2.0** |
+| **3. MODEL WEIGHTS** | Pretrained neural parameters | **NONE (Zero Weights)** | **NONE (Zero Weights)** | `big-lama.pt`, `mat.pt` — **NON-COMMERCIAL RESEARCH ONLY** |
+| **4. TRAINING DATASET** | Data used during optimization | **NONE (Deterministic)** | **NONE (Deterministic)** | Places2 (CC BY-NC 4.0), CelebA-HQ — **STRICTLY NON-COMMERCIAL** |
 
 ## 3. Findings & Hard Gates
 

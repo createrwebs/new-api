@@ -21,6 +21,9 @@
 | **GPL WebGPU Shaders** | `web-realesrgan` | Direct GLSL shader source code in repository | **REJECT** | Must NOT be copied due to GPL-2.0 copyleft terms. Tora uses standard ONNX Runtime Web / WebGL backends instead. |
 | **BRIA RMBG-2.0 Weights** | `rembg` | Automated downloading of RMBG-2.0 checkpoints | **REJECT** | Non-commercial CC-BY-NC 4.0 license prevents commercial Tora SaaS usage without paid enterprise agreement. |
 | **Archived App Hosting** | `IOPaint` | Running complete FastAPI backend application container | **REFERENCE_ONLY** | Archived upstream; Tora adopts UI patterns and model inference logic directly into Tora Go/React codebase. |
+| **cv::inpaint (Telea / NS)** | `opencv` | Pinned `73a26a42` (5.x), Apache-2.0. Deterministic inpainting via Fast Marching Method (`INPAINT_TELEA`) & Navier-Stokes fluid PDE (`INPAINT_NS`). | **ADOPT (V1 BASELINE)** | 100% deterministic, zero model weights, zero download, ultra-low latency, Apache-2.0 clean. |
+| **Randomized PatchMatch** | `PatchMatch` & `PyPatchMatch` | Pinned `64d9f3c6` / `ee63e2a1`, MIT. Randomized nearest neighbor field propagation for structural hole filling. | **REFERENCE_ONLY** | Valuable for texture/pattern synthesis, but higher complexity and CPU cost than Telea. Evaluated as potential quality upgrade. |
+| **Biharmonic Inpainting** | `scikit-image` | Pinned `b33ab973`, BSD-3-Clause. Biharmonic PDE inpainting harness & validation metrics. | **BENCHMARK_ONLY** | Used strictly inside lab benchmark harness to calculate objective quality tolerances. |
 
 ---
 

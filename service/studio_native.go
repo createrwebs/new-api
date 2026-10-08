@@ -150,6 +150,18 @@ var NativeModels = map[string]NativeModelMeta{
 		InputShape:   "1x3x1024x1024",
 		DownloadURL:  "/api/studio/native/models/isnet",
 	},
+	"telea_inpaint": {
+		ModelId:      "telea_inpaint",
+		ModelName:    "Fast Marching Telea Deterministic Inpainter",
+		Filename:     "none (pure deterministic algorithm)",
+		SHA256:       "deterministic_fmm_telea_v1_0_0",
+		SizeBytes:    0,
+		Format:       "native_c_wasm",
+		License:      "Apache-2.0",
+		ExecutionEnv: "NATIVE_BROWSER / NATIVE_MOBILE / DETERMINISTIC_SERVER",
+		InputShape:   "image + binary mask",
+		DownloadURL:  "",
+	},
 }
 
 // NativeToolSpec defines billing, model bindings, and execution routing for native tools.
@@ -205,6 +217,16 @@ var NativeToolCatalog = map[string]NativeToolSpec{
 		USDEquivalent: 0.010,
 		RouteVersion:  "v1_native_realesrgan4x",
 	},
+	"object-cleanup": {
+		ToolId:        "object-cleanup",
+		DefaultClass:  model.ExecutionClassNativeBrowser,
+		BillingPolicy: model.BillingPolicyPrepaidExecution,
+		ModelKey:      "telea_inpaint",
+		Credits:       3,
+		Quota:         3000,
+		USDEquivalent: 0.006,
+		RouteVersion:  "v1_deterministic_telea",
+	},
 	"product-pack": {
 		ToolId:        "product-pack",
 		DefaultClass:  model.ExecutionClassDeterministicServer,
@@ -214,6 +236,16 @@ var NativeToolCatalog = map[string]NativeToolSpec{
 		Quota:         5000,
 		USDEquivalent: 0.010,
 		RouteVersion:  "v1_deterministic_pack",
+	},
+	"product-factory": {
+		ToolId:        "product-factory",
+		DefaultClass:  model.ExecutionClassDeterministicServer,
+		BillingPolicy: model.BillingPolicySuccessSettlement,
+		ModelKey:      "u2netp",
+		Credits:       7,
+		Quota:         7000,
+		USDEquivalent: 0.014,
+		RouteVersion:  "v2_seller_factory",
 	},
 }
 
@@ -805,6 +837,107 @@ func ReconcileExpiredNativeTickets(olderThanSeconds int64) (int, error) {
 	}
 
 	return reconciled, nil
+}
+
+// StartObjectCleanupSession authorizes an interactive inpainting session with fair multi-edit rights (Sections 18 & 19).
+func StartObjectCleanupSession(userId int, sourceHash string, clientDeviceClass string) (*model.ObjectCleanupSession, *model.NativeExecutionTicket, error) {
+	if sourceHash == "" {
+		return nil, nil, errors.New("source_hash is required to bind cleanup session identity")
+	}
+
+	// 1. Issue prepaid ticket for 3 credits (3000 quota)
+	inputs := map[string]interface{}{
+		"source_hash": sourceHash,
+		"tool":        "object-cleanup",
+		"mode":        "interactive_session",
+	}
+	ticket, err := CreateNativeExecutionTicket(userId, "object-cleanup", model.ExecutionClassNativeBrowser, inputs, clientDeviceClass, "")
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed provisioning cleanup session ticket: %w", err)
+	}
+
+	// 2. Create interactive session
+	now := common.GetTimestamp()
+	sessionId := fmt.Sprintf("clean_%d_%s", now, common.GetUUID()[:8])
+	session := &model.ObjectCleanupSession{
+		Id:             sessionId,
+		SessionId:      sessionId,
+		UserId:         userId,
+		SourceHash:     sourceHash,
+		TicketId:       ticket.TicketId,
+		Status:         "ACTIVE",
+		PaidCredits:    3,
+		PaidQuota:      3000,
+		ExportCount:    0,
+		MaxExports:     5,
+		MaskEditsCount: 0,
+		ExpiresAt:      now + 1800, // 30-minute fair retry/session window
+		CreatedAt:      now,
+		UpdatedAt:      now,
+	}
+
+	if err := model.CreateObjectCleanupSessionRecord(session); err != nil {
+		return nil, nil, fmt.Errorf("failed recording cleanup session: %w", err)
+	}
+
+	return session, ticket, nil
+}
+
+// ValidateObjectCleanupSession checks that an interactive session is active and bound to the identical source image.
+func ValidateObjectCleanupSession(userId int, sessionId string, sourceHash string) (*model.ObjectCleanupSession, error) {
+	session, err := model.GetObjectCleanupSessionRecord(sessionId)
+	if err != nil {
+		return nil, err
+	}
+	if session.UserId != userId {
+		return nil, ErrNativeUnauthorized
+	}
+	now := common.GetTimestamp()
+	if now > session.ExpiresAt {
+		_ = model.UpdateObjectCleanupSessionRecord(sessionId, map[string]interface{}{"status": "EXPIRED"})
+		return nil, errors.New("cleanup session expired; please start a new session")
+	}
+	if sourceHash != "" && session.SourceHash != sourceHash {
+		return nil, errors.New("session source image mismatch; cannot transfer paid session to a different image")
+	}
+	if session.ExportCount >= session.MaxExports {
+		return nil, errors.New("cleanup session maximum exports reached")
+	}
+	return session, nil
+}
+
+// RecordObjectCleanupExport records an export against an active session.
+func RecordObjectCleanupExport(userId int, sessionId string) error {
+	session, err := model.GetObjectCleanupSessionRecord(sessionId)
+	if err != nil {
+		return err
+	}
+	if session.UserId != userId {
+		return ErrNativeUnauthorized
+	}
+	newCount := session.ExportCount + 1
+	status := session.Status
+	if newCount >= session.MaxExports {
+		status = "COMPLETED"
+	}
+	return model.UpdateObjectCleanupSessionRecord(sessionId, map[string]interface{}{
+		"export_count": newCount,
+		"status":       status,
+	})
+}
+
+// RecordObjectCleanupMaskEdit records an iterative mask paint/erase within the fair retry window.
+func RecordObjectCleanupMaskEdit(userId int, sessionId string) error {
+	session, err := model.GetObjectCleanupSessionRecord(sessionId)
+	if err != nil {
+		return err
+	}
+	if session.UserId != userId {
+		return ErrNativeUnauthorized
+	}
+	return model.UpdateObjectCleanupSessionRecord(sessionId, map[string]interface{}{
+		"mask_edits_count": session.MaskEditsCount + 1,
+	})
 }
 
 var nativeReconcileOnce sync.Once

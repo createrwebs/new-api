@@ -2,6 +2,7 @@ package controller
 
 import (
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"os"
@@ -377,4 +378,167 @@ func ServeNativeModel(c *gin.Context) {
 	c.Header("ETag", `"`+meta.SHA256+`"`)
 	c.Header("Access-Control-Allow-Origin", "*")
 	c.File(modelPath)
+}
+
+// StartObjectCleanupSessionRequest represents input to start an interactive cleanup session.
+type StartObjectCleanupSessionRequest struct {
+	SourceHash        string `json:"source_hash" binding:"required"`
+	ClientDeviceClass string `json:"client_device_class"`
+}
+
+// ValidateObjectCleanupSessionRequest checks if session is valid for subsequent export or edit.
+type ValidateObjectCleanupSessionRequest struct {
+	SessionId  string `json:"session_id" binding:"required"`
+	SourceHash string `json:"source_hash"`
+}
+
+// RecordObjectCleanupExportRequest records an export within a session.
+type RecordObjectCleanupExportRequest struct {
+	SessionId string `json:"session_id" binding:"required"`
+}
+
+// StartObjectCleanupSessionHandler handles POST /api/studio/native/object-cleanup/session.
+func StartObjectCleanupSessionHandler(c *gin.Context) {
+	userId := c.GetInt("id")
+	var req StartObjectCleanupSessionRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "invalid request: " + err.Error()})
+		return
+	}
+
+	session, ticket, err := service.StartObjectCleanupSession(userId, req.SourceHash, req.ClientDeviceClass)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"message": "object cleanup interactive session started successfully",
+		"data": gin.H{
+			"session": session,
+			"ticket":  ticket,
+		},
+	})
+}
+
+// ValidateObjectCleanupSessionHandler handles POST /api/studio/native/object-cleanup/session/validate.
+func ValidateObjectCleanupSessionHandler(c *gin.Context) {
+	userId := c.GetInt("id")
+	var req ValidateObjectCleanupSessionRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "invalid request: " + err.Error()})
+		return
+	}
+
+	session, err := service.ValidateObjectCleanupSession(userId, req.SessionId, req.SourceHash)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"message": "session is valid",
+		"data":    session,
+	})
+}
+
+// RecordObjectCleanupExportHandler handles POST /api/studio/native/object-cleanup/session/export.
+func RecordObjectCleanupExportHandler(c *gin.Context) {
+	userId := c.GetInt("id")
+	var req RecordObjectCleanupExportRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "invalid request: " + err.Error()})
+		return
+	}
+
+	if err := service.RecordObjectCleanupExport(userId, req.SessionId); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"message": "export recorded successfully",
+	})
+}
+
+// GetSellerTemplatesHandler handles GET /api/studio/native/seller-templates.
+func GetSellerTemplatesHandler(c *gin.Context) {
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"message": "",
+		"data": gin.H{
+			"templates": service.CanonicalSellerTemplates,
+			"shadow_presets": []string{
+				string(service.ShadowSoftStudio),
+				string(service.ShadowMarketplace),
+				string(service.ShadowFloating),
+				string(service.ShadowGroundContact),
+				string(service.ShadowNone),
+			},
+			"bg_presets": []string{
+				string(service.BgPureWhite),
+				string(service.BgWarmWhite),
+				string(service.BgLightGray),
+				string(service.BgBrandColor),
+				string(service.BgSoftGradient),
+				string(service.BgStudioVignette),
+				string(service.BgTransparent),
+			},
+		},
+	})
+}
+
+// ExecuteProductFactoryV2BatchHandler handles POST /api/studio/native/product-factory/v2/batch.
+func ExecuteProductFactoryV2BatchHandler(c *gin.Context) {
+	userId := c.GetInt("id")
+	var req service.ProductFactoryV2Request
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "invalid batch request: " + err.Error()})
+		return
+	}
+
+	itemCount := len(req.Items)
+	if itemCount == 0 || itemCount > 10 {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "batch size must be between 1 and 10 items"})
+		return
+	}
+
+	// Calculate quota using authoritative batch quote
+	batchQuote, err := service.CalculateProductFactoryBatchQuote(service.ProductFactoryBatchQuoteRequest{
+		InputCount: itemCount,
+	})
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "failed calculating batch quote: " + err.Error()})
+		return
+	}
+
+	// Settle quota via SUCCESS_SETTLEMENT escrow
+	hasQuota, err := model.TryReserveUserQuota(userId, batchQuote.TotalQuota)
+	if err != nil || !hasQuota {
+		c.JSON(http.StatusPaymentRequired, gin.H{
+			"success": false,
+			"message": fmt.Sprintf("insufficient wallet quota (%d Tora Credits required for %d items)", batchQuote.TotalCredits, itemCount),
+		})
+		return
+	}
+
+	result, err := service.GenerateSellerFactoryV2Batch(userId, req)
+	if err != nil {
+		_ = model.IncreaseUserQuota(userId, batchQuote.TotalQuota, false) // refund on server execution failure
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "failed executing seller factory batch: " + err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"message": "seller factory v2 batch executed successfully",
+		"data": gin.H{
+			"result":        result,
+			"batch_quote":   batchQuote,
+			"credits_spent": batchQuote.TotalCredits,
+		},
+	})
 }

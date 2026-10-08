@@ -378,6 +378,7 @@ func SetApiRouter(router *gin.Engine) {
 			studioPublicRoute.POST("/native/quote", controller.QuoteNativeTool)
 			studioPublicRoute.POST("/native/product-factory/quote", controller.QuoteProductFactoryBatch)
 			studioPublicRoute.GET("/native/models/:modelId", controller.ServeNativeModel)
+			studioPublicRoute.GET("/native/seller-templates", controller.GetSellerTemplatesHandler)
 		}
 
 		studioUserRoute := apiRouter.Group("/studio")
@@ -404,6 +405,10 @@ func SetApiRouter(router *gin.Engine) {
 			studioUserRoute.POST("/native/retry", controller.RetryNativeTicket)
 			studioUserRoute.POST("/native/refund", controller.RefundNativeTicket)
 			studioUserRoute.POST("/native/product-pack", controller.GenerateMarketplaceProductPack)
+			studioUserRoute.POST("/native/product-factory/v2/batch", controller.ExecuteProductFactoryV2BatchHandler)
+			studioUserRoute.POST("/native/object-cleanup/session", controller.StartObjectCleanupSessionHandler)
+			studioUserRoute.POST("/native/object-cleanup/session/validate", controller.ValidateObjectCleanupSessionHandler)
+			studioUserRoute.POST("/native/object-cleanup/session/export", controller.RecordObjectCleanupExportHandler)
 		}
 
 		studioAdminRoute := apiRouter.Group("/admin/studio")

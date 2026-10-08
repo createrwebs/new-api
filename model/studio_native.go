@@ -242,6 +242,68 @@ func (bi *StudioBatchItem) TableName() string {
 	return "studio_batch_items"
 }
 
+// ObjectCleanupSession tracks interactive inpainting sessions (Sections 18 & 19).
+type ObjectCleanupSession struct {
+	Id             string `json:"id" gorm:"primaryKey;type:varchar(64)"`
+	SessionId      string `json:"session_id" gorm:"type:varchar(64);uniqueIndex;not null"`
+	UserId         int    `json:"user_id" gorm:"index;not null"`
+	SourceHash     string `json:"source_hash" gorm:"type:varchar(64);index;not null"` // Binds to source image identity
+	TicketId       string `json:"ticket_id" gorm:"type:varchar(64);index"`
+	Status         string `json:"status" gorm:"type:varchar(32);default:'ACTIVE'"` // ACTIVE, COMPLETED, EXPIRED
+	PaidCredits    int    `json:"paid_credits" gorm:"not null"`
+	PaidQuota      int    `json:"paid_quota" gorm:"type:bigint;not null"`
+	ExportCount    int    `json:"export_count" gorm:"default:0"`
+	MaxExports     int    `json:"max_exports" gorm:"default:5"`
+	MaskEditsCount int    `json:"mask_edits_count" gorm:"default:0"`
+	ExpiresAt      int64  `json:"expires_at" gorm:"bigint;index"`
+	CreatedAt      int64  `json:"created_at" gorm:"bigint"`
+	UpdatedAt      int64  `json:"updated_at" gorm:"bigint"`
+}
+
+func (s *ObjectCleanupSession) TableName() string {
+	return "studio_cleanup_sessions"
+}
+
+func CreateObjectCleanupSessionRecord(session *ObjectCleanupSession) error {
+	if DB == nil {
+		return errors.New("database not initialized")
+	}
+	now := common.GetTimestamp()
+	if session.Id == "" {
+		session.Id = fmt.Sprintf("clean_%d_%s", now, common.GetUUID()[:8])
+	}
+	session.SessionId = session.Id
+	session.CreatedAt = now
+	session.UpdatedAt = now
+	if session.ExpiresAt == 0 {
+		session.ExpiresAt = now + 1800 // 30-minute fair session window
+	}
+	if session.MaxExports == 0 {
+		session.MaxExports = 5
+	}
+	return DB.Create(session).Error
+}
+
+func GetObjectCleanupSessionRecord(sessionId string) (*ObjectCleanupSession, error) {
+	if DB == nil {
+		return nil, errors.New("database not initialized")
+	}
+	var session ObjectCleanupSession
+	err := DB.Where("session_id = ? OR id = ?", sessionId, sessionId).First(&session).Error
+	if err != nil {
+		return nil, err
+	}
+	return &session, nil
+}
+
+func UpdateObjectCleanupSessionRecord(sessionId string, updates map[string]interface{}) error {
+	if DB == nil {
+		return errors.New("database not initialized")
+	}
+	updates["updated_at"] = common.GetTimestamp()
+	return DB.Model(&ObjectCleanupSession{}).Where("session_id = ? OR id = ?", sessionId, sessionId).Updates(updates).Error
+}
+
 // EnsureNativeStudioTables migrates all native studio tables.
 func EnsureNativeStudioTables(db *gorm.DB) error {
 	if db == nil {
@@ -251,5 +313,6 @@ func EnsureNativeStudioTables(db *gorm.DB) error {
 		&NativeExecutionTicket{},
 		&StudioBatchJob{},
 		&StudioBatchItem{},
+		&ObjectCleanupSession{},
 	)
 }
