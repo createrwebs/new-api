@@ -1,0 +1,22 @@
+controller/studio_native.go
+  h_f97827f62b0fea 7-8,326-355
+docs/ai/TORA_NATIVE_BROWSER_SUPPORT_MATRIX.md
+  h_f97827f62b0fea 17-25,29-30
+router/api-router.go
+  h_f97827f62b0fea 379
+service/studio_native.go
+  h_f97827f62b0fea 35,50,62,74,86,98
+web/src/features/studio/types.ts
+  h_f97827f62b0fea 156
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.3",
+  "base_commit_sha": "b7ab06739c56ab9e36dc7bcea4a4b54e17f8040b",
+  "prompts": {},
+  "humans": {
+    "h_f97827f62b0fea": {
+      "author": "NOPPANAN THEERACHARTE <noppanan.the@axonstech.com>"
+    }
+  }
+}
