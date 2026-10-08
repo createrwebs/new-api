@@ -1,0 +1,29 @@
+controller/studio_native.go
+  s_9ec4d300aed8eb::t_fa6966dc56e495 1-233
+model/studio_native.go
+  s_9ec4d300aed8eb::t_793e634cc5e3f6 1-193
+router/api-router.go
+  s_9ec4d300aed8eb::t_c8328cfe122b65 378,397-402
+service/studio_init.go
+  s_9ec4d300aed8eb::t_2498d3204f4e3c 50
+service/studio_native.go
+  s_9ec4d300aed8eb::t_140ed9ca43c3c2 1-436
+service/studio_product_pack.go
+  s_9ec4d300aed8eb::t_8accd0db8d446c 1-447
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.3",
+  "base_commit_sha": "775da8c057300d61c1cb426848ce827ee2001fbc",
+  "prompts": {},
+  "sessions": {
+    "s_9ec4d300aed8eb": {
+      "agent_id": {
+        "tool": "cline",
+        "id": "conv_1791422586010_3o50bce",
+        "model": "unknown"
+      },
+      "human_author": "NOPPANAN THEERACHARTE <noppanan.the@axonstech.com>"
+    }
+  }
+}
