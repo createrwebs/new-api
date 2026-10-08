@@ -1,0 +1,40 @@
+controller/studio_native.go
+  h_f97827f62b0fea 20,26,29,37-48,89-95,109,144-177,182-217,231,238-239,247,297-303,313
+docs/ai/TORA_NATIVE_BROWSER_BILLING_V2.md
+  h_f97827f62b0fea 1-91
+docs/ai/TORA_NATIVE_BROWSER_SUPPORT_MATRIX.md
+  h_f97827f62b0fea 1-77
+docs/ai/TORA_NATIVE_MODEL_MANIFEST.md
+  h_f97827f62b0fea 1-108
+docs/ai/TORA_NATIVE_PRODUCTION_ACCEPTANCE.md
+  h_f97827f62b0fea 1-64
+docs/ai/TORA_NATIVE_PRODUCTION_COST_MODEL.md
+  h_f97827f62b0fea 1-61
+docs/ai/TORA_STUDIO_QUEUE_N1_GH_REPORT.md
+  h_f97827f62b0fea 3-13,142-161
+docs/ai/TORA_STUDIO_QUEUE_N2_REPORT.md
+  h_f97827f62b0fea 1-127
+model/studio_native.go
+  h_f97827f62b0fea 15-18,20-21,29,32-45,48,52-65,68,77-79,83,86-87,90-91,94-97,135-137,157-172,201,218-228
+router/api-router.go
+  h_f97827f62b0fea 398,401-402
+service/studio_native.go
+  h_f97827f62b0fea 4-7,10,21,100,112,122,132,142,151-152,166,176-215,250-256,269,280-290,301-305,315,317-334,338-343,353-355,359,362-363,365-366,368-372,378-379,381-386,392-394,405-406,409,415-432,435,442,444-445,452,456,458-461,464-476,479-488,492-493,503-504,506-545,557,561,568-598,611-640,659
+service/studio_native_test.go
+  h_f97827f62b0fea 26,46,57,60,64-65,68-69,73,84-85,88-92,94,97,99,101,103,107,113-114,118,123-127,129,131-133,135-136,138,140-142,145-148,152-153,157-158,160,162,164,166-167,170-173,175-176,178,185-230,232-303,306
+web/src/features/studio/api.ts
+  h_f97827f62b0fea 180-256
+web/src/features/studio/types.ts
+  h_f97827f62b0fea 102-161
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.3",
+  "base_commit_sha": "8cbcf9bc5ec8e0bc40bccc0f0401bfe6dc2e7505",
+  "prompts": {},
+  "humans": {
+    "h_f97827f62b0fea": {
+      "author": "NOPPANAN THEERACHARTE <noppanan.the@axonstech.com>"
+    }
+  }
+}
