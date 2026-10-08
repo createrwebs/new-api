@@ -3,8 +3,8 @@
 **Execution Queue:** `QUEUE N3`  
 **Milestone:** Native Mobile Cross-Platform + Product Factory  
 **Timestamp:** 2026-10-08T13:55:00+07:00  
-**Backend Branch:** `feat/formobile` (HEAD: `2e2a70440`)  
-**Flutter Branch:** `main` (Repository: `/Users/noppanan/.gemini/antigravity/scratch/LumenFlow`)  
+**Backend Branch:** `feat/formobile` (HEAD: `84d672f51`)  
+**Flutter Branch:** `main` (Repository: `/Users/noppanan/.gemini/antigravity/scratch/LumenFlow`, HEAD: `d77ffbb`)  
 **Production API:** `https://www.toraapi.com` (Docker Image: `tora-api:n2-b7ab06739`)  
 
 ---
@@ -46,14 +46,14 @@ Queue N3 expands the proven **Tora Native Engine** from modern desktop web brows
 |---|---|---|
 | **FLUTTER_REPO_PATH** | `/Users/noppanan/.gemini/antigravity/scratch/LumenFlow` | Filesystem audit |
 | **FLUTTER_BRANCH** | `main` | `git status` |
-| **FLUTTER_HEAD** | `bd496fd` | `git log -n 1` |
+| **FLUTTER_HEAD** | `d77ffbb` | `git log -n 1` |
 | **FLUTTER_VERSION** | `3.38.0` (Channel stable) | `flutter --version` |
 | **DART_VERSION** | `3.10.0` (DevTools 2.51.1) | `flutter --version` |
 | **ANDROID_MIN_SDK** | `21` (Android 5.0) | `android/app/build.gradle` |
 | **IOS_DEPLOYMENT_TARGET** | `16.0` (Required by ORT 1.28.0) | `ios/Podfile` |
 | **BACKEND_REPO_PATH** | `/Users/noppanan/new-api` | Filesystem audit |
 | **BACKEND_BRANCH** | `feat/formobile` | `git status` |
-| **BACKEND_HEAD** | `2e2a70440` | `git log -n 1` |
+| **BACKEND_HEAD** | `84d672f51` | `git log -n 1` |
 | **PRODUCTION_API** | `https://www.toraapi.com` | EC2 `51.20.174.90` |
 
 ---
