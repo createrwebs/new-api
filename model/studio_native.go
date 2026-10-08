@@ -26,6 +26,7 @@ type NativeExecutionClass string
 
 const (
 	ExecutionClassNativeBrowser        NativeExecutionClass = "NATIVE_BROWSER"
+	ExecutionClassNativeMobile         NativeExecutionClass = "NATIVE_MOBILE"
 	ExecutionClassNativeServer         NativeExecutionClass = "NATIVE_SERVER"
 	ExecutionClassNativeServerless     NativeExecutionClass = "NATIVE_SERVERLESS"
 	ExecutionClassExternalRelay        NativeExecutionClass = "EXTERNAL_RELAY"

@@ -433,3 +433,61 @@ func TestStudioProductPack_DeterministicPipeline(t *testing.T) {
 	assert.Contains(t, filenames, "04_story_tiktok_1080x1920.jpg")
 	assert.Contains(t, filenames, "05_product_cutout_transparent.png")
 }
+
+// Test 9: Native Mobile Execution Class & Prepaid LifeCycle (Queue N3 Section 3)
+func TestStudioNative_NativeMobile_QuoteAndPrepaidExecution(t *testing.T) {
+	db := setupNativeTestDB(t)
+
+	user := model.User{
+		Username: "mobile_user_ios_android",
+		Quota:    50000, // 50 Tora Credits
+	}
+	require.NoError(t, db.Create(&user).Error)
+
+	// 1. Quote for NATIVE_MOBILE
+	quote, err := GetNativeToolQuote("background-remove", model.ExecutionClassNativeMobile)
+	require.NoError(t, err)
+	assert.Equal(t, "background-remove", quote.ToolId)
+	assert.Equal(t, model.ExecutionClassNativeMobile, quote.ExecutionClass)
+	assert.Equal(t, model.BillingPolicyPrepaidExecution, quote.BillingPolicy, "NATIVE_MOBILE must be PREPAID_EXECUTION")
+	assert.Equal(t, 2, quote.Credits)
+	assert.Equal(t, 2000, quote.Quota)
+
+	// 2. Ticket Creation for NATIVE_MOBILE on Android/iOS
+	inputs := map[string]interface{}{
+		"tool":   "background-remove",
+		"width":  1080,
+		"height": 1080,
+	}
+	ticket, err := CreateNativeExecutionTicket(user.Id, "background-remove", model.ExecutionClassNativeMobile, inputs, "android_nnapi_arm64", "idem_mobile_123")
+	require.NoError(t, err)
+	assert.Equal(t, model.ExecutionClassNativeMobile, ticket.ExecutionClass)
+	assert.Equal(t, model.BillingPolicyPrepaidExecution, ticket.BillingPolicy)
+	assert.Equal(t, model.TicketStatusCharged, ticket.Status, "NATIVE_MOBILE must be charged at activation")
+	assert.Equal(t, 2000, ticket.ChargedQuota)
+	assert.Equal(t, "android_nnapi_arm64", ticket.ClientDeviceClass)
+	assert.True(t, VerifyTicketAuthToken(ticket, ticket.AuthToken))
+
+	// User wallet should be deducted
+	remQuota, err := model.GetUserQuota(user.Id, false)
+	require.NoError(t, err)
+	assert.Equal(t, 48000, remQuota)
+
+	// 3. Fair Retry for NATIVE_MOBILE (zero credits)
+	retryTicket, err := RetryNativeExecutionTicket(user.Id, ticket.TicketId)
+	require.NoError(t, err)
+	assert.Equal(t, 1, retryTicket.RetryCount)
+	assert.Equal(t, model.TicketStatusCharged, retryTicket.Status)
+
+	remQuotaAfterRetry, err := model.GetUserQuota(user.Id, false)
+	require.NoError(t, err)
+	assert.Equal(t, 48000, remQuotaAfterRetry, "Retry on NATIVE_MOBILE must cost 0 additional credits")
+
+	// 4. Complete NATIVE_MOBILE inference
+	completed, err := CompleteNativeExecutionTicket(user.Id, ticket.TicketId, "sha256_output_mobile_mask", 450, "android_nnapi_arm64")
+	require.NoError(t, err)
+	assert.Equal(t, model.TicketStatusCompleted, completed.Status)
+	assert.Equal(t, "sha256_output_mobile_mask", completed.OutputAssetHash)
+	assert.Equal(t, int64(450), completed.ClientExecutionMs)
+}
+

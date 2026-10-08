@@ -45,7 +45,7 @@ var NativeModels = map[string]NativeModelMeta{
 		SizeBytes:    4572242,
 		Format:       "onnx",
 		License:      "Apache-2.0",
-		ExecutionEnv: "NATIVE_BROWSER",
+		ExecutionEnv: "NATIVE_BROWSER / NATIVE_MOBILE",
 		InputShape:   "1x3x320x320",
 		DownloadURL:  "/api/studio/native/models/u2netp",
 	},
@@ -57,7 +57,7 @@ var NativeModels = map[string]NativeModelMeta{
 		SizeBytes:    25890000,
 		Format:       "onnx",
 		License:      "Apache-2.0",
-		ExecutionEnv: "NATIVE_BROWSER",
+		ExecutionEnv: "NATIVE_BROWSER / NATIVE_MOBILE",
 		InputShape:   "1x3x512x512",
 		DownloadURL:  "/api/studio/native/models/modnet",
 	},
@@ -69,7 +69,7 @@ var NativeModels = map[string]NativeModelMeta{
 		SizeBytes:    67192664,
 		Format:       "onnx",
 		License:      "BSD-3-Clause",
-		ExecutionEnv: "NATIVE_BROWSER",
+		ExecutionEnv: "NATIVE_BROWSER / NATIVE_MOBILE",
 		InputShape:   "dynamic (tiled)",
 		DownloadURL:  "/api/studio/native/models/realesrgan_2x",
 	},
@@ -267,7 +267,7 @@ func GetNativeToolQuote(toolId string, reqClass model.NativeExecutionClass) (*Na
 	}
 
 	billingPolicy := spec.BillingPolicy
-	if execClass == model.ExecutionClassNativeBrowser {
+	if execClass == model.ExecutionClassNativeBrowser || execClass == model.ExecutionClassNativeMobile {
 		billingPolicy = model.BillingPolicyPrepaidExecution
 	} else if execClass == model.ExecutionClassDeterministicServer || execClass == model.ExecutionClassNativeServer {
 		billingPolicy = model.BillingPolicySuccessSettlement
@@ -297,7 +297,7 @@ func GetNativeToolQuote(toolId string, reqClass model.NativeExecutionClass) (*Na
 }
 
 // CreateNativeExecutionTicket authorizes and provisions an execution ticket.
-// For NATIVE_BROWSER (PREPAID_EXECUTION), wallet quota is atomically reserved and charged BEFORE authorization.
+// For NATIVE_BROWSER / NATIVE_MOBILE (PREPAID_EXECUTION), wallet quota is atomically reserved and charged BEFORE authorization.
 // For DETERMINISTIC_SERVER (SUCCESS_SETTLEMENT), quota is reserved in escrow and settled upon success.
 func CreateNativeExecutionTicket(userId int, toolId string, reqClass model.NativeExecutionClass, inputs map[string]interface{}, clientDeviceClass string, idempotencyKey string) (*model.NativeExecutionTicket, error) {
 	// 1. Idempotency Check (Section 12)
@@ -318,7 +318,7 @@ func CreateNativeExecutionTicket(userId int, toolId string, reqClass model.Nativ
 	}
 
 	billingPolicy := spec.BillingPolicy
-	if execClass == model.ExecutionClassNativeBrowser {
+	if execClass == model.ExecutionClassNativeBrowser || execClass == model.ExecutionClassNativeMobile {
 		billingPolicy = model.BillingPolicyPrepaidExecution
 	}
 
@@ -341,7 +341,7 @@ func CreateNativeExecutionTicket(userId int, toolId string, reqClass model.Nativ
 	chargedCredits := 0
 	var chargedAt int64 = 0
 
-	// 3. For NATIVE_BROWSER: Commit the charge immediately (Section 4 PREPAID_EXECUTION)
+	// 3. For NATIVE_BROWSER / NATIVE_MOBILE: Commit the charge immediately (Section 4 PREPAID_EXECUTION)
 	if billingPolicy == model.BillingPolicyPrepaidExecution {
 		if err := model.SettleUserWalletPreConsume(requestId); err != nil {
 			_ = model.RefundUserWalletPreConsume(requestId)
@@ -357,7 +357,7 @@ func CreateNativeExecutionTicket(userId int, toolId string, reqClass model.Nativ
 	nonce := generateRandomNonce()
 
 	retryUntil := now + 300 // 5-minute default
-	if execClass == model.ExecutionClassNativeBrowser {
+	if execClass == model.ExecutionClassNativeBrowser || execClass == model.ExecutionClassNativeMobile {
 		retryUntil = now + 1800 // 30-minute fair retry window (Section 7)
 	}
 
@@ -519,8 +519,8 @@ func RetryNativeExecutionTicket(userId int, ticketId string) (*model.NativeExecu
 		return nil, ErrNativeUnauthorized
 	}
 
-	if ticket.ExecutionClass != model.ExecutionClassNativeBrowser {
-		return nil, errors.New("same-ticket fair retry applies to NATIVE_BROWSER executions")
+	if ticket.ExecutionClass != model.ExecutionClassNativeBrowser && ticket.ExecutionClass != model.ExecutionClassNativeMobile {
+		return nil, errors.New("same-ticket fair retry applies to NATIVE_BROWSER and NATIVE_MOBILE executions")
 	}
 
 	now := common.GetTimestamp()
