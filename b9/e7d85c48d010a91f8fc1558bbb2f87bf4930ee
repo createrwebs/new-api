@@ -1,0 +1,16 @@
+docs/ai/TORA_N4_OVERNIGHT_CHECKPOINT.md
+  h_f97827f62b0fea 35-65
+docs/ai/TORA_STUDIO_QUEUE_N4_REPORT.md
+  h_f97827f62b0fea 31,33
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.3",
+  "base_commit_sha": "b9e7d85c48d010a91f8fc1558bbb2f87bf4930ee",
+  "prompts": {},
+  "humans": {
+    "h_f97827f62b0fea": {
+      "author": "NOPPANAN THEERACHARTE <noppanan.the@axonstech.com>"
+    }
+  }
+}
