@@ -1,0 +1,28 @@
+docs/ai/TORA_HIGH_VOLUME_BATCH_PLAN.md
+  h_f97827f62b0fea 1-53
+docs/ai/TORA_N3_BACKEND_DELTA.md
+  h_f97827f62b0fea 1-69
+docs/ai/TORA_NATIVE_MOBILE_REAL_ACCEPTANCE_MATRIX.md
+  h_f97827f62b0fea 1-27
+docs/ai/TORA_OBJECT_CLEANUP_LICENSE_AUDIT.md
+  h_f97827f62b0fea 1-49
+docs/ai/TORA_OBJECT_CLEANUP_UI_ARCHITECTURE.md
+  h_f97827f62b0fea 1-45
+docs/ai/TORA_SELLER_TEMPLATE_PACKS.md
+  h_f97827f62b0fea 1-108
+docs/ai/TORA_SMART_PRODUCT_SHADOWS.md
+  h_f97827f62b0fea 1-64
+docs/ai/TORA_STUDIO_QUEUE_N3_1_REPORT.md
+  h_f97827f62b0fea 1-122
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.3",
+  "base_commit_sha": "ff8895a45c13577b9e8dbb0a6d3860a0cfd0f02d",
+  "prompts": {},
+  "humans": {
+    "h_f97827f62b0fea": {
+      "author": "NOPPANAN THEERACHARTE <noppanan.the@axonstech.com>"
+    }
+  }
+}
