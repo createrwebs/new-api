@@ -9,4 +9,8 @@ docs
 .gocache
 /web/node_modules
 /web/dist
+data
+logs
+data-*
+*.log
 !THIRD-PARTY-LICENSES.md
