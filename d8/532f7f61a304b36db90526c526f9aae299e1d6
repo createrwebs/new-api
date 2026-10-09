@@ -1,0 +1,16 @@
+web/src/features/pricing/components/grouped-pricing-catalog.tsx
+  h_f97827f62b0fea 69,71-74
+web/src/features/pricing/components/modelflare-model-card.tsx
+  h_f97827f62b0fea 69
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.3",
+  "base_commit_sha": "d8532f7f61a304b36db90526c526f9aae299e1d6",
+  "prompts": {},
+  "humans": {
+    "h_f97827f62b0fea": {
+      "author": "NOPPANAN THEERACHARTE <noppanan.the@axonstech.com>"
+    }
+  }
+}
