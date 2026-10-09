@@ -66,7 +66,7 @@ export const ModelflareModelCard = memo(function ModelflareModelCard({
   // Context window parsing
   const contextWindow = useMemo(() => {
     if (model.description?.toLowerCase().includes('context window:')) {
-      const match = model.description.match(/context window:\s*([^,\.]+)/i)
+      const match = model.description.match(/context window:\s*([^,\n;]+)/i)
       return match ? match[1].trim() : null
     }
     if (model.context_length) {

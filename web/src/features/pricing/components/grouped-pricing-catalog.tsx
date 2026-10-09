@@ -66,9 +66,12 @@ export const GroupedPricingCatalog = memo(function GroupedPricingCatalog(
   const [selectedVendorFilter, setSelectedVendorFilter] = useState<string>('all')
   const [collapsedVendors, setCollapsedVendors] = useState<Set<string>>(new Set())
 
-  // Default: first model of the first vendor expanded
+  // Default: gpt-5.6-sol or first model expanded
   const [expandedModelNames, setExpandedModelNames] = useState<string[]>(() => {
-    return props.models.length > 0 ? [props.models[0].model_name] : []
+    const target =
+      props.models.find((m) => m.model_name === 'gpt-5.6-sol') ||
+      props.models[0]
+    return target ? [target.model_name] : []
   })
 
   // Map of vendor id/name to vendor icon
