@@ -31,6 +31,7 @@ import {
   PricingSidebar,
   PricingToolbar,
   ModelCardGrid,
+  GroupedPricingCatalog,
   ModelDetailsDrawer,
 } from './components'
 import { EXCLUDED_GROUPS, VIEW_MODES } from './constants'
@@ -128,7 +129,7 @@ export function Pricing() {
 
     if (viewMode === VIEW_MODES.CARD) {
       return (
-        <ModelCardGrid
+        <GroupedPricingCatalog
           models={filteredModels}
           onModelClick={handleModelClick}
           priceRate={priceRate}
@@ -136,6 +137,8 @@ export function Pricing() {
           tokenUnit={tokenUnit}
           showRechargePrice={showRechargePrice}
           selectedGroup={groupFilter}
+          vendors={vendors}
+          groupRatio={groupRatio}
         />
       )
     }

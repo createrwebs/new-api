@@ -145,3 +145,170 @@ export type ViewMode = (typeof VIEW_MODES)[keyof typeof VIEW_MODES]
 
 /** Default page size for pricing table */
 export const DEFAULT_PRICING_PAGE_SIZE = 20
+
+export interface GroupRouteMeta {
+  tier: string
+  kind: 'award' | 'stable' | 'premium' | 'limited'
+  description: string
+  color: string
+}
+
+export const ROUTE_METADATA: Record<string, GroupRouteMeta> = {
+  'openai-award': {
+    tier: 'High-value route',
+    kind: 'award',
+    description:
+      'Price-priority routing for budget-sensitive, retryable development, testing, and flexible workloads.',
+    color: 'bg-emerald-500',
+  },
+  'openai-stable': {
+    tier: 'High-stability route',
+    kind: 'stable',
+    description:
+      'The go-to choice for individual developers who prioritize stability, ideal for everyday development, long-term projects, and production applications.',
+    color: 'bg-blue-500',
+  },
+  'openai-premium': {
+    tier: 'High-stability route',
+    kind: 'premium',
+    description:
+      'Premium OpenAI route for workloads that prioritize continuity and request success, billed at 13% of official list pricing.',
+    color: 'bg-purple-500',
+  },
+  'openai-first-topup': {
+    tier: 'Limited-time offer route',
+    kind: 'limited',
+    description:
+      'Exclusive pricing unlocked when any single top-up reaches US$20.',
+    color: 'bg-amber-500',
+  },
+  'claude-award': {
+    tier: 'High-value route',
+    kind: 'award',
+    description:
+      'Price-priority routing for budget-sensitive, retryable development, testing, and flexible workloads.',
+    color: 'bg-emerald-500',
+  },
+  'claude-stable': {
+    tier: 'High-stability route',
+    kind: 'stable',
+    description:
+      'The go-to choice for individual developers who prioritize stability, ideal for everyday development, long-term projects, and production applications.',
+    color: 'bg-blue-500',
+  },
+  'claude-premium': {
+    tier: 'High-stability route',
+    kind: 'premium',
+    description:
+      'Premium Claude route for workloads that prioritize continuity and request success, billed at 50% of official list pricing.',
+    color: 'bg-purple-500',
+  },
+  'claude-first-topup': {
+    tier: 'Limited-time offer route',
+    kind: 'limited',
+    description:
+      'Exclusive pricing unlocked when any single top-up reaches US$20.',
+    color: 'bg-amber-500',
+  },
+  'claude-tmp-cheap': {
+    tier: 'Limited-time offer route',
+    kind: 'limited',
+    description: 'Limited-time promotional route for Claude models.',
+    color: 'bg-amber-500',
+  },
+  'grok-award': {
+    tier: 'Limited-time offer route',
+    kind: 'award',
+    description:
+      'Price-priority routing for budget-sensitive, retryable development, testing, and flexible workloads.',
+    color: 'bg-emerald-500',
+  },
+  'grok-stable': {
+    tier: 'High-stability route',
+    kind: 'stable',
+    description:
+      'The go-to choice for individual developers who prioritize stability, ideal for everyday development, long-term projects, and production applications.',
+    color: 'bg-blue-500',
+  },
+  'deepseek-stable': {
+    tier: 'High-stability route',
+    kind: 'stable',
+    description:
+      'The go-to choice for individual developers who prioritize stability, ideal for everyday development, long-term projects, and production applications.',
+    color: 'bg-blue-500',
+  },
+  'glm-stable': {
+    tier: 'High-stability route',
+    kind: 'stable',
+    description:
+      'Official GLM access on a high-stability channel, suited to everyday development, long-term projects, and production.',
+    color: 'bg-blue-500',
+  },
+  'qwen-stable': {
+    tier: 'High-stability route',
+    kind: 'stable',
+    description:
+      'Official Qwen access on a high-stability channel, suited to everyday development, long-term projects, and production.',
+    color: 'bg-blue-500',
+  },
+  'kimi-stable': {
+    tier: 'High-stability route',
+    kind: 'stable',
+    description:
+      'Official Kimi access on a high-stability channel, suited to everyday development, long-term projects, and production.',
+    color: 'bg-blue-500',
+  },
+  'gemini-stable': {
+    tier: 'High-stability route',
+    kind: 'stable',
+    description:
+      'The go-to choice for individual developers who prioritize stability, ideal for everyday development, long-term projects, and production applications.',
+    color: 'bg-blue-500',
+  },
+  'spark-premium': {
+    tier: 'High-stability route',
+    kind: 'premium',
+    description: 'Muse Spark route billed at 1.15× the official token price.',
+    color: 'bg-purple-500',
+  },
+  'jev-premium': {
+    tier: 'High-stability route',
+    kind: 'premium',
+    description: 'Jev decisions route billed at 1.15× the official token price.',
+    color: 'bg-purple-500',
+  },
+}
+
+export function getRouteMeta(groupName: string): GroupRouteMeta {
+  if (ROUTE_METADATA[groupName]) {
+    return ROUTE_METADATA[groupName]
+  }
+  const isAward = groupName.includes('award') || groupName.includes('cheap')
+  const isPremium = groupName.includes('premium')
+  const isLimited = groupName.includes('topup') || groupName.includes('tmp')
+  return {
+    tier: isAward
+      ? 'High-value route'
+      : isPremium
+        ? 'Premium route'
+        : isLimited
+          ? 'Limited-time offer route'
+          : 'High-stability route',
+    kind: isAward
+      ? 'award'
+      : isPremium
+        ? 'premium'
+        : isLimited
+          ? 'limited'
+          : 'stable',
+    description: `Routing group for ${groupName}.`,
+    color: isAward
+      ? 'bg-emerald-500'
+      : isPremium
+        ? 'bg-purple-500'
+        : isLimited
+          ? 'bg-amber-500'
+          : 'bg-blue-500',
+  }
+}
+
