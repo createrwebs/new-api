@@ -1,0 +1,21 @@
+web/src/features/pricing/components/route-price-card.tsx
+  s_0946d6592c2835::t_50ca52e94350f2 1-183
+web/src/features/pricing/constants.ts
+  s_0946d6592c2835::t_4ab15c920f0e5e 148-314
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.3",
+  "base_commit_sha": "cc15297f3e6119c81b48c1db98c24cc3f9711c80",
+  "prompts": {},
+  "sessions": {
+    "s_0946d6592c2835": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a11f4e-e220-73a3-9a3c-3b9188a7ebc7",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "NOPPANAN THEERACHARTE <noppanan.the@axonstech.com>"
+    }
+  }
+}
