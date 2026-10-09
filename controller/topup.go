@@ -96,12 +96,24 @@ func GetTopUpInfo(c *gin.Context) {
 		}
 	}
 
+	// PromptPay (พร้อมเพย์) payment method
+	promptPayMethod := map[string]string{
+		"name":      "PromptPay (พร้อมเพย์)",
+		"type":      model.PaymentMethodPromptPay,
+		"phone":     "0639304353",
+		"color":     "#003D6B",
+		"min_topup": "1",
+	}
+	payMethods = append(payMethods, promptPayMethod)
+
 	data := gin.H{
 		"enable_online_topup":              isEpayTopUpEnabled(),
 		"enable_stripe_topup":              isStripeTopUpEnabled(),
 		"enable_creem_topup":               isCreemTopUpEnabled(),
 		"enable_waffo_topup":               enableWaffo,
 		"enable_waffo_pancake_topup":       enableWaffoPancake,
+		"enable_promptpay_topup":           true,
+		"promptpay_phone":                  "0639304353",
 		"enable_redemption":                complianceConfirmed,
 		"payment_compliance_confirmed":     complianceConfirmed,
 		"payment_compliance_terms_version": operation_setting.CurrentComplianceTermsVersion,
