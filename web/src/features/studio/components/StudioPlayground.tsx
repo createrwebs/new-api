@@ -588,8 +588,6 @@ export function StudioPlayground({
     }
   }, [variants, activeVariantIndex, activeJob?.output_data])
 
-  const isVideoTool = currentTool?.category === 'video' || currentTool?.slug.includes('video')
-
   const renderBadgeVariant = (status: string) => {
     if (status === 'SUCCEEDED') return 'default'
     if (status === 'FAILED') return 'destructive'
