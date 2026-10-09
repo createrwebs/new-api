@@ -1,0 +1,36 @@
+web/src/features/studio/__tests__/studio-guest-flow.test.tsx
+  h_f97827f62b0fea 1-93
+web/src/features/studio/components/AuthRequiredModal.tsx
+  h_f97827f62b0fea 1-138
+web/src/features/studio/components/CreatorAssistant.tsx
+  h_f97827f62b0fea 29-31,61-62,88-92,117-121,642-649
+web/src/features/studio/components/InsufficientCreditModal.tsx
+  h_f97827f62b0fea 22,39,59-65
+web/src/features/studio/components/StudioHistory.tsx
+  h_f97827f62b0fea 2,15,27-28,33,37-66
+web/src/features/studio/components/StudioPlayground.tsx
+  h_f97827f62b0fea 43,133-135,484-499,1165-1182,1539-1545
+web/src/features/studio/index.tsx
+  h_f97827f62b0fea 6,70-71,74,79-81,156-157
+web/src/features/wallet/index.tsx
+  h_f97827f62b0fea 79
+web/src/hooks/use-top-nav-links.ts
+  h_f97827f62b0fea 82-84
+web/src/routeTree.gen.ts
+  h_f97827f62b0fea 32,39,185-189,220-224,512,517,584,589,660,665,735,740,807,812,882,887,949,954,1100-1106,1149-1155,1644,1649
+web/src/routes/assistant/index.tsx
+  h_f97827f62b0fea 5
+web/src/routes/studio/index.tsx
+  h_f97827f62b0fea 8,11
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.3",
+  "base_commit_sha": "7c6c25bc8e6f06fd05b1862ec633d49005d7f8a1",
+  "prompts": {},
+  "humans": {
+    "h_f97827f62b0fea": {
+      "author": "NOPPANAN THEERACHARTE <noppanan.the@axonstech.com>"
+    }
+  }
+}
