@@ -95,14 +95,19 @@ export const RoutePriceCard = memo(function RoutePriceCard({
       )}
     >
       {/* Heading */}
-      <div className='flex items-center justify-between gap-2'>
-        <span
-          className='truncate font-mono text-xs font-semibold text-foreground'
-          title={group}
-        >
-          {group}
-        </span>
-        <div className='flex shrink-0 items-center gap-1.5'>
+      <div>
+        <div className='flex items-center justify-between gap-2'>
+          <span
+            className='truncate font-mono text-xs font-bold text-foreground'
+            title={group}
+          >
+            {group}
+          </span>
+          <span className='inline-flex h-5 shrink-0 items-center rounded-full border border-border/60 bg-background px-1.5 font-mono text-[10px] font-medium text-muted-foreground'>
+            {multiplierText}
+          </span>
+        </div>
+        <div className='mt-1.5 flex items-center gap-1.5'>
           <Badge
             variant='outline'
             className='h-5 gap-1 rounded-full border-border/80 px-2 py-0 text-[10px] font-medium text-foreground bg-muted/30'
@@ -110,9 +115,6 @@ export const RoutePriceCard = memo(function RoutePriceCard({
             <span className={cn('size-1.5 shrink-0 rounded-full', meta.color)} />
             {meta.tier}
           </Badge>
-          <span className='inline-flex h-5 items-center rounded-full border border-border/60 bg-background px-1.5 font-mono text-[10px] font-medium text-muted-foreground'>
-            {multiplierText}
-          </span>
         </div>
       </div>
 
