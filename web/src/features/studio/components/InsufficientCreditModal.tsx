@@ -19,6 +19,7 @@ import {
 
 import { recordStudioAttribution } from '../api'
 import type { InsufficientCreditData } from '../types'
+import { useAuthStore } from '@/stores/auth-store'
 
 interface InsufficientCreditModalProps {
   open: boolean
@@ -35,6 +36,7 @@ export function InsufficientCreditModal({
 }: InsufficientCreditModalProps) {
   const { t } = useTranslation()
   const navigate = useNavigate()
+  const { auth } = useAuthStore()
 
   useEffect(() => {
     if (open && data) {
@@ -54,6 +56,13 @@ export function InsufficientCreditModal({
     sessionStorage.setItem('tora_studio_purchase_origin', toolId)
     sessionStorage.setItem('tora_studio_purchase_needed', String(data.required_credits))
     onOpenChange(false)
+    if (!auth?.user) {
+      navigate({
+        to: '/sign-up',
+        search: { redirect: '/wallet' },
+      })
+      return
+    }
     navigate({ to: '/wallet' })
   }
 

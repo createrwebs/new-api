@@ -76,7 +76,7 @@ export function Wallet(props: WalletProps) {
           label: t('กลับไปที่ Studio'),
           onClick: () =>
             navigate({
-              to: '/_authenticated/studio',
+              to: '/studio',
               search: { tool: studioOrigin, tab: 'playground' },
             }),
         },

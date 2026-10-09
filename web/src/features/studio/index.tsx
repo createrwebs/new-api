@@ -3,7 +3,7 @@ import { Bot, History, LayoutGrid, Sparkles, Wand2 } from 'lucide-react'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
-import { SectionPageLayout } from '@/components/layout'
+import { PublicLayout } from '@/components/layout'
 import { Spinner } from '@/components/ui/spinner'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 
@@ -67,17 +67,18 @@ export function Studio({
 
   if (isLoadingTools || isLoadingTemplates) {
     return (
-      <SectionPageLayout>
-        <div className='flex h-96 items-center justify-center'>
+      <PublicLayout showMainContainer={false}>
+        <div className='flex h-[60vh] items-center justify-center'>
           <Spinner className='size-8 text-primary' />
         </div>
-      </SectionPageLayout>
+      </PublicLayout>
     )
   }
 
   return (
-    <SectionPageLayout>
-      <div className='space-y-6'>
+    <PublicLayout showMainContainer={false}>
+      <div className='container mx-auto max-w-7xl px-4 py-6 pt-20 md:px-6'>
+        <div className='space-y-6'>
         {/* Navigation Tabs Bar */}
         <div className='flex items-center justify-between border-b border-border/60 pb-3'>
           <div className='flex items-center gap-2.5'>
@@ -152,6 +153,7 @@ export function Studio({
           <StudioHistory tools={tools} onRemix={handleRemix} />
         )}
       </div>
-    </SectionPageLayout>
+    </div>
+    </PublicLayout>
   )
 }

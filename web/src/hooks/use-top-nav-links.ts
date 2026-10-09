@@ -79,6 +79,9 @@ export function useTopNavLinks(): TopNavLink[] {
     links.push({ title: t('Model Square'), href: '/pricing', requiresAuth })
   }
 
+  // Tora Studio (Publicly browsable AI Studio)
+  links.push({ title: 'Tora Studio', href: '/studio' })
+
   // Rankings
   const rankings = modules?.rankings
   if (rankings && typeof rankings === 'object' && rankings.enabled) {

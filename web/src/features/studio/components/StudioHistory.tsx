@@ -1,4 +1,5 @@
 import { useQuery } from '@tanstack/react-query'
+import { Link } from '@tanstack/react-router'
 import {
   Coins,
   Download,
@@ -11,6 +12,7 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardFooter, CardHeader } from '@/components/ui/card'
 import { Spinner } from '@/components/ui/spinner'
+import { useAuthStore } from '@/stores/auth-store'
 
 import { getUserStudioJobs } from '../api'
 import type { StudioJob, StudioTool } from '../types'
@@ -22,12 +24,45 @@ interface StudioHistoryProps {
 
 export function StudioHistory({ tools, onRemix }: StudioHistoryProps) {
   const { t } = useTranslation()
+  const { auth } = useAuthStore()
+  const isAuthed = !!auth?.user
 
   const { data, isLoading, refetch } = useQuery({
     queryKey: ['studio', 'history'],
     queryFn: () => getUserStudioJobs(1, 30),
+    enabled: isAuthed,
     staleTime: 10 * 1000,
   })
+
+  if (!isAuthed) {
+    return (
+      <div className='flex min-h-[350px] flex-col items-center justify-center rounded-2xl border border-dashed border-border p-8 text-center'>
+        <div className='flex size-14 items-center justify-center rounded-2xl bg-muted text-muted-foreground'>
+          <Layers className='size-7' />
+        </div>
+        <h3 className='mt-4 text-sm font-semibold text-foreground'>
+          {t('เข้าสู่ระบบเพื่อดูประวัติผลงาน')}
+        </h3>
+        <p className='mt-1 max-w-sm text-xs text-muted-foreground'>
+          {t(
+            'เข้าสู่ระบบหรือสมัครสมาชิกเพื่อบันทึกและดูประวัติผลงานที่คุณสร้างใน Tora Studio'
+          )}
+        </p>
+        <div className='mt-4 flex gap-2'>
+          <Button asChild size='sm'>
+            <Link to='/sign-in' search={{ redirect: '/studio?tab=history' }}>
+              {t('เข้าสู่ระบบ')}
+            </Link>
+          </Button>
+          <Button asChild variant='outline' size='sm'>
+            <Link to='/sign-up' search={{ redirect: '/studio?tab=history' }}>
+              {t('สมัครสมาชิก')}
+            </Link>
+          </Button>
+        </div>
+      </div>
+    )
+  }
 
   const jobs = data?.jobs || []
 

@@ -26,6 +26,9 @@ import { Checkbox } from '@/components/ui/checkbox'
 import { Progress } from '@/components/ui/progress'
 import { Spinner } from '@/components/ui/spinner'
 import { Textarea } from '@/components/ui/textarea'
+import { useAuthStore } from '@/stores/auth-store'
+
+import { AuthRequiredModal } from './AuthRequiredModal'
 
 interface WorkflowStep {
   step_index: number
@@ -55,6 +58,8 @@ interface WorkflowPlan {
 }
 
 export function CreatorAssistant() {
+  const { auth } = useAuthStore()
+  const [authModalOpen, setAuthModalOpen] = useState(false)
   const [prompt, setPrompt] = useState('')
   const [imageUrl, setImageUrl] = useState('')
   const [isUploading, setIsUploading] = useState(false)
@@ -80,6 +85,11 @@ export function CreatorAssistant() {
     const file = e.target.files?.[0]
     if (!file) return
 
+    if (!auth?.user) {
+      setAuthModalOpen(true)
+      return
+    }
+
     setIsUploading(true)
     const formData = new FormData()
     formData.append('file', file)
@@ -104,6 +114,11 @@ export function CreatorAssistant() {
   }
 
   const handleGeneratePlan = async () => {
+    if (!auth?.user) {
+      setAuthModalOpen(true)
+      return
+    }
+
     if (!prompt.trim()) {
       toast.error('กรุณาระบุสิ่งที่ต้องการสร้าง')
       return
@@ -624,6 +639,14 @@ export function CreatorAssistant() {
           </CardContent>
         </Card>
       )}
+
+      {/* Auth Required Modal */}
+      <AuthRequiredModal
+        open={authModalOpen}
+        onOpenChange={setAuthModalOpen}
+        toolName='ผู้ช่วย AI (Creator Assistant)'
+        actionDescription='กรุณาเข้าสู่ระบบหรือสมัครสมาชิกเพื่อใช้วางแผนและสร้างผลงานด้วย ผู้ช่วย AI'
+      />
     </div>
   )
 }

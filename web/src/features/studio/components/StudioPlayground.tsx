@@ -40,6 +40,7 @@ import {
   quoteStudioJob,
   recordStudioAttribution,
 } from '../api'
+import { AuthRequiredModal } from './AuthRequiredModal'
 import {
   trackStudioGenerateClick,
   trackStudioGenerationAfterPurchase,
@@ -128,6 +129,9 @@ export function StudioPlayground({
   const [insufficientModalOpen, setInsufficientModalOpen] = useState(false)
   const [insufficientData, setInsufficientData] =
     useState<InsufficientCreditData | null>(null)
+
+  // Auth required modal
+  const [authModalOpen, setAuthModalOpen] = useState(false)
 
   // Credit Conversion Funnel: Post-purchase return state (Queue 3)
   const [isPostPurchaseReturn, setIsPostPurchaseReturn] = useState(false)
@@ -474,6 +478,22 @@ export function StudioPlayground({
       !confirmedRights
     ) {
       toast.error(t('กรุณายืนยันสิทธิ์ในการแก้ไขรูปภาพก่อนเริ่มดำเนินการ'))
+      return
+    }
+
+    // Require authentication: if not signed in, save draft and prompt sign-in / sign-up
+    if (!auth?.user) {
+      try {
+        const pending = {
+          tool_id: currentTool.id,
+          template_id: activeTemplateId || undefined,
+          input_params: buildInputParams(),
+        }
+        sessionStorage.setItem(STORAGE_KEY, JSON.stringify(pending))
+      } catch {
+        // Ignore
+      }
+      setAuthModalOpen(true)
       return
     }
 
@@ -1142,16 +1162,24 @@ export function StudioPlayground({
                   </span>
                 </div>
                 <div className='text-[11px] text-muted-foreground'>
-                  {t('เครดิตคงเหลือของคุณ')}:{' '}
-                  <span
-                    className={
-                      hasEnoughCredits
-                        ? 'font-medium text-foreground'
-                        : 'font-medium text-rose-500'
-                    }
-                  >
-                    {userCredits} Credits
-                  </span>
+                  {auth?.user ? (
+                    <>
+                      {t('เครดิตคงเหลือของคุณ')}:{' '}
+                      <span
+                        className={
+                          hasEnoughCredits
+                            ? 'font-medium text-foreground'
+                            : 'font-medium text-rose-500'
+                        }
+                      >
+                        {userCredits} Credits
+                      </span>
+                    </>
+                  ) : (
+                    <span className='font-medium text-amber-500'>
+                      {t('ยังไม่ได้เข้าสู่ระบบ (เข้าสู่ระบบหรือสมัครเพื่อรับเครดิตฟรี)')}
+                    </span>
+                  )}
                 </div>
               </div>
 
@@ -1507,6 +1535,13 @@ export function StudioPlayground({
         onOpenChange={setInsufficientModalOpen}
         data={insufficientData}
         onPreserveStateAndTopUp={handlePreserveState}
+      />
+
+      {/* Auth Required Modal for Guest Users */}
+      <AuthRequiredModal
+        open={authModalOpen}
+        onOpenChange={setAuthModalOpen}
+        toolName={currentTool?.name_th || currentTool?.name}
       />
     </div>
   )

@@ -5,10 +5,10 @@ import { Studio } from '@/features/studio'
 
 const studioSearchSchema = z.object({
   tool: z.string().optional(),
-  tab: z.enum(['catalog', 'playground', 'history']).optional(),
+  tab: z.enum(['assistant', 'catalog', 'playground', 'history']).optional(),
 })
 
-export const Route = createFileRoute('/_authenticated/studio/')({
+export const Route = createFileRoute('/studio/')({
   validateSearch: studioSearchSchema,
   component: RouteComponent,
 })
