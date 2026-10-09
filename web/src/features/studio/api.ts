@@ -2,6 +2,7 @@ import axios from 'axios'
 
 import { api } from '@/lib/api'
 import { requireServerSuccess } from '@/lib/server-error-message'
+import { useAuthStore } from '@/stores/auth-store'
 
 import type {
   CreateStudioJobPayload,
@@ -151,7 +152,10 @@ export async function quoteStudioJob(payload: {
   expires_at: number
   estimated_cost_usd: number
 }> {
-  const res = await api.post('/api/studio/quote', payload)
+  const res = await api.post('/api/studio/quote', payload, {
+    skipErrorHandler: true,
+    skipAuthRefresh: true,
+  })
   const payloadData = requireServerSuccess(res.data)
   return payloadData?.data
 }
@@ -160,18 +164,27 @@ export async function quoteStudioJob(payload: {
  * Record studio conversion milestone.
  */
 export async function recordStudioAttribution(
-  eventType: 'insufficient_credit' | 'buy_credit_click' | 'purchase_return' | 'generation_after_purchase',
+  eventType: string,
   toolId: string,
   credits = 0,
   sessionId?: string
 ): Promise<void> {
+  const { auth } = useAuthStore.getState()
+  if (!auth.user) {
+    // Guest user - do not send authenticated request to avoid 401 redirect
+    return
+  }
   try {
-    await api.post('/api/studio/attribution', {
-      event_type: eventType,
-      tool_id: toolId,
-      credits,
-      session_id: sessionId,
-    })
+    await api.post(
+      '/api/studio/attribution',
+      {
+        event_type: eventType,
+        tool_id: toolId,
+        credits,
+        session_id: sessionId,
+      },
+      { skipErrorHandler: true, skipAuthRefresh: true }
+    )
   } catch {
     // Non-blocking telemetry
   }
