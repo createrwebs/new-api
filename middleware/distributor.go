@@ -33,6 +33,10 @@ type ModelRequest struct {
 
 func Distribute() func(c *gin.Context) {
 	return func(c *gin.Context) {
+		if c.GetBool("is_byok") || common.GetContextKeyBool(c, constant.ContextKeyIsBYOK) {
+			c.Next()
+			return
+		}
 		var channel *model.Channel
 		defer func() {
 			if c.Writer.Status() >= 400 {

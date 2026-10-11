@@ -1,0 +1,80 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 340" fill="none">
+  <defs>
+    <linearGradient id="vidBg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0b1329" />
+      <stop offset="100%" stop-color="#020817" />
+    </linearGradient>
+    <linearGradient id="goldGlow" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#f59e0b" />
+      <stop offset="100%" stop-color="#ec4899" />
+    </linearGradient>
+    <filter id="amberGlow">
+      <feGaussianBlur stdDeviation="6" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+
+  <rect width="600" height="340" rx="16" fill="url(#vidBg)" stroke="#1e293b" stroke-width="1"/>
+
+  <!-- Film Strip Background Borders -->
+  <rect x="30" y="30" width="540" height="280" rx="12" fill="#0f172a" stroke="#334155" stroke-width="1"/>
+  
+  <!-- Film Sprocket Holes (Top and Bottom) -->
+  <g fill="#1e293b">
+    <rect x="50" y="42" width="16" height="12" rx="3"/>
+    <rect x="85" y="42" width="16" height="12" rx="3"/>
+    <rect x="120" y="42" width="16" height="12" rx="3"/>
+    <rect x="155" y="42" width="16" height="12" rx="3"/>
+    <rect x="190" y="42" width="16" height="12" rx="3"/>
+    <rect x="225" y="42" width="16" height="12" rx="3"/>
+    <rect x="260" y="42" width="16" height="12" rx="3"/>
+    <rect x="295" y="42" width="16" height="12" rx="3"/>
+    <rect x="330" y="42" width="16" height="12" rx="3"/>
+    <rect x="365" y="42" width="16" height="12" rx="3"/>
+    <rect x="400" y="42" width="16" height="12" rx="3"/>
+    <rect x="435" y="42" width="16" height="12" rx="3"/>
+    <rect x="470" y="42" width="16" height="12" rx="3"/>
+    <rect x="505" y="42" width="16" height="12" rx="3"/>
+    <rect x="540" y="42" width="16" height="12" rx="3"/>
+
+    <rect x="50" y="286" width="16" height="12" rx="3"/>
+    <rect x="85" y="286" width="16" height="12" rx="3"/>
+    <rect x="120" y="286" width="16" height="12" rx="3"/>
+    <rect x="155" y="286" width="16" height="12" rx="3"/>
+    <rect x="190" y="286" width="16" height="12" rx="3"/>
+    <rect x="225" y="286" width="16" height="12" rx="3"/>
+    <rect x="260" y="286" width="16" height="12" rx="3"/>
+    <rect x="295" y="286" width="16" height="12" rx="3"/>
+    <rect x="330" y="286" width="16" height="12" rx="3"/>
+    <rect x="365" y="286" width="16" height="12" rx="3"/>
+    <rect x="400" y="286" width="16" height="12" rx="3"/>
+    <rect x="435" y="286" width="16" height="12" rx="3"/>
+    <rect x="470" y="286" width="16" height="12" rx="3"/>
+    <rect x="505" y="286" width="16" height="12" rx="3"/>
+    <rect x="540" y="286" width="16" height="12" rx="3"/>
+  </g>
+
+  <!-- Video Viewport Frame -->
+  <rect x="50" y="66" width="500" height="208" rx="8" fill="#020617"/>
+
+  <!-- Motion Waveforms & Dynamic Flow Paths -->
+  <path d="M50 170 Q175 90 300 170 T550 170" fill="none" stroke="url(#goldGlow)" stroke-width="4" filter="url(#amberGlow)"/>
+  <path d="M50 180 Q175 240 300 180 T550 180" fill="none" stroke="#38bdf8" stroke-width="2.5" opacity="0.6"/>
+  
+  <!-- Central Glowing Play Reel Button -->
+  <circle cx="300" cy="170" r="32" fill="#0f172a" stroke="url(#goldGlow)" stroke-width="2.5" filter="url(#amberGlow)"/>
+  <polygon points="293,155 315,170 293,185" fill="#f8fafc"/>
+
+  <!-- Live Generation HUD Metrics -->
+  <rect x="65" y="80" width="85" height="24" rx="12" fill="#0f172a" fill-opacity="0.8" stroke="#334155" stroke-width="1"/>
+  <circle cx="77" cy="92" r="4" fill="#22c55e"/>
+  <text x="110" y="96" fill="#f1f5f9" font-family="system-ui, sans-serif" font-size="10" font-weight="600" text-anchor="middle">5s • 1080p</text>
+
+  <rect x="445" y="80" width="90" height="24" rx="12" fill="#0f172a" fill-opacity="0.8" stroke="#334155" stroke-width="1"/>
+  <text x="490" y="96" fill="#38bdf8" font-family="system-ui, sans-serif" font-size="10" font-weight="700" text-anchor="middle">WAN 2.2 / KLING</text>
+  
+  <text x="300" y="248" fill="#94a3b8" font-family="system-ui, sans-serif" font-size="12" font-weight="500" text-anchor="middle">Cinematic Motion • High Fidelity • 24 FPS</text>
+</svg>

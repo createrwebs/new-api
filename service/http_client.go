@@ -126,9 +126,11 @@ func newRelayHTTPClient(transport http.RoundTripper) *http.Client {
 		Transport:     transport,
 		CheckRedirect: checkRedirect,
 	}
-	if common.RelayTimeout != 0 {
-		client.Timeout = time.Duration(common.RelayTimeout) * time.Second
+	timeout := common.RelayTimeout
+	if timeout <= 0 {
+		timeout = common.DefaultRelayTimeout
 	}
+	client.Timeout = time.Duration(timeout) * time.Second
 	return client
 }
 

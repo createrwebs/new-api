@@ -30,6 +30,23 @@ var DefaultSSRFProtection = &SSRFProtection{
 	AllowedPorts:     []int{},
 }
 
+// NewBYOKSSRFProtection returns an SSRFProtection instance configured with strict, unconditional
+// private network blocking and domain resolution verification for user-controlled BYOK endpoints.
+func NewBYOKSSRFProtection() *SSRFProtection {
+	return &SSRFProtection{
+		AllowPrivateIp:         false,
+		DomainFilterMode:       false, // blacklist mode
+		DomainList:             []string{"localhost", "*.local", "*.internal", "*.lan", "*.home", "*.corp"},
+		IpFilterMode:           false, // blacklist mode
+		IpList:                 []string{},
+		AllowedPorts:           []int{}, // all valid ports permitted as long as IP is public
+		ApplyIPFilterForDomain: true,    // resolve domains and verify every IP
+	}
+}
+
+// BYOKSSRFProtection is the active singleton used for untrusted user BYOK endpoint validation.
+var BYOKSSRFProtection = NewBYOKSSRFProtection()
+
 // NewSSRFProtectionFromFetchSetting builds an SSRFProtection from persisted fetch_setting values.
 func NewSSRFProtectionFromFetchSetting(allowPrivateIp bool, domainFilterMode bool, ipFilterMode bool, domainList, ipList, allowedPorts []string, applyIPFilterForDomain bool) (*SSRFProtection, error) {
 	allowedPortInts, err := parsePortRanges(allowedPorts)

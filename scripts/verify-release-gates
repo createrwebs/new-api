@@ -1,0 +1,97 @@
+#!/usr/bin/env bash
+set -uo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ROOT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
+MOBILE_DIR="${MOBILE_DIR:-/Users/noppanan/.gemini/antigravity/scratch/LumenFlow}"
+
+echo "========================================================"
+echo "      TORA AI — COMPREHENSIVE RELEASE GATE VERIFIER     "
+echo "========================================================"
+echo "Backend directory: ${ROOT_DIR}"
+echo "Mobile directory:  ${MOBILE_DIR}"
+echo ""
+
+FAILURES=0
+
+run_gate() {
+  local name="$1"
+  local cwd="$2"
+  shift 2
+  echo -n "[GATE] ${name} ... "
+  if (cd "${cwd}" && "$@") >/dev/null 2>&1; then
+    echo "PASS"
+  else
+    echo "FAIL"
+    FAILURES=$((FAILURES + 1))
+  fi
+}
+
+echo "--- 1. Backend & Web Verification ---"
+run_gate "Backend go vet" "${ROOT_DIR}" go vet ./model/... ./controller/... ./service/... ./router/... ./relay/...
+run_gate "Backend unit tests (model/controller/service/relay)" "${ROOT_DIR}" go test ./model ./controller ./service ./relay
+run_gate "Backend E2E Full-Stack tests (5 suites)" "${ROOT_DIR}" env E2E_PORT=3006 ./scripts/tora-e2e-test
+if [ -d "${ROOT_DIR}/web" ]; then
+  run_gate "Web frontend typecheck" "${ROOT_DIR}/web" bun run typecheck
+fi
+
+echo ""
+echo "--- 2. Mobile Verification ---"
+if [ -d "${MOBILE_DIR}" ]; then
+  run_gate "Mobile flutter analyze" "${MOBILE_DIR}" flutter analyze
+  run_gate "Mobile flutter test (117 test specs)" "${MOBILE_DIR}" flutter test
+  run_gate "Mobile Android Release APK" "${MOBILE_DIR}" flutter build apk --release
+  run_gate "Mobile Android Release App Bundle (AAB)" "${MOBILE_DIR}" flutter build appbundle --release
+else
+  echo "[WARN] Mobile directory ${MOBILE_DIR} not found. Skipping mobile gates."
+fi
+
+echo ""
+echo "--- 3. Secret & Security Audit ---"
+echo -n "[GATE] Backend Zero-Secret Sweep ... "
+BACKEND_SECRET_FOUND=0
+# Check for tracked private key certificates or credentials
+if (cd "${ROOT_DIR}" && git ls-files | grep -E '\.(p8|p12|keystore|jks|pem|key)$' | grep -v 'test' >/dev/null 2>&1); then
+  BACKEND_SECRET_FOUND=1
+fi
+# Check for live Stripe / AWS / GCP service account secrets
+if (cd "${ROOT_DIR}" && git grep -E '(sk_live_[0-9a-zA-Z]{24,}|"private_key":\s*"-----BEGIN|AKIA[0-9A-Z]{16})' >/dev/null 2>&1); then
+  BACKEND_SECRET_FOUND=1
+fi
+
+if [ "${BACKEND_SECRET_FOUND}" -eq 1 ]; then
+  echo "FAIL (Committed secrets detected)"
+  FAILURES=$((FAILURES + 1))
+else
+  echo "PASS (Zero committed secrets)"
+fi
+
+if [ -d "${MOBILE_DIR}" ]; then
+  echo -n "[GATE] Mobile Zero-Secret Sweep ... "
+  MOBILE_SECRET_FOUND=0
+  if (cd "${MOBILE_DIR}" && git ls-files | grep -E '\.(p8|p12|keystore|jks|pem|key)$' >/dev/null 2>&1); then
+    MOBILE_SECRET_FOUND=1
+  fi
+  if (cd "${MOBILE_DIR}" && grep -r -E "(AIzaSy[0-9A-Za-z_-]{33}|sk_live_[0-9a-zA-Z]{24,})" lib/ >/dev/null 2>&1); then
+    MOBILE_SECRET_FOUND=1
+  fi
+
+  if [ "${MOBILE_SECRET_FOUND}" -eq 1 ]; then
+    echo "FAIL (Committed secrets detected in mobile lib)"
+    FAILURES=$((FAILURES + 1))
+  else
+    echo "PASS (Zero committed secrets in mobile lib)"
+  fi
+fi
+
+echo ""
+echo "========================================================"
+if [ "${FAILURES}" -eq 0 ]; then
+  echo "        ALL RELEASE GATES PASSED SUCCESSFULLY (100%)    "
+  echo "========================================================"
+  exit 0
+else
+  echo "        ${FAILURES} RELEASE GATE(S) FAILED              "
+  echo "========================================================"
+  exit 1
+fi

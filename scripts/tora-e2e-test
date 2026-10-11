@@ -1,0 +1,48 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ROOT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
+
+PORT="${E2E_PORT:-3005}"
+KEEP_UP=0
+
+for arg in "$@"; do
+  if [ "$arg" = "--keep-up" ]; then
+    KEEP_UP=1
+  fi
+done
+
+AUTO_STARTED=0
+
+# Check if server is running
+HTTP_CODE="$(curl -s -o /dev/null -w "%{http_code}" "http://localhost:${PORT}/api/status" 2>/dev/null || true)"
+if [ "${HTTP_CODE}" != "200" ]; then
+  echo "[tora-e2e-test] Server not responding on port ${PORT}. Bootstrapping with tora-e2e-up..."
+  "${SCRIPT_DIR}/tora-e2e-up"
+  AUTO_STARTED=1
+else
+  echo "[tora-e2e-test] Server already active on port ${PORT}."
+fi
+
+echo "[tora-e2e-test] Running Tora Full-Stack E2E test suite..."
+TEST_STATUS=0
+export E2E_PORT="${PORT}"
+(cd "${ROOT_DIR}" && go test -v -timeout 120s ./e2e -run "TestToraFullStack_") || TEST_STATUS=$?
+
+if [ "${AUTO_STARTED}" = "1" ] && [ "${KEEP_UP}" = "0" ]; then
+  echo "[tora-e2e-test] Tearing down auto-started server..."
+  "${SCRIPT_DIR}/tora-e2e-down"
+fi
+
+if [ "${TEST_STATUS}" -eq 0 ]; then
+  echo "[tora-e2e-test] ========================================="
+  echo "[tora-e2e-test] ALL TORA FULL-STACK E2E TESTS PASSED (100%)"
+  echo "[tora-e2e-test] ========================================="
+else
+  echo "[tora-e2e-test] ========================================="
+  echo "[tora-e2e-test] E2E TESTS FAILED (Exit Code: ${TEST_STATUS})"
+  echo "[tora-e2e-test] ========================================="
+fi
+
+exit "${TEST_STATUS}"

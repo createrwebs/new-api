@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"runtime/debug"
 	"strconv"
 	"strings"
 	"syscall"
@@ -157,6 +158,12 @@ func main() {
 	// switch are enforced inside the runner and each handler's Enabled().
 	controller.RegisterScheduledSystemTasks()
 	service.StartSystemTaskRunner()
+	service.StartNewsScoutRunner()
+	service.StartNewsGrowthCollectorRunner()
+	service.StartNewsAutopilotRunner()
+	_ = service.InitStudio(model.DB)
+	service.LogStudioStatus(context.Background())
+	service.LogExternalAPIConfigSummary(context.Background())
 
 	if os.Getenv("BATCH_UPDATE_ENABLED") == "true" {
 		common.BatchUpdateEnabled = true
@@ -184,17 +191,24 @@ func main() {
 		return
 	}
 	server.Use(gin.CustomRecovery(func(c *gin.Context, err any) {
-		common.SysLog(fmt.Sprintf("panic detected: %v", err))
+		requestID := c.GetString(common.RequestIdKey)
+		common.SysError(fmt.Sprintf("panic detected [request_id=%s]: %v\nstack:\n%s", requestID, err, string(debug.Stack())))
+		msg := "An unexpected internal server error occurred. Please contact administrator."
+		if requestID != "" {
+			msg = fmt.Sprintf("An unexpected internal server error occurred. Please contact administrator with Request ID: %s", requestID)
+		}
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"error": gin.H{
-				"message": fmt.Sprintf("Panic detected, error: %v. Please submit a issue here: https://github.com/Calcium-Ion/new-api", err),
-				"type":    "new_api_panic",
+				"message": msg,
+				"type":    "internal_server_error",
+				"code":    "internal_error",
 			},
 		})
 	}))
 	// This will cause SSE not to work!!!
 	//server.Use(gzip.Gzip(gzip.DefaultCompression))
 	server.Use(middleware.RequestId())
+	server.Use(middleware.SecurityHeaders())
 	server.Use(middleware.Version())
 	server.Use(middleware.I18n())
 	middleware.SetUpLogger(server)
@@ -267,20 +281,24 @@ func InjectUmamiAnalytics() {
 
 func InjectGoogleAnalytics() {
 	analyticsInjectBuilder := &strings.Builder{}
-	if os.Getenv("GOOGLE_ANALYTICS_ID") != "" {
-		gaID := os.Getenv("GOOGLE_ANALYTICS_ID")
+	gaID := common.GetGA4MeasurementID()
+	if gaID != "" {
 		// Google Analytics 4 (gtag.js)
+		// Requirement 16 & 18: send_page_view: false prevents auto-tracking collision with TanStack SPA router.
 		analyticsInjectBuilder.WriteString("<script async src=\"https://www.googletagmanager.com/gtag/js?id=")
 		analyticsInjectBuilder.WriteString(gaID)
-		analyticsInjectBuilder.WriteString("\"></script>")
-		analyticsInjectBuilder.WriteString("<script>")
-		analyticsInjectBuilder.WriteString("window.dataLayer = window.dataLayer || [];")
-		analyticsInjectBuilder.WriteString("function gtag(){dataLayer.push(arguments);}")
-		analyticsInjectBuilder.WriteString("gtag('js', new Date());")
-		analyticsInjectBuilder.WriteString("gtag('config', '")
+		analyticsInjectBuilder.WriteString("\"></script>\n")
+		analyticsInjectBuilder.WriteString("<script>\n")
+		analyticsInjectBuilder.WriteString("  window.dataLayer = window.dataLayer || [];\n")
+		analyticsInjectBuilder.WriteString("  function gtag(){dataLayer.push(arguments);}\n")
+		analyticsInjectBuilder.WriteString("  gtag('js', new Date());\n")
+		analyticsInjectBuilder.WriteString("  var isDevOrLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' || window.location.hostname.endsWith('.local') || window.location.hostname.indexOf('staging') !== -1;\n")
+		analyticsInjectBuilder.WriteString("  if (!isDevOrLocal) {\n")
+		analyticsInjectBuilder.WriteString("    gtag('config', '")
 		analyticsInjectBuilder.WriteString(gaID)
-		analyticsInjectBuilder.WriteString("');")
-		analyticsInjectBuilder.WriteString("</script>")
+		analyticsInjectBuilder.WriteString("', { send_page_view: false });\n")
+		analyticsInjectBuilder.WriteString("  }\n")
+		analyticsInjectBuilder.WriteString("</script>\n")
 	}
 	analyticsInjectBuilder.WriteString("<!--Google Analytics QuantumNous-->\n")
 	analyticsInject := []byte(analyticsInjectBuilder.String())

@@ -163,6 +163,11 @@ var SyncFrequency int // unit is second
 var BatchUpdateEnabled = false
 var BatchUpdateInterval int
 
+const (
+	DefaultRelayTimeout = 600  // 10 minutes default upper bound for relay streams
+	MaxRelayTimeout     = 3600 // 1 hour maximum allowable relay timeout
+)
+
 var RelayTimeout int // unit is second
 
 var RelayIdleConnTimeout int // unit is second

@@ -92,6 +92,13 @@ func StreamScannerHandler(c *gin.Context, resp *http.Response, info *relaycommon
 	ctx, cancel := context.WithCancel(context.Background())
 
 	streamingTimeout := time.Duration(constant.StreamingTimeout) * time.Second
+	overallTimeoutSec := common.RelayTimeout
+	if overallTimeoutSec <= 0 {
+		overallTimeoutSec = common.DefaultRelayTimeout
+	}
+	overallTimeout := time.Duration(overallTimeoutSec) * time.Second
+	overallTimer := time.NewTimer(overallTimeout)
+	defer overallTimer.Stop()
 
 	var (
 		stopChan    = make(chan bool, 3) // 增加缓冲区避免阻塞
@@ -125,6 +132,7 @@ func StreamScannerHandler(c *gin.Context, resp *http.Response, info *relaycommon
 	logger.LogDebug(c, "relay max idle conns: %d", common.RelayMaxIdleConns)
 	logger.LogDebug(c, "relay max idle conns per host: %d", common.RelayMaxIdleConnsPerHost)
 	logger.LogDebug(c, "streaming timeout seconds: %d", int64(streamingTimeout.Seconds()))
+	logger.LogDebug(c, "overall stream lifetime seconds: %d", int64(overallTimeout.Seconds()))
 	logger.LogDebug(c, "ping interval seconds: %d", int64(pingInterval.Seconds()))
 
 	cleanup := func() {
@@ -136,6 +144,7 @@ func StreamScannerHandler(c *gin.Context, resp *http.Response, info *relaycommon
 			}
 
 			ticker.Stop()
+			overallTimer.Stop()
 			if pingTicker != nil {
 				pingTicker.Stop()
 			}
@@ -194,6 +203,8 @@ func StreamScannerHandler(c *gin.Context, resp *http.Response, info *relaycommon
 				case <-c.Request.Context().Done():
 					// 监听客户端断开连接
 					return
+				case <-overallTimer.C:
+					return
 				case <-pingTimeout.C:
 					logger.LogError(c, "ping goroutine max duration reached")
 					return
@@ -250,6 +261,8 @@ func StreamScannerHandler(c *gin.Context, resp *http.Response, info *relaycommon
 				return
 			case <-ctx.Done():
 				return
+			case <-overallTimer.C:
+				return
 			default:
 			}
 
@@ -297,6 +310,8 @@ func StreamScannerHandler(c *gin.Context, resp *http.Response, info *relaycommon
 
 	// 主循环等待完成或超时
 	select {
+	case <-overallTimer.C:
+		info.StreamStatus.SetEndReason(relaycommon.StreamEndReasonTimeout, fmt.Errorf("overall stream lifetime timeout reached (%v)", overallTimeout))
 	case <-ticker.C:
 		info.StreamStatus.SetEndReason(relaycommon.StreamEndReasonTimeout, nil)
 	case <-stopChan:

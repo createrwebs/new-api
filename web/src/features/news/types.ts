@@ -1,0 +1,234 @@
+export interface NewsPost {
+  id: number
+  slug: string
+  content_type: string
+  title: string
+  summary: string
+  content_markdown: string
+  content_html: string
+  author_name: string
+  canonical_url: string
+  status: 'draft' | 'review_required' | 'scheduled' | 'published' | 'archived'
+  content_risk: 'low' | 'medium' | 'high'
+  fact_check_status: 'pending' | 'verified' | 'disputed'
+  fact_check_notes: string
+  seo_title: string
+  seo_description: string
+  seo_keywords: string
+  og_image_url: string
+  is_seed: boolean
+  published_at: number
+  view_count: number
+  created_at: number
+  updated_at: number
+}
+
+export interface NewsSource {
+  id: number
+  name: string
+  slug: string
+  feed_url: string
+  feed_type: string
+  trust_tier: string
+  is_enabled: boolean
+  polling_interval_minutes: number
+  last_fetched_at: number
+  fetch_error_count: number
+  last_error: string
+  tags: string
+}
+
+export interface DailyGrowthReview {
+  id: number
+  review_date: string
+  stories_discovered: number
+  posts_published: number
+  pageviews_24h: number
+  conversions_24h: number
+  top_referrers: string
+  growth_recommendations: string
+  created_at: number
+}
+
+export interface NewsUrlInspection {
+  id: number
+  post_id: number
+  inspection_url: string
+  index_verdict: string
+  coverage_state: string
+  robots_state: string
+  indexing_state: string
+  google_canonical: string
+  user_canonical: string
+  referring_urls: string
+  last_crawled_time: string
+  inspection_time: string
+}
+
+export interface DevToAnalytics {
+  views: number
+  comments: number
+  reactions: number
+  url: string
+  published_at: string
+}
+
+export interface NewsSeoExperiment {
+  id: number
+  post_id: number
+  experiment_type: string
+  field_name: string
+  before_value: string
+  after_value: string
+  hypothesis: string
+  status: string
+  result_verdict: string
+  created_at: number
+}
+
+export interface NewsGrowthOpportunity {
+  post_id: number
+  slug: string
+  type: string
+  score: number
+  reason: string
+  action_summary: string
+  recommended_change?: string
+}
+
+export interface RecommendedLink {
+  target_url: string
+  title: string
+  anchor_text: string
+  context: string
+}
+
+export interface GrowthTimelineEvent {
+  timestamp: string
+  event_type: string
+  description: string
+  details?: Record<string, unknown>
+}
+
+export interface NewsDistributionRecord {
+  platform: string
+  status: string
+  remote_id: string
+  remote_url: string
+  error_message?: string
+  published_at?: number
+}
+
+export interface GA4PostAnalytics {
+  landing_page: string
+  sessions: number | null
+  active_users: number | null
+  engagement_rate: number | null
+  conversions: number | null
+  data_available: boolean
+  status: string
+}
+
+export interface GrowthFunnelSummary {
+  impressions: number | null
+  clicks: number | null
+  ctr: number | null
+  average_position: number | null
+  landing_sessions: number | null
+  engagement_rate: number | null
+  cta_clicks: number
+  signups_attributed: number
+  paid_conversions: number
+  opportunity_type: string
+  data_freshness: string
+}
+
+export interface PostGrowthRecord {
+  post_id: number
+  title: string
+  slug: string
+  content_type?: string
+  status: string
+  published_at: number
+  canonical_url: string
+  view_count?: number
+  average_position?: number
+  search_clicks?: number
+  search_impressions?: number
+  total_impressions?: number
+  total_clicks?: number
+  average_ctr?: number
+  signups_count?: number
+  conversions_count?: number
+  url_inspection?: NewsUrlInspection
+  distributions: NewsDistributionRecord[]
+  devto_analytics?: DevToAnalytics
+  ga4_analytics?: GA4PostAnalytics
+  growth_funnel?: GrowthFunnelSummary
+  experiments: NewsSeoExperiment[]
+  opportunities: NewsGrowthOpportunity[]
+  internal_links: RecommendedLink[]
+  timeline: GrowthTimelineEvent[]
+}
+
+export interface BacklogMetrics {
+  raw_pending_count: number
+  eligible_pending_count: number
+  suppressed_historical_count: number
+  canary_eligible_count: number
+  by_platform: Record<string, number>
+}
+
+export interface AutonomousPolicyState {
+  mass_autopublish_enabled: boolean
+  policy_version: string
+  active_rule_summary: string
+  candidates_count: number
+  review_required_count: number
+  never_publish_count: number
+}
+
+export interface GlobalGrowthOverview {
+  global_kill_switch_active?: boolean
+  distribution_enabled?: boolean
+  channel_statuses?: Record<string, string>
+  allowlist_post_ids?: number[]
+  pending_queue_depth?: Record<string, number>
+  backlog_metrics?: BacklogMetrics
+  total_published_posts?: number
+  total_organic_views?: number
+  gsc_status: string
+  gsc_data_available: boolean
+  gsc_row_count: number
+  gsc_site_url: string
+  ga4_status?: string
+  ga4_data_available?: boolean
+  ga4_property_id?: string
+  mass_autopublish: boolean
+  autonomous_policy?: AutonomousPolicyState
+  devto_status?: string
+  devto_update_policy: string
+  active_experiments?: number
+  daily_reviews_count?: number
+  recent_opportunities?: NewsGrowthOpportunity[]
+}
+
+export interface GetNewsPostsParams {
+  p?: number
+  page_size?: number
+  status?: string
+  keyword?: string
+}
+
+export interface GetNewsPostsResponse {
+  success: boolean
+  data: NewsPost[]
+  total: number
+  message?: string
+}
+
+export interface ApiResponse<T = unknown> {
+  success: boolean
+  data?: T
+  message?: string
+}

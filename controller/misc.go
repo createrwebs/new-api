@@ -101,6 +101,9 @@ func GetStatus(c *gin.Context) {
 		"price":             operation_setting.Price,
 		"stripe_unit_price": setting.StripeUnitPrice,
 
+		"ga4_measurement_id":  common.GetGA4MeasurementID(),
+		"google_analytics_id": common.GetGA4MeasurementID(),
+
 		// 面板启用开关
 		"api_info_enabled":      cs.ApiInfoEnabled,
 		"uptime_kuma_enabled":   cs.UptimeKumaEnabled,

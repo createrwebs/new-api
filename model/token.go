@@ -16,6 +16,7 @@ type Token struct {
 	Id                 int            `json:"id"`
 	UserId             int            `json:"user_id" gorm:"index"`
 	Key                string         `json:"key" gorm:"type:varchar(128);uniqueIndex"`
+	KeyHash            string         `json:"-" gorm:"type:varchar(64);index"`
 	Status             int            `json:"status" gorm:"default:1"`
 	Name               string         `json:"name" gorm:"index" `
 	CreatedTime        int64          `json:"created_time" gorm:"bigint"`
@@ -30,7 +31,73 @@ type Token struct {
 	Group              string         `json:"group" gorm:"default:''"`
 	CrossGroupRetry    bool           `json:"cross_group_retry"` // 跨分组重试，仅auto分组有效
 	AutoGroups         string         `json:"-" gorm:"type:text"`
+	PrimaryRouteId     int            `json:"primary_route_id" gorm:"default:0;index"`
+	FallbackRouteIds   string         `json:"-" gorm:"type:text"`
 	DeletedAt          gorm.DeletedAt `gorm:"index"`
+}
+
+func (token *Token) GetFallbackRouteIds() ([]int, error) {
+	if strings.TrimSpace(token.FallbackRouteIds) == "" {
+		return nil, nil
+	}
+	var ids []int
+	if err := common.UnmarshalJsonStr(token.FallbackRouteIds, &ids); err != nil {
+		return nil, err
+	}
+	return ids, nil
+}
+
+func (token *Token) SetFallbackRouteIds(ids []int) error {
+	if len(ids) == 0 {
+		token.FallbackRouteIds = ""
+		return nil
+	}
+	// Deduplicate and filter out primary route ID or invalid non-positive IDs
+	seen := make(map[int]struct{}, len(ids))
+	if token.PrimaryRouteId > 0 {
+		seen[token.PrimaryRouteId] = struct{}{}
+	}
+	cleanIds := make([]int, 0, len(ids))
+	for _, id := range ids {
+		if id <= 0 {
+			continue
+		}
+		if _, ok := seen[id]; !ok {
+			seen[id] = struct{}{}
+			cleanIds = append(cleanIds, id)
+		}
+	}
+	if len(cleanIds) == 0 {
+		token.FallbackRouteIds = ""
+		return nil
+	}
+	data, err := common.Marshal(cleanIds)
+	if err != nil {
+		return err
+	}
+	token.FallbackRouteIds = string(data)
+	return nil
+}
+
+// GetRouteChain returns the deterministic ordered list of Route IDs: [PrimaryRouteId, Fallback1, Fallback2, ...]
+func (token *Token) GetRouteChain() []int {
+	chain := make([]int, 0)
+	if token.PrimaryRouteId > 0 {
+		chain = append(chain, token.PrimaryRouteId)
+	}
+	fallbacks, err := token.GetFallbackRouteIds()
+	if err == nil && len(fallbacks) > 0 {
+		for _, id := range fallbacks {
+			if id > 0 && id != token.PrimaryRouteId {
+				chain = append(chain, id)
+			}
+		}
+	}
+	return chain
+}
+
+func (token *Token) IsRouteEnabled() bool {
+	return token.PrimaryRouteId > 0
 }
 
 func (token *Token) GetAutoGroups() ([]string, error) {
@@ -59,6 +126,64 @@ func (token *Token) SetAutoGroups(groups []string) error {
 
 func (token *Token) Clean() {
 	token.Key = ""
+	token.KeyHash = ""
+}
+
+func (token *Token) BeforeCreate(tx *gorm.DB) error {
+	if token.Key == "" {
+		return nil
+	}
+	if !strings.HasPrefix(token.Key, tokenEncryptedPrefix) {
+		token.KeyHash = TokenHash(token.Key)
+		encrypted, err := EncryptTokenKey(token.Key)
+		if err != nil {
+			return err
+		}
+		token.Key = encrypted
+	}
+	return nil
+}
+
+func (token *Token) AfterCreate(tx *gorm.DB) error {
+	if strings.HasPrefix(token.Key, tokenEncryptedPrefix) {
+		decrypted, err := DecryptTokenKey(token.Key)
+		if err == nil {
+			token.Key = decrypted
+		}
+	}
+	return nil
+}
+
+func (token *Token) BeforeUpdate(tx *gorm.DB) error {
+	if token.Key != "" && !strings.HasPrefix(token.Key, tokenEncryptedPrefix) {
+		token.KeyHash = TokenHash(token.Key)
+		encrypted, err := EncryptTokenKey(token.Key)
+		if err != nil {
+			return err
+		}
+		token.Key = encrypted
+	}
+	return nil
+}
+
+func (token *Token) AfterUpdate(tx *gorm.DB) error {
+	if strings.HasPrefix(token.Key, tokenEncryptedPrefix) {
+		decrypted, err := DecryptTokenKey(token.Key)
+		if err == nil {
+			token.Key = decrypted
+		}
+	}
+	return nil
+}
+
+func (token *Token) AfterFind(tx *gorm.DB) error {
+	if strings.HasPrefix(token.Key, tokenEncryptedPrefix) {
+		decrypted, err := DecryptTokenKey(token.Key)
+		if err == nil {
+			token.Key = decrypted
+		}
+	}
+	return nil
 }
 
 func MaskTokenKey(key string) string {
@@ -199,7 +324,7 @@ func SearchUserTokens(userId int, keyword string, token string, offset int, limi
 		if err != nil {
 			return nil, 0, err
 		}
-		baseQuery = baseQuery.Where(commonKeyCol+" LIKE ? ESCAPE '!'", tokenPattern)
+		baseQuery = baseQuery.Where(getTokenKeyCol()+" LIKE ? ESCAPE '!'", tokenPattern)
 	}
 
 	// 先查匹配总数（用于分页，受 maxTokens 上限保护，避免全表 COUNT）
@@ -288,8 +413,15 @@ func GetTokenByKey(key string, fromDB bool) (token *Token, err error) {
 		// Don't return error - fall through to DB
 	}
 	token = &Token{}
-	if err = DB.Where(clause.Eq{Column: clause.Column{Name: "key"}, Value: key}).First(token).Error; err != nil {
-		return nil, err
+	keyHash := TokenHash(key)
+	if err = DB.Where("key_hash = ?", keyHash).First(token).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			if err = DB.Where(clause.Eq{Column: clause.Column{Name: "key"}, Value: key}).First(token).Error; err != nil {
+				return nil, err
+			}
+		} else {
+			return nil, err
+		}
 	}
 	if common.RedisEnabled {
 		// 冷缓存时用数据库快照初始化；已存在的哈希只刷新 TTL，
@@ -314,7 +446,8 @@ func (token *Token) Update() (err error) {
 		common.SysLog("failed to invalidate token cache before update: " + cacheErr.Error())
 	}
 	return DB.Model(token).Select("name", "status", "expired_time", "remain_quota", "unlimited_quota",
-		"model_limits_enabled", "model_limits", "allow_ips", "group", "cross_group_retry", "auto_groups").Updates(token).Error
+		"model_limits_enabled", "model_limits", "allow_ips", "group", "cross_group_retry", "auto_groups",
+		"primary_route_id", "fallback_route_ids").Updates(token).Error
 }
 
 func (token *Token) SelectUpdate() (err error) {
@@ -471,11 +604,22 @@ func BatchDeleteTokens(ids []int, userId int) (int, error) {
 	return len(tokens), nil
 }
 
+func getTokenKeyCol() string {
+	if commonKeyCol != "" {
+		return commonKeyCol
+	}
+	return "key"
+}
+
 func GetTokenKeysByIds(ids []int, userId int) ([]Token, error) {
 	var tokens []Token
-	err := DB.Select("id", commonKeyCol).
-		Where("user_id = ? AND id IN (?)", userId, ids).
-		Find(&tokens).Error
+	query := DB.Select("id", getTokenKeyCol()).
+		Where("id IN (?)", ids).
+		Where("status = ?", common.TokenStatusEnabled)
+	if userId > 0 {
+		query = query.Where("user_id = ?", userId)
+	}
+	err := query.Find(&tokens).Error
 	return tokens, err
 }
 
@@ -491,7 +635,7 @@ func InvalidateUserTokensCache(userId int) error {
 	}
 	var tokens []Token
 	if err := DB.Unscoped().
-		Select("id", commonKeyCol).
+		Select("id", getTokenKeyCol()).
 		Where("user_id = ?", userId).
 		Find(&tokens).Error; err != nil {
 		return err
