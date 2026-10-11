@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -145,6 +146,18 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 		newAPIError = relay.RefundFailedRequestBilling(c, relayInfo, newAPIError)
 	}()
 
+	overallTimeoutSec := common.RelayTimeout
+	if overallTimeoutSec <= 0 {
+		overallTimeoutSec = common.DefaultRelayTimeout
+	}
+	origCtx := c.Request.Context()
+	overallCtx, overallCancel := context.WithTimeout(origCtx, time.Duration(overallTimeoutSec)*time.Second)
+	defer func() {
+		c.Request = c.Request.WithContext(origCtx)
+		overallCancel()
+	}()
+	c.Request = c.Request.WithContext(overallCtx)
+
 	retryParam := &service.RetryParam{
 		Ctx:         c,
 		TokenGroup:  relayInfo.TokenGroup,
@@ -155,12 +168,66 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 	relayInfo.RetryIndex = 0
 	relayInfo.LastError = nil
 
+	var (
+		commitWriter *relay.CommitDetectingWriter
+		routeParams  *service.RouteSelectionParams
+		usingRoutes  bool
+	)
+	if rawSnapshots, exists := c.Get("token_route_snapshots"); exists {
+		if snapshots, ok := rawSnapshots.([]*service.RouteSnapshot); ok && len(snapshots) > 0 {
+			usingRoutes = true
+			chain := make([]int, len(snapshots))
+			for i, s := range snapshots {
+				chain[i] = s.Id
+			}
+			routeParams = &service.RouteSelectionParams{
+				UserGroup:         common.GetContextKeyString(c, constant.ContextKeyUserGroup),
+				ModelName:         relayInfo.OriginModelName,
+				RouteChain:        chain,
+				RouteSnapshots:    snapshots,
+				CurrentChainIndex: 0,
+				AttemptedChannels: make(map[int]struct{}),
+				AttemptedRoutes:   make([]int, 0),
+				TraceLog:          make([]service.RouteAttemptTrace, 0),
+			}
+		}
+	} else if rawChain, exists := c.Get("token_route_chain"); exists {
+		if chain, ok := rawChain.([]int); ok && len(chain) > 0 {
+			usingRoutes = true
+			routeParams = &service.RouteSelectionParams{
+				UserGroup:         common.GetContextKeyString(c, constant.ContextKeyUserGroup),
+				ModelName:         relayInfo.OriginModelName,
+				RouteChain:        chain,
+				CurrentChainIndex: 0,
+				AttemptedChannels: make(map[int]struct{}),
+				AttemptedRoutes:   make([]int, 0),
+				TraceLog:          make([]service.RouteAttemptTrace, 0),
+			}
+		}
+	}
+	if usingRoutes && relayFormat != types.RelayFormatOpenAIRealtime {
+		commitWriter = relay.NewCommitDetectingWriter(c.Writer)
+		c.Writer = commitWriter
+	}
+
 	for ; retryParam.GetRetry() <= common.RetryTimes; retryParam.IncreaseRetry() {
 		relayInfo.StreamStatus = nil
 		relayInfo.PerformanceBusinessRejection = false
 		relayInfo.PerformanceOutputTokens = 0
 		relayInfo.RetryIndex = retryParam.GetRetry()
-		channel, channelErr := getChannel(c, relayInfo, retryParam)
+
+		var (
+			channel      *model.Channel
+			currentRoute *model.Route
+			channelErr   *types.NewAPIError
+		)
+
+		if usingRoutes {
+			channel, currentRoute, channelErr = getChannelForRoute(c, relayInfo, routeParams)
+		} else {
+			channel, channelErr = getChannel(c, relayInfo, retryParam)
+		}
+
 		if channelErr != nil {
 			logger.LogError(c, channelErr.Error())
 			newAPIError = channelErr
@@ -196,6 +263,18 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 		}
 
 		if newAPIError == nil {
+			if commitWriter != nil {
+				_ = commitWriter.Commit()
+			}
+			if currentRoute != nil {
+				relayInfo.PriceData.ReplaceOtherRatios(map[string]float64{"route_multiplier": currentRoute.CostMultiplier})
+				c.Set("winning_route_id", currentRoute.Id)
+				c.Set("winning_route_name", currentRoute.Name)
+				c.Set("winning_route_multiplier", currentRoute.CostMultiplier)
+			}
+			if usingRoutes && routeParams != nil {
+				c.Set("route_chain_trace", routeParams.TraceLog)
+			}
 			service.MarkRequestPolicySuccess(c, relayInfo.StreamStatus)
 			relayInfo.LastError = nil
 			return
@@ -204,13 +283,59 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 		newAPIError = service.NormalizeViolationFeeError(newAPIError)
 		relayInfo.LastError = newAPIError
 
+		isCommitted := false
+		if commitWriter != nil {
+			isCommitted = commitWriter.IsCommitted()
+		}
+
+		routeDecision := service.ClassifyRouteError(c.Request.Context(), newAPIError, isCommitted)
+		if usingRoutes && currentRoute != nil {
+			routeParams.TraceLog = append(routeParams.TraceLog, service.RouteAttemptTrace{
+				Attempt:    retryParam.GetRetry(),
+				RouteId:    currentRoute.Id,
+				RouteName:  currentRoute.Name,
+				ChannelId:  channel.Id,
+				StatusCode: newAPIError.StatusCode,
+				Reason:     routeDecision.Reason,
+			})
+			routeParams.AttemptedChannels[channel.Id] = struct{}{}
+			if newAPIError.StatusCode == http.StatusTooManyRequests {
+				service.SetChannelCooldown(channel.Id, 15*time.Second)
+			}
+		}
+
 		decision := service.DecideRelayRetry(c, newAPIError, common.RetryTimes-retryParam.GetRetry())
 		service.RecordPolicyFailure(c, channel.Id, newAPIError, decision)
 		processChannelError(c, *types.NewChannelError(channel.Id, channel.Type, channel.Name, channel.ChannelInfo.IsMultiKey, common.GetContextKeyString(c, constant.ContextKeyChannelKey), channel.GetAutoBan()), newAPIError, relayInfo)
 
-		if decision.Action != "retry" {
+		if c.GetBool("is_byok") || common.GetContextKeyBool(c, constant.ContextKeyIsBYOK) {
 			break
 		}
+
+		if isCommitted {
+			break // Invariant 0.3: Streaming response already committed downstream; fallback is strictly forbidden
+		}
+
+		if usingRoutes {
+			if !routeDecision.AllowFallback {
+				break
+			}
+			if commitWriter != nil {
+				_ = commitWriter.Reset()
+			}
+		} else {
+			if decision.Action != "retry" {
+				break
+			}
+		}
+	}
+
+	if usingRoutes && routeParams != nil {
+		c.Set("route_chain_trace", routeParams.TraceLog)
+	}
+
+	if commitWriter != nil && !commitWriter.IsCommitted() {
+		_ = commitWriter.Commit()
 	}
 
 	useChannel := c.GetStringSlice("use_channel")
@@ -257,6 +382,57 @@ var upgrader = websocket.Upgrader{
 	CheckOrigin: func(r *http.Request) bool {
 		return true // 允许跨域
 	},
+}
+
+func getChannelForRoute(c *gin.Context, info *relaycommon.RelayInfo, params *service.RouteSelectionParams) (*model.Channel, *model.Route, *types.NewAPIError) {
+	for params.CurrentChainIndex < len(params.RouteChain) {
+		var route *model.Route
+		if params.CurrentChainIndex < len(params.RouteSnapshots) && params.RouteSnapshots[params.CurrentChainIndex] != nil {
+			route = params.RouteSnapshots[params.CurrentChainIndex].ToRoute()
+		} else {
+			routeId := params.RouteChain[params.CurrentChainIndex]
+			var err error
+			route, err = service.CacheGetRoute(routeId)
+			if err != nil || route == nil || !route.Enabled {
+				params.CurrentChainIndex++
+				continue
+			}
+		}
+		// Invariant 0.1 & 10: Validate route entitlement against userGroup
+		if err := service.ValidateRouteEntitlement(route, params.UserGroup); err != nil {
+			logger.LogWarn(c, fmt.Sprintf("route %s (%d) entitlement check failed: %v", route.Name, route.Id, err))
+			params.CurrentChainIndex++
+			continue
+		}
+		// Invariant 0.2: BYOK isolation boundary
+		if (c.GetBool("is_byok") || common.GetContextKeyBool(c, constant.ContextKeyIsBYOK)) && route.Kind != model.RouteKindBYOK {
+			params.CurrentChainIndex++
+			continue
+		}
+		// Select next channel in this route (handles priority, weight, and excludes attempted channels)
+		channel, err := service.SelectNextChannelInRoute(route, info.OriginModelName, params.UserGroup, params.AttemptedChannels)
+		if err != nil {
+			logger.LogWarn(c, fmt.Sprintf("failed to select channel in route %s: %v", route.Name, err))
+			params.CurrentChainIndex++
+			continue
+		}
+		if channel == nil {
+			// All channels in this route attempted or exhausted; advance to next fallback
+			params.CurrentChainIndex++
+			continue
+		}
+
+		info.PriceData.GroupRatioInfo = helper.HandleGroupRatio(c, info)
+		service.RequestPolicy(c).BeginAttempt(channel, route.Name)
+		effectiveModel := service.ResolveModelForRoute(route, info.OriginModelName)
+		newAPIError := middleware.SetupContextForSelectedChannel(c, channel, effectiveModel)
+		if newAPIError != nil {
+			params.AttemptedChannels[channel.Id] = struct{}{}
+			return nil, nil, newAPIError
+		}
+		return channel, route, nil
+	}
+	return nil, nil, types.NewError(fmt.Errorf("no available channels found across configured route chain for model %s", info.OriginModelName), types.ErrorCodeGetChannelFailed, types.ErrOptionWithSkipRetry())
 }
 
 func getChannel(c *gin.Context, info *relaycommon.RelayInfo, retryParam *service.RetryParam) (*model.Channel, *types.NewAPIError) {
@@ -488,6 +664,18 @@ func executeTaskSubmissionWith(
 		}
 	}()
 	stage = "before_attempt"
+	overallTimeoutSec := common.RelayTimeout
+	if overallTimeoutSec <= 0 {
+		overallTimeoutSec = common.DefaultRelayTimeout
+	}
+	origCtx := c.Request.Context()
+	overallCtx, overallCancel := context.WithTimeout(origCtx, time.Duration(overallTimeoutSec)*time.Second)
+	defer func() {
+		c.Request = c.Request.WithContext(origCtx)
+		overallCancel()
+	}()
+	c.Request = c.Request.WithContext(overallCtx)
+
 	if requestErr := c.Request.Context().Err(); requestErr != nil {
 		diagnostics.cancelled("before_attempt", 0)
 		return nil, service.TaskErrorWrapperLocal(requestErr, "request_cancelled", http.StatusRequestTimeout)

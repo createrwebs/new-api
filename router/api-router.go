@@ -145,6 +145,17 @@ func SetApiRouter(router *gin.Engine) {
 				selfRoute.GET("/checkin", controller.GetCheckinStatus)
 				selfRoute.POST("/checkin", middleware.TurnstileCheck(), controller.DoCheckin)
 
+				// User BYOK provider routes
+				providerRoute := selfRoute.Group("/providers")
+				providerRoute.Use(middleware.DisableCache())
+				{
+					providerRoute.GET("", controller.ListUserProviders)
+					providerRoute.POST("", middleware.CriticalRateLimit(), controller.CreateUserProvider)
+					providerRoute.PUT("/:id", middleware.CriticalRateLimit(), controller.UpdateUserProvider)
+					providerRoute.DELETE("/:id", middleware.CriticalRateLimit(), controller.DeleteUserProvider)
+					providerRoute.POST("/:id/test", middleware.CriticalRateLimit(), controller.TestUserProvider)
+				}
+
 				// Custom OAuth bindings
 				selfRoute.GET("/oauth/bindings", controller.GetUserOAuthBindings)
 				selfRoute.DELETE("/oauth/bindings/:provider_id", controller.UnbindCustomOAuth)
@@ -185,6 +196,9 @@ func SetApiRouter(router *gin.Engine) {
 			subscriptionRoute.POST("/stripe/pay", middleware.CriticalRateLimit(), controller.SubscriptionRequestStripePay)
 			subscriptionRoute.POST("/creem/pay", middleware.CriticalRateLimit(), controller.SubscriptionRequestCreemPay)
 			subscriptionRoute.POST("/waffo-pancake/pay", middleware.CriticalRateLimit(), controller.SubscriptionRequestWaffoPancakePay)
+			subscriptionRoute.POST("/apple/verify", middleware.CriticalRateLimit(), controller.VerifyAppleSubscription)
+			subscriptionRoute.POST("/google/verify", middleware.CriticalRateLimit(), controller.VerifyGoogleSubscription)
+			subscriptionRoute.GET("/store/products", controller.GetStoreProductCatalog)
 		}
 		subscriptionAdminRoute := apiRouter.Group("/subscription/admin")
 		subscriptionAdminRoute.Use(middleware.AdminAuth())
@@ -218,6 +232,8 @@ func SetApiRouter(router *gin.Engine) {
 		apiRouter.GET("/subscription/epay/notify", controller.SubscriptionEpayNotify)
 		apiRouter.GET("/subscription/epay/return", controller.SubscriptionEpayReturn)
 		apiRouter.POST("/subscription/epay/return", anonymousRequestBodyLimit, controller.SubscriptionEpayReturn)
+		apiRouter.POST("/subscription/apple/webhook", anonymousRequestBodyLimit, controller.AppleSubscriptionWebhook)
+		apiRouter.POST("/subscription/google/webhook", anonymousRequestBodyLimit, controller.GoogleSubscriptionWebhook)
 		optionRoute := apiRouter.Group("/option")
 		optionRoute.Use(middleware.RootAuth())
 		{
@@ -235,6 +251,7 @@ func SetApiRouter(router *gin.Engine) {
 			optionRoute.DELETE("/channel_affinity_cache", controller.ClearChannelAffinityCache)
 			optionRoute.POST("/rest_model_ratio", controller.ResetModelRatio)
 			optionRoute.GET("/waffo-pancake/catalog", controller.ListWaffoPancakeCatalog)
+			optionRoute.POST("/waffo-pancake/catalog", controller.ListWaffoPancakeCatalog)
 			optionRoute.POST("/waffo-pancake/pair", controller.CreateWaffoPancakePair)
 			optionRoute.POST("/waffo-pancake/save", controller.SaveWaffoPancake)
 			optionRoute.POST("/waffo-pancake/subscription-product", controller.CreateWaffoPancakeSubscriptionProduct)
@@ -302,6 +319,130 @@ func SetApiRouter(router *gin.Engine) {
 			tokenRoute.DELETE("/:id", controller.DeleteToken)
 			tokenRoute.POST("/batch", controller.DeleteTokenBatch)
 			tokenRoute.POST("/batch/keys", middleware.CriticalRateLimit(), middleware.DisableCache(), controller.GetTokenKeysBatch)
+		}
+
+		// First-Class Routes API
+		routesRoute := apiRouter.Group("/routes")
+		routesRoute.Use(middleware.UserAuth())
+		{
+			routesRoute.GET("/", controller.GetAllRoutes)
+			routesRoute.GET("/available", controller.GetAvailableRoutes)
+			routesRoute.GET("/:id", controller.GetRoute)
+			routesAdminRoute := routesRoute.Group("")
+			routesAdminRoute.Use(middleware.AdminAuth())
+			{
+				routesAdminRoute.POST("/", controller.CreateRoute)
+				routesAdminRoute.PUT("/:id", controller.UpdateRoute)
+				routesAdminRoute.DELETE("/:id", controller.DeleteRoute)
+			}
+		}
+
+		newsPublicRoute := apiRouter.Group("/news")
+		{
+			newsPublicRoute.GET("", controller.GetNewsPostsAPI)
+			newsPublicRoute.GET("/:slug", controller.GetNewsPostDetailAPI)
+			newsPublicRoute.POST("/conversion", controller.RecordNewsConversionAPI)
+		}
+
+		newsAdminRoute := apiRouter.Group("/admin/news")
+		newsAdminRoute.Use(middleware.AdminAuth())
+		{
+			newsAdminRoute.GET("/posts", controller.AdminGetNewsPosts)
+			newsAdminRoute.POST("/posts", controller.AdminCreateNewsPost)
+			newsAdminRoute.PUT("/posts/:id", controller.AdminUpdateNewsPost)
+			newsAdminRoute.DELETE("/posts/:id", controller.AdminDeleteNewsPost)
+			newsAdminRoute.GET("/sources", controller.AdminGetNewsSources)
+			newsAdminRoute.POST("/sources/:id/sync", controller.AdminSyncNewsSource)
+			newsAdminRoute.GET("/seo/opportunities", controller.AdminGetSeoOpportunities)
+			newsAdminRoute.POST("/seo/remediate/:id", controller.AdminRemediateSeoOpportunity)
+			newsAdminRoute.GET("/reviews/daily", controller.AdminGetDailyGrowthReviews)
+			newsAdminRoute.POST("/scout/trigger", controller.AdminTriggerNewsScout)
+			newsAdminRoute.GET("/posts/:id/distributions", controller.AdminGetPostDistributions)
+			newsAdminRoute.GET("/posts/:id/growth", controller.AdminGetPostGrowthRecord)
+			newsAdminRoute.POST("/posts/:id/inspect", controller.AdminInspectNewsPostURL)
+			newsAdminRoute.GET("/growth/overview", controller.AdminGetGrowthOverview)
+			newsAdminRoute.POST("/growth/sync", controller.AdminTriggerGrowthIteration)
+			newsAdminRoute.POST("/distributions/dispatch", controller.AdminDispatchDistributions)
+			newsAdminRoute.GET("/autopilot/status", controller.AdminGetAutopilotStatus)
+			newsAdminRoute.POST("/autopilot/run", controller.AdminTriggerAutopilot)
+		}
+
+		studioPublicRoute := apiRouter.Group("/studio")
+		{
+			studioPublicRoute.GET("/tools", controller.GetStudioTools)
+			studioPublicRoute.GET("/tools/:slug", controller.GetStudioToolBySlug)
+			studioPublicRoute.GET("/templates", controller.GetStudioTemplates)
+			studioPublicRoute.POST("/quote", controller.QuoteStudioJob)
+			studioPublicRoute.POST("/webhook/:provider", controller.StudioWebhook)
+			studioPublicRoute.GET("/assets/:filename", controller.ServeStudioAsset)
+			studioPublicRoute.POST("/native/quote", controller.QuoteNativeTool)
+			studioPublicRoute.POST("/native/product-factory/quote", controller.QuoteProductFactoryBatch)
+			studioPublicRoute.GET("/native/models/:modelId", controller.ServeNativeModel)
+			studioPublicRoute.GET("/native/seller-templates", controller.GetSellerTemplatesHandler)
+			studioPublicRoute.GET("/marketplace/rules", controller.GetMarketplaceRulesHandler)
+			studioPublicRoute.POST("/marketplace/validate", controller.ValidateMarketplaceComplianceHandler)
+		}
+
+		studioUserRoute := apiRouter.Group("/studio")
+		studioUserRoute.Use(middleware.UserAuth())
+		{
+			studioUserRoute.POST("/jobs", controller.CreateStudioJob)
+			studioUserRoute.GET("/jobs/:id", controller.GetStudioJobDetail)
+			studioUserRoute.GET("/jobs", controller.ListStudioUserJobs)
+			studioUserRoute.POST("/jobs/:id/cancel", controller.CancelStudioJob)
+			studioUserRoute.POST("/attribution", controller.RecordStudioAttribution)
+			studioUserRoute.POST("/upload", controller.UploadStudioAsset)
+
+			// Creator Assistant & ToolPlan routes (Queue 6)
+			studioUserRoute.POST("/assistant/plan", controller.CreateAssistantPlan)
+			studioUserRoute.GET("/assistant/plan/:id", controller.GetAssistantPlan)
+			studioUserRoute.POST("/assistant/plan/:id/confirm", controller.ConfirmAssistantPlan)
+			studioUserRoute.POST("/assistant/plan/:id/retry", controller.RetryAssistantPlanStep)
+			studioUserRoute.POST("/assistant/plan/:id/requote", controller.RequoteAssistantPlan)
+
+			// Tora Native Tools & Execution Tickets (Queue N1-GH & Queue N2)
+			studioUserRoute.POST("/native/ticket", controller.CreateNativeTicket)
+			studioUserRoute.POST("/native/complete", controller.CompleteNativeTicket)
+			studioUserRoute.POST("/native/fail", controller.FailNativeTicket)
+			studioUserRoute.POST("/native/retry", controller.RetryNativeTicket)
+			studioUserRoute.POST("/native/refund", controller.RefundNativeTicket)
+			studioUserRoute.POST("/native/product-pack", controller.GenerateMarketplaceProductPack)
+			studioUserRoute.POST("/native/product-factory/v2/batch", controller.ExecuteProductFactoryV2BatchHandler)
+			studioUserRoute.POST("/native/object-cleanup/session", controller.StartObjectCleanupSessionHandler)
+			studioUserRoute.POST("/native/object-cleanup/session/validate", controller.ValidateObjectCleanupSessionHandler)
+			studioUserRoute.POST("/native/object-cleanup/session/export", controller.RecordObjectCleanupExportHandler)
+
+			// Seller Brand Profiles & Saved Workflow Presets (Queue N5)
+			studioUserRoute.GET("/seller/profiles", controller.ListSellerProfilesHandler)
+			studioUserRoute.POST("/seller/profiles", controller.CreateSellerProfileHandler)
+			studioUserRoute.PUT("/seller/profiles/:id", controller.UpdateSellerProfileHandler)
+			studioUserRoute.DELETE("/seller/profiles/:id", controller.DeleteSellerProfileHandler)
+
+			studioUserRoute.GET("/seller/presets", controller.ListSellerPresetsHandler)
+			studioUserRoute.POST("/seller/presets", controller.CreateSellerPresetHandler)
+			studioUserRoute.PUT("/seller/presets/:id", controller.UpdateSellerPresetHandler)
+			studioUserRoute.DELETE("/seller/presets/:id", controller.DeleteSellerPresetHandler)
+
+			studioUserRoute.GET("/seller/repeat-last", controller.GetRepeatLastPackHandler)
+		}
+
+		studioAdminRoute := apiRouter.Group("/admin/studio")
+		studioAdminRoute.Use(middleware.AdminAuth())
+		{
+			studioAdminRoute.GET("/telemetry", controller.GetStudioAdminTelemetry)
+			studioAdminRoute.POST("/provider-canary", controller.TriggerStudioProviderCanary)
+			studioAdminRoute.GET("/providers", controller.GetStudioAdminProviders)
+			studioAdminRoute.POST("/providers/:id/sync", controller.SyncStudioProviderCatalog)
+			studioAdminRoute.GET("/providers/:id/catalog", controller.GetStudioProviderCatalog)
+			studioAdminRoute.GET("/drift-events", controller.GetStudioContractDriftEvents)
+			studioAdminRoute.GET("/pricing-alerts", controller.GetStudioPricingDriftAlerts)
+			studioAdminRoute.GET("/routes", controller.GetStudioAdminRoutes)
+			studioAdminRoute.POST("/routes", controller.CreateStudioAdminRoute)
+			studioAdminRoute.POST("/routes/dry-run", controller.DryRunStudioModelRoute)
+			studioAdminRoute.PUT("/routes/:id", controller.UpdateStudioAdminRoute)
+			studioAdminRoute.DELETE("/routes/:id", controller.DeleteStudioAdminRoute)
+			studioAdminRoute.GET("/economics", controller.GetStudioAdminEconomics)
+			studioAdminRoute.POST("/pricing/simulate", controller.SimulateStudioPricing)
 		}
 
 		usageRoute := apiRouter.Group("/usage")

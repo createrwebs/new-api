@@ -46,6 +46,9 @@ export const apiKeySchema = z.object({
   model_limits_enabled: z.boolean(),
   model_limits: z.string().nullish().default(''),
   allow_ips: z.string().nullish().default(''),
+  primary_route_id: z.number().optional().default(0),
+  fallback_route_ids: z.array(z.number()).nullish().default([]),
+  route_chain: z.array(z.number()).nullish().default([]),
 })
 
 export type ApiKey = z.infer<typeof apiKeySchema>
@@ -94,6 +97,22 @@ export interface ApiKeyFormData {
   group: string
   auto_groups: string[]
   cross_group_retry: boolean
+  primary_route_id?: number
+  fallback_route_ids?: number[]
+}
+
+export interface RouteItem {
+  id: number
+  name: string
+  slug: string
+  description?: string
+  enabled: boolean
+  kind: string
+  routing_policy: string
+  cost_multiplier: number
+  min_user_group?: string
+  channel_ids?: number[]
+  channel_tags?: string[]
 }
 
 export interface TokenAutoGroupsConfig {

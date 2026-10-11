@@ -3,9 +3,11 @@ package relay
 import (
 	"errors"
 	"fmt"
+	"math"
 	"net/http"
 	"strings"
 
+	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/logger"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
@@ -22,6 +24,9 @@ import (
 // provide the current request body through BodyStorage or BillingRequestInput;
 // channel retries retain the resulting billing session and pricing snapshot.
 func PrepareRequestBilling(c *gin.Context, info *relaycommon.RelayInfo) *types.NewAPIError {
+	if (c != nil && (c.GetBool("is_byok") || common.GetContextKeyBool(c, constant.ContextKeyIsBYOK))) || (info != nil && info.IsBYOK) {
+		return nil
+	}
 	needSensitiveCheck := setting.ShouldCheckPromptSensitive()
 	meta := &types.TokenCountMeta{TokenType: types.TokenTypeTokenizer}
 	if info.Request != nil && (needSensitiveCheck || constant.CountToken) {
@@ -37,6 +42,19 @@ func PrepareRequestBilling(c *gin.Context, info *relaycommon.RelayInfo) *types.N
 			meta.MaxTokens = int(lo.FromPtr(request.MaxTokens))
 		case *dto.ImageRequest:
 			meta = request.GetTokenCountMeta()
+		}
+	}
+
+	if meta.MaxTokens == 0 && info.Request != nil {
+		switch request := info.Request.(type) {
+		case *dto.GeneralOpenAIRequest:
+			meta.MaxTokens = int(max(lo.FromPtr(request.MaxTokens), lo.FromPtr(request.MaxCompletionTokens)))
+		case *dto.OpenAIResponsesRequest:
+			meta.MaxTokens = int(lo.FromPtr(request.MaxOutputTokens))
+		case *dto.ClaudeRequest:
+			meta.MaxTokens = int(lo.FromPtr(request.MaxTokens))
+		case *dto.GeminiChatRequest:
+			meta.MaxTokens = int(lo.FromPtr(request.GenerationConfig.MaxOutputTokens))
 		}
 	}
 
@@ -63,7 +81,47 @@ func PrepareRequestBilling(c *gin.Context, info *relaycommon.RelayInfo) *types.N
 		logger.LogInfo(c, fmt.Sprintf("模型 %s 免费，跳过预扣费", info.OriginModelName))
 		return nil
 	}
-	return service.PreConsumeBilling(c, priceData.QuotaToPreConsume, info)
+	quotaToReserve := priceData.QuotaToPreConsume
+	if c != nil {
+		if rawChain, exists := c.Get("token_route_chain"); exists {
+			if chain, ok := rawChain.([]int); ok && len(chain) > 0 {
+				userGroup := common.GetContextKeyString(c, constant.ContextKeyUserGroup)
+				isBYOK := c.GetBool("is_byok") || common.GetContextKeyBool(c, constant.ContextKeyIsBYOK)
+				maxMultiplier := 1.0
+				var snapshots []*service.RouteSnapshot
+				for _, rId := range chain {
+					r, err := service.CacheGetRoute(rId)
+					if err != nil || r == nil || !r.Enabled {
+						continue
+					}
+					// Invariant: Entitlement validation
+					if err := service.ValidateRouteEntitlement(r, userGroup); err != nil {
+						continue
+					}
+					// Invariant: BYOK isolation
+					if isBYOK && r.Kind != "byok" {
+						continue
+					}
+					// Invariant: Model coverage check (Section 9 Reservation Eligibility)
+					if !service.RouteSupportsModel(r, info.OriginModelName, userGroup) {
+						continue
+					}
+					snapshots = append(snapshots, service.SnapshotRoute(r))
+					if r.CostMultiplier > maxMultiplier {
+						maxMultiplier = r.CostMultiplier
+					}
+				}
+				if len(snapshots) > 0 {
+					c.Set("token_route_snapshots", snapshots)
+				}
+				if maxMultiplier > 1.0 {
+					quotaToReserve = int(math.Ceil(float64(quotaToReserve) * maxMultiplier))
+				}
+				c.Set("route_chain_max_multiplier", maxMultiplier)
+			}
+		}
+	}
+	return service.PreConsumeBilling(c, quotaToReserve, info)
 }
 
 // RefundFailedRequestBilling applies the common final-failure policy after all

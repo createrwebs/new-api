@@ -7,6 +7,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestHostProtocolRegistryDrivesProtocolRoutesOnce(t *testing.T) {
@@ -30,4 +31,10 @@ func TestHostProtocolRegistryDrivesProtocolRoutesOnce(t *testing.T) {
 	sort.Strings(expected)
 	sort.Strings(actual)
 	assert.Equal(t, expected, actual)
+}
+
+func TestTaskPluginProtocolHandlersIncludesFreeTierQuota(t *testing.T) {
+	handlers, err := taskPluginProtocolHandlers("openai_responses", "create")
+	require.NoError(t, err)
+	assert.Len(t, handlers, 10)
 }

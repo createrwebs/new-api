@@ -17,7 +17,9 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
+import { useNavigate } from '@tanstack/react-router'
 import { useTranslation } from 'react-i18next'
+import { toast } from 'sonner'
 
 import { SectionPageLayout } from '@/components/layout'
 import { useStatus } from '@/hooks/use-status'
@@ -61,9 +63,26 @@ interface WalletProps {
 
 export function Wallet(props: WalletProps) {
   const { t } = useTranslation()
+  const navigate = useNavigate()
   const [user, setUser] = useState<UserWalletData | null>(null)
   const [userLoading, setUserLoading] = useState(true)
   const [topupAmount, setTopupAmount] = useState(0)
+
+  const checkStudioReturnPrompt = () => {
+    const studioOrigin = sessionStorage.getItem('tora_studio_purchase_origin')
+    if (studioOrigin) {
+      toast.success(t('เติมเครดิตสำเร็จ! คุณสามารถกลับไปสร้างผลงานต่อใน Tora Studio ได้ทันที'), {
+        action: {
+          label: t('กลับไปที่ Studio'),
+          onClick: () =>
+            navigate({
+              to: '/_authenticated/studio',
+              search: { tool: studioOrigin, tab: 'playground' },
+            }),
+        },
+      })
+    }
+  }
   const [selectedPreset, setSelectedPreset] = useState<number | null>(null)
   const [selectedPaymentMethod, setSelectedPaymentMethod] =
     useState<PaymentMethod>()
@@ -208,6 +227,7 @@ export function Wallet(props: WalletProps) {
     if (success) {
       setConfirmDialogOpen(false)
       await fetchUser()
+      checkStudioReturnPrompt()
     }
   }
 
@@ -219,6 +239,7 @@ export function Wallet(props: WalletProps) {
     if (success) {
       setRedemptionCode('')
       await fetchUser()
+      checkStudioReturnPrompt()
     }
   }
 
@@ -246,6 +267,7 @@ export function Wallet(props: WalletProps) {
       setCreemDialogOpen(false)
       setSelectedCreemProduct(null)
       await fetchUser()
+      checkStudioReturnPrompt()
     }
   }
 

@@ -245,6 +245,12 @@ func calculateTextQuotaSummary(ctx *gin.Context, relayInfo *relaycommon.RelayInf
 	}
 	summary.IsClaudeUsageSemantic = summary.UsageSemantic == "anthropic"
 
+	if (ctx != nil && (ctx.GetBool("is_byok") || common.GetContextKeyBool(ctx, constant.ContextKeyIsBYOK))) || (relayInfo != nil && relayInfo.IsBYOK) {
+		summary.Quota = 0
+		summary.ToolCallSurchargeQuota = decimal.Zero
+		return summary
+	}
+
 	if usage == nil {
 		usage = &dto.Usage{
 			PromptTokens:     relayInfo.GetEstimatePromptTokens(),
@@ -402,6 +408,9 @@ func PostTextConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, us
 
 	adminRejectReason := common.GetContextKeyString(ctx, constant.ContextKeyAdminRejectReason)
 	summary := calculateTextQuotaSummary(ctx, relayInfo, billingUsage)
+	if (ctx != nil && (ctx.GetBool("is_byok") || common.GetContextKeyBool(ctx, constant.ContextKeyIsBYOK))) || (relayInfo != nil && relayInfo.IsBYOK) {
+		summary.Quota = 0
+	}
 
 	var tieredResult *billingexpr.TieredResult
 	var tieredTokens billingexpr.TokenParams

@@ -670,6 +670,9 @@ func SetupContextForToken(c *gin.Context, token *model.Token, parts ...string) e
 	if token == nil {
 		return fmt.Errorf("token is nil")
 	}
+	c.Set("token", token)
+	c.Set("token_primary_route_id", token.PrimaryRouteId)
+	c.Set("token_route_chain", token.GetRouteChain())
 	c.Set("id", token.UserId)
 	c.Set("token_id", token.Id)
 	c.Set("token_key", token.Key)
