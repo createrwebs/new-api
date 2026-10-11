@@ -19,6 +19,7 @@ For commercial licensing, please contact support@quantumnous.com
 import { Link } from '@tanstack/react-router'
 import { useTranslation } from 'react-i18next'
 
+import { LanguageSwitcher } from '@/components/language-switcher'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useSystemConfig } from '@/hooks/use-system-config'
 
@@ -31,10 +32,15 @@ export function AuthLayout({ children }: AuthLayoutProps) {
   const { systemName, logo, loading } = useSystemConfig()
 
   return (
-    <div className='relative grid h-svh max-w-none'>
+    <div className='bg-muted/40 relative grid h-svh max-w-none overflow-y-auto'>
+      {/* Soft brand wash so the form is not floating on a flat white void. */}
+      <div
+        aria-hidden='true'
+        className='from-primary/12 pointer-events-none absolute inset-x-0 top-0 h-72 bg-gradient-to-b to-transparent'
+      />
       <Link
         to='/'
-        className='absolute top-4 left-4 z-10 flex items-center gap-2 transition-opacity hover:opacity-80 sm:top-8 sm:left-8'
+        className='absolute top-4 left-4 z-10 flex items-center gap-2 transition-opacity hover:opacity-80 sm:top-6 sm:left-6'
       >
         <div className='relative h-8 w-8'>
           {loading ? (
@@ -53,8 +59,12 @@ export function AuthLayout({ children }: AuthLayoutProps) {
           <h1 className='text-xl font-medium'>{systemName}</h1>
         )}
       </Link>
-      <div className='container flex items-center pt-16 sm:pt-0'>
-        <div className='mx-auto flex w-full flex-col justify-center space-y-2 px-4 py-8 sm:w-[480px] sm:p-8'>
+      {/* Auth pages have no app header, so the language switcher lives here. */}
+      <div className='absolute top-4 right-4 z-10 sm:top-6 sm:right-6'>
+        <LanguageSwitcher />
+      </div>
+      <div className='container relative flex items-center px-4 py-20 sm:py-24'>
+        <div className='mx-auto flex w-full flex-col justify-center sm:w-[440px]'>
           {children}
         </div>
       </div>

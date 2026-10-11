@@ -257,9 +257,9 @@ export function SignUpForm({
           name='username'
           render={({ field }) => (
             <FormItem>
-              <FormLabel>{t('Username')}</FormLabel>
+              <FormLabel className='text-sm font-medium'>{t('Username')}</FormLabel>
               <FormControl>
-                <Input placeholder={t('Enter your username')} {...field} />
+                <Input placeholder={t('Enter your username')} className='h-11 rounded-lg' {...field} />
               </FormControl>
               <FormMessage />
             </FormItem>
@@ -272,10 +272,11 @@ export function SignUpForm({
           name='password'
           render={({ field }) => (
             <FormItem>
-              <FormLabel>{t('Password')}</FormLabel>
+              <FormLabel className='text-sm font-medium'>{t('Password')}</FormLabel>
               <FormControl>
                 <PasswordInput
                   placeholder={t('Enter password (8–128 characters)')}
+                  className='h-11 rounded-lg'
                   {...field}
                 />
               </FormControl>
@@ -290,9 +291,9 @@ export function SignUpForm({
           name='confirmPassword'
           render={({ field }) => (
             <FormItem>
-              <FormLabel>{t('Confirm password')}</FormLabel>
+              <FormLabel className='text-sm font-medium'>{t('Confirm password')}</FormLabel>
               <FormControl>
-                <PasswordInput placeholder={t('Confirm password')} {...field} />
+                <PasswordInput placeholder={t('Confirm password')} className='h-11 rounded-lg' {...field} />
               </FormControl>
               <FormMessage />
             </FormItem>
@@ -371,7 +372,7 @@ export function SignUpForm({
         {/* Submit Button */}
         <Button
           type='submit'
-          className='mt-2 w-full justify-center gap-2'
+          className='mt-2 h-11 w-full justify-center gap-2 rounded-lg text-base font-semibold'
           disabled={
             isLoading ||
             (requiresLegalConsent && !agreedToLegal) ||

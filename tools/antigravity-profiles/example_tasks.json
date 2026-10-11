@@ -1,0 +1,16 @@
+[
+  {
+    "id": "task-acc1-research",
+    "profile": "acc1",
+    "prompt": "สรุปฟีเจอร์หลักของโปรเจกต์นี้ให้สั้นกระชับ 3 ข้อ",
+    "workspace": "d:/new-api",
+    "timeout": 120
+  },
+  {
+    "id": "task-acc2-audit",
+    "profile": "acc2",
+    "prompt": "ตรวจสอบไฟล์ package.json หรือ go.mod แล้วรายงานว่าใช้ dependencies สำคัญอะไรบ้าง",
+    "workspace": "d:/new-api",
+    "timeout": 120
+  }
+]
