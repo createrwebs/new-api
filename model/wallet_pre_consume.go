@@ -97,6 +97,61 @@ func SettleUserWalletPreConsume(requestId string) error {
 		Update("status", "settled").Error
 }
 
+// SettleUserWalletPreConsumeWithActual transitions a pending reservation to settled with actual amount,
+// refunding any unused difference back to user wallet.
+func SettleUserWalletPreConsumeWithActual(requestId string, actualAmount int) error {
+	if strings.TrimSpace(requestId) == "" {
+		return errors.New("requestId is empty")
+	}
+	ensureWalletPreConsumeTable(DB)
+	if actualAmount <= 0 {
+		return RefundUserWalletPreConsume(requestId)
+	}
+
+	var userId int
+	var refundDifference int
+	err := DB.Transaction(func(tx *gorm.DB) error {
+		var records []WalletPreConsumeRecord
+		if err := lockForUpdate(tx).
+			Where("request_id = ?", requestId).Limit(1).Find(&records).Error; err != nil {
+			return err
+		}
+		if len(records) == 0 {
+			return nil
+		}
+		record := records[0]
+		if record.Status != "pending" {
+			return nil // idempotent
+		}
+		record.Status = "settled"
+		if record.PreConsumed > actualAmount {
+			refundDifference = record.PreConsumed - actualAmount
+			record.PreConsumed = actualAmount
+		}
+		if err := tx.Save(&record).Error; err != nil {
+			return err
+		}
+		if refundDifference > 0 {
+			if err := IncreaseUserQuotaTx(tx, record.UserId, refundDifference); err != nil {
+				return err
+			}
+		}
+		userId = record.UserId
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+	if refundDifference > 0 {
+		gopool.Go(func() {
+			if err := cacheIncrUserQuota(userId, int64(refundDifference)); err != nil {
+				common.SysLog("failed to increase user quota cache on partial refund: " + err.Error())
+			}
+		})
+	}
+	return nil
+}
+
 // RefundUserWalletPreConsume idempotently refunds a pending reservation.
 func RefundUserWalletPreConsume(requestId string) error {
 	if strings.TrimSpace(requestId) == "" {

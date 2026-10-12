@@ -209,6 +209,16 @@ func SetRelayRouter(router *gin.Engine) {
 			controller.Relay(c, types.RelayFormatGemini)
 		})
 	}
+
+	huobaoRelayRouter := router.Group("/v1/huobao")
+	huobaoRelayRouter.Use(middleware.CORS())
+	{
+		huobaoRelayRouter.GET("/identity", controller.GetHuobaoIdentity)
+		huobaoRelayRouter.GET("/credits", controller.GetHuobaoCredits)
+		huobaoRelayRouter.POST("/video/quote", controller.QuoteHuobaoVideoTask)
+		huobaoRelayRouter.POST("/video/reserve", controller.ReserveHuobaoVideoTask)
+		huobaoRelayRouter.POST("/video/settle", controller.SettleHuobaoVideoTask)
+	}
 }
 
 func registerMjRouterGroup(relayMjRouter *gin.RouterGroup) {

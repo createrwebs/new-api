@@ -70,6 +70,11 @@ var accessTokenExemptRoutes = []string{
 	// API key authentication (TokenAuthReadOnly).
 	"GET /api/usage/token/",
 	"GET /api/log/token",
+	"GET /api/huobao/identity",
+	"GET /api/huobao/credits",
+	"POST /api/huobao/video/quote",
+	"POST /api/huobao/video/reserve",
+	"POST /api/huobao/video/settle",
 }
 
 // accessTokenHelperRoutes are declared through handlePermissionRoute outside

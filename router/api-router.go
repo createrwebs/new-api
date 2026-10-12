@@ -457,6 +457,16 @@ func SetApiRouter(router *gin.Engine) {
 			}
 		}
 
+		huobaoRoute := apiRouter.Group("/huobao")
+		huobaoRoute.Use(middleware.CORS(), middleware.CriticalRateLimit())
+		{
+			huobaoRoute.GET("/identity", controller.GetHuobaoIdentity)
+			huobaoRoute.GET("/credits", controller.GetHuobaoCredits)
+			huobaoRoute.POST("/video/quote", controller.QuoteHuobaoVideoTask)
+			huobaoRoute.POST("/video/reserve", controller.ReserveHuobaoVideoTask)
+			huobaoRoute.POST("/video/settle", controller.SettleHuobaoVideoTask)
+		}
+
 		redemptionRoute := apiRouter.Group("/redemption")
 		redemptionRoute.Use(middleware.AdminAuth())
 		{
