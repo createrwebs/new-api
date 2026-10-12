@@ -1,0 +1,60 @@
+docs/ai/FREE_MEMBER_CHAT_VERIFICATION.md
+  s_246ffd3c7787e4::t_d32b95b8bb2e76 1-69
+web/src/features/studio/__tests__/assistant-upload.test.tsx
+  s_246ffd3c7787e4::t_60116c40934b29 29,33,38
+  s_246ffd3c7787e4::t_e4b049a4876b44 1-28,30-32,34-37,39-40
+  s_246ffd3c7787e4::t_a0cf930c758ee7 41-53
+web/src/features/wallet/index.tsx
+  s_246ffd3c7787e4::t_836f4b6694a4d8 79
+docs/ai/PRODUCT_DECISIONS.md
+  s_246ffd3c7787e4::t_989ef9ede75aea 15-18
+docs/ai/ROADMAP.md
+  s_246ffd3c7787e4::t_d32b95b8bb2e76 5-12
+web/src/features/home/components/sections/hero.tsx
+  s_246ffd3c7787e4::t_60116c40934b29 191
+web/src/features/studio/components/CreatorAssistant.tsx
+  s_246ffd3c7787e4::t_60116c40934b29 280-284,289,420-425,432-437
+  s_246ffd3c7787e4::t_836f4b6694a4d8 1,15,54,314-322,325,329,332,383-385,416
+web/src/features/studio/__tests__/attribution.test.ts
+  s_246ffd3c7787e4::t_e4b049a4876b44 1-27
+  s_246ffd3c7787e4::t_4122f9114726ec 28-31
+docs/ai/FREE_MEMBER_CHAT_CHANNEL.json
+  s_246ffd3c7787e4::t_989ef9ede75aea 1-13
+router/relay-router.go
+  s_246ffd3c7787e4::t_7304e150b016b9 67
+web/src/features/studio/api.ts
+  s_246ffd3c7787e4::t_836f4b6694a4d8 163
+docs/ai/FREE_MEMBER_CHAT_RUNBOOK.md
+  s_246ffd3c7787e4::t_989ef9ede75aea 1-72
+docs/ai/CURRENT_STATE.md
+  s_246ffd3c7787e4::t_d32b95b8bb2e76 5-10
+middleware/free_tier.go
+  s_246ffd3c7787e4::t_7304e150b016b9 14,21,28
+middleware/free_tier_test.go
+  s_246ffd3c7787e4::t_9b0705d72f60e5 111,138-160
+web/src/features/studio/__tests__/assistant-navigation.test.tsx
+  s_246ffd3c7787e4::t_c269ecfacf59ef 9-10,18-56,58-72,79-81
+  s_246ffd3c7787e4::t_d5f312b1316fa5 1-8,11-17,57,73-78,82-88
+  s_246ffd3c7787e4::t_0f28d7eae783bf 89-93
+router/relay_router_test.go
+  s_246ffd3c7787e4::t_794b96cc657c8c 10,14,20-65
+  s_246ffd3c7787e4::t_753fd34c84cd22 66
+web/src/features/studio/components/StudioPlayground.tsx
+  s_246ffd3c7787e4::t_60116c40934b29 1351
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.3",
+  "base_commit_sha": "e258a9f338f85d578fd6e68ac70405541b2f3bc1",
+  "prompts": {},
+  "sessions": {
+    "s_246ffd3c7787e4": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a12eb2-1746-7053-8419-942704db6525",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "NOPPANAN THEERACHARTE <noppanan.the@axonstech.com>"
+    }
+  }
+}
