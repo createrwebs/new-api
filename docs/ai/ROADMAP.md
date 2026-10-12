@@ -2,6 +2,14 @@
 
 This roadmap is priority-ordered. The orchestrator may reorder only when dependencies or blockers justify it, and must document the reason in `CURRENT_STATE.md`.
 
+## 2026-10-12 — Free managed chat for new web members
+
+Status: **TECHNICALLY_BLOCKED (LOCAL BUILD AND FOCUSED REVIEW COMPLETED)**.
+
+Operator requires toraapi.com chat to be free immediately after member signup/login using Typhoon and tora-qwen. Existing Playground/shared daily guard reused, frontend build repaired and Linux ARM64 backend artifact prepared on `main`; independent source/focused/adversarial review passed. Requirement and rollout/rollback are recorded in `PRODUCT_DECISIONS.md`, `FREE_MEMBER_CHAT_RUNBOOK.md` and `FREE_MEMBER_CHAT_VERIFICATION.md`.
+
+Next gate: remediate baseline `TestAccessTokenRouteRulesCoverEveryDashboardRoute` (88 existing missing declarations), then coordinator access through an approved network/admin/deployment session, upstream caller restrictions/stable SSE endpoint, native zero-price configuration and separate public signup-to-chat QA. No production rollout or configuration mutation performed. Other pricing/tier/subscription rules stay frozen.
+
 ## R1 — Project Brain Bootstrap
 
 Status: **COMPLETED**

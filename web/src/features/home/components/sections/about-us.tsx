@@ -1,19 +1,11 @@
-import { Link } from '@tanstack/react-router'
 import {
-  CreditCard,
-  Globe2,
-  Lock,
   QrCode,
   Server,
   ShieldCheck,
-  Sparkles,
   Users2,
   Wallet,
-  Zap,
 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
-
-import { Button } from '@/components/ui/button'
 
 export function AboutUs() {
   const { t } = useTranslation()

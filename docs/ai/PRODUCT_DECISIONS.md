@@ -12,6 +12,10 @@ These decisions are frozen unless the operator explicitly changes them.
 
 ## Commercial Policy
 
+### 2026-10-12: free chat for newly registered web members
+
+Operator requires toraapi.com to offer managed Thai AI chat immediately after signup/login without purchasing a plan, topping up, or supplying a provider key. Reuse the existing playground/member gateway with `scb10x/llama3.1-typhoon2-8b-instruct` and `tora-qwen` at zero price in group `default`; existing members in that group may also use them. Preserve existing daily free allowance and all other pricing/tier policies. See `FREE_MEMBER_CHAT_RUNBOOK.md` for the zero-wallet preconsume prerequisite, global-setting impact and upstream access controls. This requirement is recorded; production activation is not yet verified.
+
 - Free group: `default`
 - Paid plan: **Pro Monthly**
 - Paid group: `pro`

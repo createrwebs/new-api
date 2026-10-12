@@ -568,8 +568,6 @@ export function StudioPlayground({
     }
   }, [variants, activeVariantIndex, activeJob?.output_data])
 
-  const isVideoTool = currentTool?.category === 'video' || currentTool?.slug.includes('video')
-
   const renderBadgeVariant = (status: string) => {
     if (status === 'SUCCEEDED') return 'default'
     if (status === 'FAILED') return 'destructive'
@@ -1350,7 +1348,7 @@ export function StudioPlayground({
                       <div className='flex gap-2 overflow-x-auto pb-1'>
                         {variants.map((vUrl, idx) => (
                           <button
-                            key={idx}
+                            key={vUrl}
                             type='button'
                             onClick={() => {
                               setActiveVariantIndex(idx)

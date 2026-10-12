@@ -1,21 +1,18 @@
+import { Link } from '@tanstack/react-router'
 import {
   AlertCircle,
-  ArrowRight,
   Bot,
   CheckCircle2,
   Coins,
-  Copy,
   ExternalLink,
-  Film,
   Layers,
   Play,
   RotateCw,
   Sparkles,
   Upload,
-  Video,
   Wand2,
 } from 'lucide-react'
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { toast } from 'sonner'
 
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
@@ -23,7 +20,6 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Checkbox } from '@/components/ui/checkbox'
-import { Progress } from '@/components/ui/progress'
 import { Spinner } from '@/components/ui/spinner'
 import { Textarea } from '@/components/ui/textarea'
 
@@ -55,6 +51,7 @@ interface WorkflowPlan {
 }
 
 export function CreatorAssistant() {
+  const fileInputRef = useRef<HTMLInputElement>(null)
   const [prompt, setPrompt] = useState('')
   const [imageUrl, setImageUrl] = useState('')
   const [isUploading, setIsUploading] = useState(false)
@@ -280,15 +277,16 @@ export function CreatorAssistant() {
           {/* Quick example tags */}
           <div className='flex flex-wrap items-center gap-2 pt-1'>
             <span className='text-xs text-muted-foreground'>ตัวอย่างคำสั่ง:</span>
-            {examplePrompts.map((p, i) => (
-              <button
-                key={i}
-                type='button'
+            {examplePrompts.map((p) => (
+              <Button
+                key={p}
+                variant='outline'
+                size='xs'
                 onClick={() => setPrompt(p)}
                 className='rounded-md border border-border/60 bg-muted/40 px-2 py-1 text-xs text-muted-foreground hover:bg-muted hover:text-foreground transition-colors'
               >
                 {p}
-              </button>
+              </Button>
             ))}
           </div>
 
@@ -313,20 +311,25 @@ export function CreatorAssistant() {
                 </p>
               </div>
               <div className='flex gap-2 shrink-0'>
-                <label className='cursor-pointer'>
-                  <Button variant='outline' size='sm' disabled={isUploading} asChild>
-                    <span>
-                      {isUploading ? <Spinner className='mr-1.5 size-3.5' /> : <Upload className='mr-1.5 size-3.5' />}
-                      {imageUrl ? 'เปลี่ยนรูปภาพ' : 'เลือกไฟล์รูปภาพ'}
-                    </span>
+                <div>
+                  <Button
+                    variant='outline'
+                    size='sm'
+                    disabled={isUploading}
+                    onClick={() => fileInputRef.current?.click()}
+                  >
+                    {isUploading ? <Spinner className='mr-1.5 size-3.5' /> : <Upload className='mr-1.5 size-3.5' />}
+                    {imageUrl ? 'เปลี่ยนรูปภาพ' : 'เลือกไฟล์รูปภาพ'}
                   </Button>
                   <input
+                    ref={fileInputRef}
                     type='file'
                     accept='image/png,image/jpeg,image/webp'
                     className='hidden'
+                    disabled={isUploading}
                     onChange={handleFileUpload}
                   />
-                </label>
+                </div>
                 {imageUrl && (
                   <Button variant='ghost' size='sm' onClick={() => setImageUrl('')}>
                     ลบ
@@ -377,11 +380,9 @@ export function CreatorAssistant() {
               </div>
             </div>
             <div className='flex items-center gap-3 pt-1'>
-              <Button size='sm' variant='default' asChild>
-                <a href='/wallet'>
-                  <Coins className='mr-1.5 size-3.5' />
-                  เติมเครดิต (Buy Credits)
-                </a>
+              <Button size='sm' variant='default' render={<Link to='/wallet' />}>
+                <Coins className='mr-1.5 size-3.5' />
+                เติมเครดิต (Buy Credits)
               </Button>
               <Button size='sm' variant='outline' onClick={handleRequote}>
                 <RotateCw className='mr-1.5 size-3.5' />
@@ -412,30 +413,28 @@ export function CreatorAssistant() {
           <CardContent className='space-y-4 pt-4'>
             {/* Step list */}
             <div className='space-y-3'>
-              {steps.map((step, idx) => (
+              {steps.map((step) => (
                 <div
                   key={step.step_index}
                   className={`rounded-xl border p-4 transition-all ${
-                    step.status === 'SUCCEEDED'
-                      ? 'border-emerald-500/30 bg-emerald-500/5'
-                      : step.status === 'FAILED'
-                        ? 'border-destructive/40 bg-destructive/5'
-                        : step.status === 'RUNNING'
-                          ? 'border-primary/40 bg-primary/5'
-                          : 'border-border/60 bg-muted/20'
+                    ({
+                      SUCCEEDED: 'border-emerald-500/30 bg-emerald-500/5',
+                      FAILED: 'border-destructive/40 bg-destructive/5',
+                      RUNNING: 'border-primary/40 bg-primary/5',
+                    } as Partial<Record<WorkflowStep['status'], string>>)[step.status] ||
+                    'border-border/60 bg-muted/20'
                   }`}
                 >
                   <div className='flex items-start justify-between gap-3'>
                     <div className='flex items-start gap-3'>
                       <div
                         className={`flex size-7 shrink-0 items-center justify-center rounded-full text-xs font-bold ${
-                          step.status === 'SUCCEEDED'
-                            ? 'bg-emerald-500 text-white'
-                            : step.status === 'FAILED'
-                              ? 'bg-destructive text-white'
-                              : step.status === 'RUNNING'
-                                ? 'bg-primary text-white animate-pulse'
-                                : 'bg-muted text-muted-foreground'
+                          ({
+                            SUCCEEDED: 'bg-emerald-500 text-white',
+                            FAILED: 'bg-destructive text-white',
+                            RUNNING: 'bg-primary text-white animate-pulse',
+                          } as Partial<Record<WorkflowStep['status'], string>>)[step.status] ||
+                          'bg-muted text-muted-foreground'
                         }`}
                       >
                         {step.status === 'SUCCEEDED' ? (

@@ -160,7 +160,7 @@ export async function quoteStudioJob(payload: {
  * Record studio conversion milestone.
  */
 export async function recordStudioAttribution(
-  eventType: 'insufficient_credit' | 'buy_credit_click' | 'purchase_return' | 'generation_after_purchase',
+  eventType: 'insufficient_credit' | 'buy_credit_click' | 'purchase_return' | 'generation_after_purchase' | 'tool_visit' | 'generate_click' | 'repeat_generation',
   toolId: string,
   credits = 0,
   sessionId?: string

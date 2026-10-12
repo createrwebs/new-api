@@ -11,23 +11,21 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// isFreeTierGenerationRequest limits Phase 4 free tier quota checks to the
-// supported mobile generation entry points: POST /v1/chat/completions and
-// POST /v1/responses.
+// Browser and API chat share the same account-level free allowance.
 func isFreeTierGenerationRequest(c *gin.Context) bool {
 	if c.Request.Method != http.MethodPost {
 		return false
 	}
 	path := strings.TrimSuffix(c.Request.URL.Path, "/")
 	switch path {
-	case "/v1/chat/completions", "/v1/responses":
+	case "/v1/chat/completions", "/v1/responses", "/pg/chat/completions":
 		return true
 	default:
 		return false
 	}
 }
 
-// FreeTierQuota enforces the account-level free request limit after API-token
+// FreeTierQuota enforces the account-level free request limit after member
 // authentication and before channel distribution/upstream relay.
 func FreeTierQuota() func(c *gin.Context) {
 	return func(c *gin.Context) {

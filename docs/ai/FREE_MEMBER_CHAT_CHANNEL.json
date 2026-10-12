@@ -1,0 +1,13 @@
+{
+  "mode": "single",
+  "channel": {
+    "type": 1,
+    "name": "Tora Free Thai Chat",
+    "key": "toraapi",
+    "base_url": "https://self-begun-upgrading-retreat.trycloudflare.com",
+    "models": "scb10x/llama3.1-typhoon2-8b-instruct,tora-qwen",
+    "model_mapping": "{\"scb10x/llama3.1-typhoon2-8b-instruct\":\"scb10x/llama3.1-typhoon2-8b-instruct:latest\",\"tora-qwen\":\"tora-qwen:latest\"}",
+    "group": "default",
+    "status": 2
+  }
+}

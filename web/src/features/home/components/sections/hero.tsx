@@ -4,11 +4,8 @@ import {
   ArrowRight,
   BookOpen,
   Bot,
-  Copy,
   Cpu,
-  Flame,
   Image as ImageIcon,
-  Play,
   ShieldCheck,
   Sparkles,
   Video,
@@ -17,7 +14,6 @@ import {
 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 
-import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { useStatus } from '@/hooks/use-status'
 
@@ -192,6 +188,7 @@ export function Hero(props: HeroProps) {
               { id: 'reasoning', label: t('🧠 Claude & R1'), icon: Bot },
             ].map((tab) => (
               <button
+                type='button'
                 key={tab.id}
                 onClick={() => setActiveMode(tab.id as ShowcaseMode)}
                 className={`rounded-xl px-4 py-2 text-xs font-semibold transition-all ${

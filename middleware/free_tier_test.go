@@ -108,6 +108,7 @@ func TestFreeTierQuotaSharedBetweenChatCompletionsAndResponses(t *testing.T) {
 	}
 	router.POST("/v1/chat/completions", handler)
 	router.POST("/v1/responses", handler)
+	router.POST("/pg/chat/completions", handler)
 
 	// 10 requests to chat/completions
 	for i := 1; i <= 10; i++ {
@@ -134,6 +135,29 @@ func TestFreeTierQuotaSharedBetweenChatCompletionsAndResponses(t *testing.T) {
 	router.ServeHTTP(resp22, httptest.NewRequest(http.MethodPost, "/v1/responses", nil))
 	assert.Equal(t, http.StatusTooManyRequests, resp22.Code)
 	assert.Contains(t, resp22.Body.String(), "FREE_DAILY_LIMIT")
+
+	playground := httptest.NewRecorder()
+	router.ServeHTTP(playground, httptest.NewRequest(http.MethodPost, "/pg/chat/completions", nil))
+	assert.Equal(t, http.StatusTooManyRequests, playground.Code)
+	assert.Contains(t, playground.Body.String(), "FREE_DAILY_LIMIT")
+}
+
+func TestFreeTierQuotaPlaygroundCountsTowardAPILimit(t *testing.T) {
+	user := setupFreeTierMiddlewareTestDB(t)
+	router := gin.New()
+	router.Use(func(c *gin.Context) { c.Set("id", user.Id) }, FreeTierQuota())
+	router.POST("/pg/chat/completions", func(c *gin.Context) { c.Status(http.StatusNoContent) })
+	router.POST("/v1/chat/completions", func(c *gin.Context) { c.Status(http.StatusNoContent) })
+
+	for range model.FreeTierDailyLimit {
+		response := httptest.NewRecorder()
+		router.ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/pg/chat/completions", nil))
+		require.Equal(t, http.StatusNoContent, response.Code)
+	}
+	response := httptest.NewRecorder()
+	router.ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil))
+	assert.Equal(t, http.StatusTooManyRequests, response.Code)
+	assert.Contains(t, response.Body.String(), "FREE_DAILY_LIMIT")
 }
 
 func TestFreeTierQuotaBypassesPaidAndAdminUsers(t *testing.T) {

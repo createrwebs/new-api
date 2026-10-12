@@ -1,18 +1,10 @@
 import { Link } from '@tanstack/react-router'
 import {
   ArrowRight,
-  Bot,
-  Crop,
-  Layers,
-  Palette,
-  Sparkles,
-  Video,
   Wand2,
-  ZoomIn,
 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 
-import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 
 interface ToolItem {

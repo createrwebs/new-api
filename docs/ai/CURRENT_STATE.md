@@ -2,6 +2,12 @@
 
 > This file must be updated after every successful autonomous work cycle.
 
+## Latest scoped work — 2026-10-12: free web member chat
+
+**LOCAL BUILD PASS — LIVE ACTIVATION BLOCKED** on operator-selected branch `main`. New members must be able to chat in Thai without top-up/paid plan/BYOK; recorded in `PRODUCT_DECISIONS.md`. Existing Playground now uses the shared 20-attempt Bangkok free-tier counter. Focused and race tests pass; independent reviewer found no new blocking defect. Frontend build blockers repaired, production web build and Linux ARM64 backend artifact built. Native disabled channel payload and zero-price/rollback instructions are in `FREE_MEMBER_CHAT_RUNBOOK.md`.
+
+Both Typhoon and tora-qwen returned real bounded HTTPS SSE responses ending `[DONE]`. Live member activation is NOT RUN: this network returns AXONS access blocks/TLS failures for Tora/Azure, and upstream access restriction plus stable SSE-capable HTTPS are still required. Full router regression has 88 missing PAT route declarations, independently reproduced with HEAD source; release gate remains FAIL. Existing homepage expectation/formatting failures also remain separate. Exact commands, artifact hash and next frontier: `FREE_MEMBER_CHAT_VERIFICATION.md`. Production status below is historical context, not reverified during this scoped task.
+
 ## Overall Status
 
 **30-DAY ORGANIC GROWTH AUTOPILOT ACTIVE — PRODUCTION EXECUTION**
