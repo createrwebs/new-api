@@ -1,0 +1,24 @@
+controller/huobao.go
+  h_f97827f62b0fea 1-408
+controller/huobao_test.go
+  h_f97827f62b0fea 1-569
+model/wallet_pre_consume.go
+  h_f97827f62b0fea 100-154
+router/access_token_scope_test.go
+  h_f97827f62b0fea 73-77
+router/api-router.go
+  h_f97827f62b0fea 460-469
+router/relay-router.go
+  h_f97827f62b0fea 212-221
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.3",
+  "base_commit_sha": "b1e5ed83b261c90b82b7f5a730fbaf2347ceb8de",
+  "prompts": {},
+  "humans": {
+    "h_f97827f62b0fea": {
+      "author": "NOPPANAN THEERACHARTE <noppanan.the@axonstech.com>"
+    }
+  }
+}
