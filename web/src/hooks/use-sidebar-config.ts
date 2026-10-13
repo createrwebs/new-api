@@ -51,6 +51,7 @@ const DEFAULT_SIDEBAR_MODULES: SidebarModulesAdminConfig = {
     midjourney: true,
     task: true,
     workbench: true,
+    studio: true,
   },
   personal: {
     enabled: true,
@@ -107,6 +108,7 @@ const URL_TO_CONFIG_MAP: Record<string, { section: string; module: string }> = {
   '/dashboard/models': { section: 'console', module: 'detail' },
   '/dashboard/users': { section: 'console', module: 'detail' },
   '/workbench': { section: 'console', module: 'workbench' },
+  '/studio': { section: 'console', module: 'studio' },
   '/keys': { section: 'console', module: 'token' },
   '/usage-logs': { section: 'console', module: 'log' },
   '/usage-logs/common': { section: 'console', module: 'log' },
@@ -126,6 +128,7 @@ const URL_TO_CONFIG_MAP: Record<string, { section: string; module: string }> = {
   '/users': { section: 'admin', module: 'user' },
   '/redemption-codes': { section: 'admin', module: 'redemption' },
   '/subscriptions': { section: 'admin', module: 'subscription' },
+  '/news-admin': { section: 'admin', module: 'news' },
   '/system-settings': { section: 'admin', module: 'setting' },
   '/system-settings/site': { section: 'admin', module: 'setting' },
 }

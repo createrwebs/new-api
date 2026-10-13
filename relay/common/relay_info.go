@@ -118,6 +118,7 @@ type RelayInfo struct {
 	IsFirstRequest     bool
 	AudioUsage         bool
 	ReasoningEffort    string
+	IsBYOK             bool
 	// ReasoningConversion is the suffix-derived reasoning intent attached
 	// after model mapping. Converters read it via ReasoningState().
 	ReasoningConversion *dto.ReasoningConversionState
@@ -611,6 +612,7 @@ func genBaseRelayInfo(c *gin.Context, request dto.Request) *RelayInfo {
 		TokenKey:       common.GetContextKeyString(c, constant.ContextKeyTokenKey),
 		TokenUnlimited: common.GetContextKeyBool(c, constant.ContextKeyTokenUnlimited),
 		TokenGroup:     tokenGroup,
+		IsBYOK:         c.GetBool("is_byok") || common.GetContextKeyBool(c, constant.ContextKeyIsBYOK),
 
 		isFirstResponse: true,
 		RelayMode:       relayconstant.Path2RelayMode(c.Request.URL.Path),

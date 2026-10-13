@@ -51,6 +51,9 @@ const baseApiKey: ApiKey = {
   model_limits_enabled: false,
   model_limits: '',
   allow_ips: '',
+  primary_route_id: 0,
+  fallback_route_ids: [],
+  route_chain: [],
 }
 
 describe('API key Auto group form mapping', () => {

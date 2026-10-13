@@ -210,6 +210,79 @@ func (p *SubscriptionPlan) NormalizeDefaults() {
 	}
 }
 
+// InitDefaultSubscriptionPlan seeds the approved "Pro Monthly" commercial subscription plan
+// if no subscription plans currently exist in the database.
+func InitDefaultSubscriptionPlan() error {
+	var count int64
+	if err := DB.Model(&SubscriptionPlan{}).Count(&count).Error; err != nil {
+		return err
+	}
+	if count > 0 {
+		return nil
+	}
+
+	allowBalancePay := false
+	allowWalletOverflow := true
+	defaultPlan := SubscriptionPlan{
+		Title:               "Pro Monthly",
+		Subtitle:            "Pro model access with 2,000,000 units per month",
+		PriceAmount:         9.99,
+		Currency:            "USD",
+		DurationUnit:        SubscriptionDurationMonth,
+		DurationValue:       1,
+		Enabled:             true,
+		SortOrder:           1,
+		AllowBalancePay:     &allowBalancePay,
+		AllowWalletOverflow: &allowWalletOverflow,
+		UpgradeGroup:        "pro",
+		DowngradeGroup:      "default",
+		TotalAmount:         2000000,
+		QuotaResetPeriod:    SubscriptionResetMonthly,
+	}
+
+	if err := DB.Create(&defaultPlan).Error; err != nil {
+		return err
+	}
+	common.SysLog("seeded approved commercial plan: Pro Monthly ($9.99 / 2,000,000 units)")
+	return nil
+}
+
+// EnsureProMonthlySubscriptionPlan returns the approved "Pro Monthly" subscription plan,
+// creating it if it does not already exist.
+func EnsureProMonthlySubscriptionPlan() (*SubscriptionPlan, error) {
+	var plan SubscriptionPlan
+	err := DB.Where("title = ? OR upgrade_group = ?", "Pro Monthly", "pro").First(&plan).Error
+	if err == nil {
+		return &plan, nil
+	}
+	if !errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, err
+	}
+
+	allowBalancePay := false
+	allowWalletOverflow := true
+	plan = SubscriptionPlan{
+		Title:               "Pro Monthly",
+		Subtitle:            "Pro model access with 2,000,000 units per month",
+		PriceAmount:         9.99,
+		Currency:            "USD",
+		DurationUnit:        SubscriptionDurationMonth,
+		DurationValue:       1,
+		Enabled:             true,
+		SortOrder:           1,
+		AllowBalancePay:     &allowBalancePay,
+		AllowWalletOverflow: &allowWalletOverflow,
+		UpgradeGroup:        "pro",
+		DowngradeGroup:      "default",
+		TotalAmount:         2000000,
+		QuotaResetPeriod:    SubscriptionResetMonthly,
+	}
+	if err := DB.Create(&plan).Error; err != nil {
+		return nil, err
+	}
+	return &plan, nil
+}
+
 // Subscription order (payment -> webhook -> create UserSubscription)
 type SubscriptionOrder struct {
 	Id     int     `json:"id"`
@@ -430,8 +503,16 @@ func getUserGroupByIdTx(tx *gorm.DB, userId int) (string, error) {
 	if tx == nil {
 		tx = DB
 	}
+	groupCol := commonGroupCol
+	if groupCol == "" {
+		if common.UsingMainDatabase(common.DatabaseTypePostgreSQL) {
+			groupCol = `"group"`
+		} else {
+			groupCol = "`group`"
+		}
+	}
 	var group string
-	if err := lockForUpdate(tx).Model(&User{}).Where("id = ?", userId).Select(commonGroupCol).Find(&group).Error; err != nil {
+	if err := lockForUpdate(tx).Model(&User{}).Where("id = ?", userId).Select(groupCol).Find(&group).Error; err != nil {
 		return "", err
 	}
 	return group, nil
@@ -682,7 +763,7 @@ func upsertSubscriptionTopUpTx(tx *gorm.DB, order *SubscriptionOrder) error {
 	return tx.Save(&topup).Error
 }
 
-func ExpireSubscriptionOrder(tradeNo string, expectedPaymentProvider string) error {
+func UpdatePendingSubscriptionOrderStatus(tradeNo string, expectedPaymentProvider string, targetStatus string) error {
 	if tradeNo == "" {
 		return errors.New("tradeNo is empty")
 	}
@@ -699,12 +780,20 @@ func ExpireSubscriptionOrder(tradeNo string, expectedPaymentProvider string) err
 			return ErrPaymentMethodMismatch
 		}
 		if order.Status != common.TopUpStatusPending {
-			return nil
+			return ErrSubscriptionOrderStatusInvalid
 		}
-		order.Status = common.TopUpStatusExpired
+		order.Status = targetStatus
 		order.CompleteTime = common.GetTimestamp()
 		return tx.Save(&order).Error
 	})
+}
+
+func ExpireSubscriptionOrder(tradeNo string, expectedPaymentProvider string) error {
+	err := UpdatePendingSubscriptionOrderStatus(tradeNo, expectedPaymentProvider, common.TopUpStatusExpired)
+	if errors.Is(err, ErrSubscriptionOrderStatusInvalid) {
+		return nil
+	}
+	return err
 }
 
 // Admin bind (no payment). Creates a UserSubscription from a plan.
@@ -1416,7 +1505,7 @@ func RefundSubscriptionPreConsume(requestId string) error {
 			record.Status = "refunded"
 			return tx.Save(&record).Error
 		}
-		if err := PostConsumeUserSubscriptionDelta(record.UserSubscriptionId, -record.PreConsumed); err != nil {
+		if err := PostConsumeUserSubscriptionDeltaTx(tx, record.UserSubscriptionId, -record.PreConsumed); err != nil {
 			return err
 		}
 		record.Status = "refunded"
@@ -1506,26 +1595,34 @@ func GetSubscriptionPlanInfoByUserSubscriptionId(userSubscriptionId int) (*Subsc
 	return info, nil
 }
 
-// Update subscription used amount by delta (positive consume more, negative refund).
-func PostConsumeUserSubscriptionDelta(userSubscriptionId int, delta int64) error {
+// PostConsumeUserSubscriptionDeltaTx updates subscription used amount by delta (positive consume more, negative refund) within an existing transaction.
+func PostConsumeUserSubscriptionDeltaTx(tx *gorm.DB, userSubscriptionId int, delta int64) error {
+	if tx == nil {
+		return errors.New("nil transaction")
+	}
 	if userSubscriptionId <= 0 {
 		return errors.New("invalid userSubscriptionId")
 	}
 	if delta == 0 {
 		return nil
 	}
+	var sub UserSubscription
+	if err := lockForUpdate(tx).
+		Where("id = ?", userSubscriptionId).
+		First(&sub).Error; err != nil {
+		return err
+	}
+	newUsed := max(sub.AmountUsed+delta, 0)
+	if sub.AmountTotal > 0 && newUsed > sub.AmountTotal {
+		return fmt.Errorf("subscription used exceeds total, used=%d total=%d", newUsed, sub.AmountTotal)
+	}
+	sub.AmountUsed = newUsed
+	return tx.Save(&sub).Error
+}
+
+// Update subscription used amount by delta (positive consume more, negative refund).
+func PostConsumeUserSubscriptionDelta(userSubscriptionId int, delta int64) error {
 	return DB.Transaction(func(tx *gorm.DB) error {
-		var sub UserSubscription
-		if err := lockForUpdate(tx).
-			Where("id = ?", userSubscriptionId).
-			First(&sub).Error; err != nil {
-			return err
-		}
-		newUsed := max(sub.AmountUsed+delta, 0)
-		if sub.AmountTotal > 0 && newUsed > sub.AmountTotal {
-			return fmt.Errorf("subscription used exceeds total, used=%d total=%d", newUsed, sub.AmountTotal)
-		}
-		sub.AmountUsed = newUsed
-		return tx.Save(&sub).Error
+		return PostConsumeUserSubscriptionDeltaTx(tx, userSubscriptionId, delta)
 	})
 }

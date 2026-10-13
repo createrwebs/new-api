@@ -1,0 +1,48 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ROOT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
+
+DATA_DIR="${DATA_DIR:-${ROOT_DIR}/data/e2e}"
+PID_FILE="${DATA_DIR}/tora-e2e.pid"
+
+if [ ! -f "${PID_FILE}" ]; then
+  echo "[tora-e2e-down] No PID file found at ${PID_FILE}. Nothing to stop."
+  exit 0
+fi
+
+SERVER_PID="$(cat "${PID_FILE}" 2>/dev/null || true)"
+if [ -z "${SERVER_PID}" ]; then
+  echo "[tora-e2e-down] Empty PID file. Removing."
+  rm -f "${PID_FILE}"
+  exit 0
+fi
+
+if ! kill -0 "${SERVER_PID}" 2>/dev/null; then
+  echo "[tora-e2e-down] Process ${SERVER_PID} is not running. Removing PID file."
+  rm -f "${PID_FILE}"
+  exit 0
+fi
+
+echo "[tora-e2e-down] Stopping Tora New-API server (PID ${SERVER_PID})..."
+kill -TERM "${SERVER_PID}" 2>/dev/null || true
+
+# Wait for graceful shutdown
+STOPPED=0
+for i in {1..20}; do
+  if ! kill -0 "${SERVER_PID}" 2>/dev/null; then
+    STOPPED=1
+    break
+  fi
+  sleep 0.5
+done
+
+if [ "${STOPPED}" -ne 1 ]; then
+  echo "[tora-e2e-down] Process did not terminate gracefully after 10s. Forcing SIGKILL..."
+  kill -KILL "${SERVER_PID}" 2>/dev/null || true
+  sleep 0.5
+fi
+
+rm -f "${PID_FILE}"
+echo "[tora-e2e-down] SUCCESS: Server stopped."

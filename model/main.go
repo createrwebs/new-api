@@ -40,6 +40,10 @@ func jsonScanBytes(value any) []byte {
 	}
 }
 
+func InitCol() {
+	initCol()
+}
+
 func initCol() {
 	// init common column names
 	if common.UsingMainDatabase(common.DatabaseTypePostgreSQL) {
@@ -195,6 +199,9 @@ func InitDB() (err error) {
 			db = db.Debug()
 		}
 		DB = db
+		if _, err := CheckDatabaseSafety(DB, common.MainDatabaseType()); err != nil {
+			return err
+		}
 		// MySQL charset/collation startup check: ensure Chinese-capable charset
 		if common.UsingMainDatabase(common.DatabaseTypeMySQL) {
 			if err := checkMySQLChineseSupport(DB); err != nil {
@@ -367,6 +374,10 @@ func migrateDB() error {
 		&SubscriptionOrder{},
 		&UserSubscription{},
 		&SubscriptionPreConsumeRecord{},
+		&WalletPreConsumeRecord{},
+		&StoreProductMapping{},
+		&StoreSubscriptionBinding{},
+		&StoreTransaction{},
 		&CustomOAuthProvider{},
 		&UserOAuthBinding{},
 		&PerfMetric{},
@@ -376,12 +387,52 @@ func migrateDB() error {
 		&CasbinRule{},
 		&BudgetRule{},
 		&BudgetUsage{},
+		&FreeTierDailyUsage{},
 		&AuthzRole{},
 		&UserAccessToken{},
+		&UserProvider{},
+		&Route{},
+		&NewsSource{},
+		&StoryCluster{},
+		&NewsPost{},
+		&NewsDistribution{},
+		&NewsAnalyticEvent{},
+		&NewsSeoMetric{},
+		&NewsSeoOpportunity{},
+		&NewsConversionEvent{},
+		&NewsDailyGrowthReview{},
+		&NewsUrlInspection{},
+		&NewsSeoExperiment{},
+		&NewsFeedItem{},
+		&NewsAiVisibilityObservation{},
+		&NewsPublicationEvent{},
+		&NewsAutopilotDailyQuota{},
+		&StudioToolDefinition{},
+		&StudioToolTemplate{},
+		&StudioProviderRoute{},
+		&StudioProviderConfig{},
+		&StudioModelRoute{},
+		&StudioToolJob{},
+		&StudioJobEvent{},
+		&StudioAsset{},
+		&StudioCostSnapshot{},
+		&NativeExecutionTicket{},
+		&StudioBatchJob{},
+		&StudioBatchItem{},
+		&ObjectCleanupSession{},
+		&SellerBrandProfile{},
+		&SellerWorkflowPreset{},
+		&SellerLastPackExecution{},
+		&StudioWorkflowItem{},
+		&ResumableWorkflowJob{},
 	)
 	if err != nil {
 		return err
 	}
+	// Section 6: Idempotency guarantee - One Post ID can never create duplicate initial publish events
+	_ = DB.Exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_news_pub_events_unique_initial ON news_publication_events (post_id, event_type);")
+	_ = DB.Exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_studio_jobs_user_idemp ON studio_tool_jobs (user_id, idempotency_key);")
+
 	if err := InitializeUserAuthVersions(); err != nil {
 		return err
 	}
@@ -399,6 +450,18 @@ func migrateDB() error {
 		if err := DB.AutoMigrate(&SubscriptionPlan{}); err != nil {
 			return err
 		}
+	}
+	if err := InitDefaultSubscriptionPlan(); err != nil {
+		return err
+	}
+	if err := InitDefaultStoreProductMappings(); err != nil {
+		return err
+	}
+	if err := InitDefaultNewsSources(); err != nil {
+		return err
+	}
+	if err := InitDefaultNewsPosts(); err != nil {
+		return err
 	}
 	return nil
 }

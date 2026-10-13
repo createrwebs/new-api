@@ -50,6 +50,7 @@ import {
   saveAffiliateCode,
 } from '@/features/auth/lib/storage'
 import { useStatus } from '@/hooks/use-status'
+import { trackSignUp } from '@/lib/analytics'
 import { handleServerError } from '@/lib/handle-server-error'
 import { AuthOperationError } from '@/lib/secure-verification'
 import { createServerError } from '@/lib/server-error-message'
@@ -171,6 +172,7 @@ export function SignUpForm({
       })
 
       if (res?.success) {
+        trackSignUp('credentials')
         toast.success(t('Account created! Please sign in'))
         redirectToLogin()
       } else {

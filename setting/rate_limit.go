@@ -18,7 +18,7 @@ const maxRateLimitDurationSeconds = 24 * 60 * 60
 // window of at most 24 hours.
 const maxModelRequestRateLimitCount int64 = math.MaxInt64 / maxRateLimitDurationSeconds
 
-var ModelRequestRateLimitEnabled = false
+var ModelRequestRateLimitEnabled = common.GetEnvOrDefaultBool("MODEL_REQUEST_RATE_LIMIT_ENABLED", true)
 var ModelRequestRateLimitDurationMinutes = 1
 var ModelRequestRateLimitCount = 0
 var ModelRequestRateLimitSuccessCount = 1000

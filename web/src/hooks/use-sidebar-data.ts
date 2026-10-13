@@ -35,9 +35,11 @@ import {
   Settings,
   Share2,
   ShieldCheck,
+  Sparkles,
   Ticket,
   User,
   UserPlus,
+  Newspaper,
   Users,
   Wallet,
   Wand2,
@@ -98,6 +100,11 @@ export function useSidebarData(): SidebarData {
             title: t('Data Dashboard'),
             url: '/dashboard/models',
             icon: LayoutDashboard,
+          },
+          {
+            title: t('Tora Studio'),
+            url: '/studio',
+            icon: Sparkles,
           },
           {
             title: t('Image/Video Workbench'),
@@ -195,6 +202,12 @@ export function useSidebarData(): SidebarData {
             title: t('Subscriptions'),
             url: '/subscriptions',
             icon: CreditCard,
+          },
+          {
+            title: t('News & Growth'),
+            url: '/news-admin',
+            icon: Newspaper,
+            requiredRole: ROLE.ADMIN,
           },
           {
             title: t('Budgets'),
