@@ -2,7 +2,25 @@
 
 > This file must be updated after every successful autonomous work cycle.
 
-## Latest scoped work — 2026-10-12: free web member chat
+## Latest scoped work — 2026-10-28: Tora StoryVDO Brochure & Guide Integration
+
+**PASS & VERIFIED** on branch `main`. Integrated the 4-page Tora StoryVDO production manual and brochure into the platform:
+- **Public Assets & PDF Download**: Hosted `/downloads/TORA_STORYVDO_BROCHURE_TH.pdf` (and `/downloads/tora-storyvdo-brochure.pdf`) plus 16 high-resolution screenshot assets in `/images/storyvdo/`.
+- **Documentation Guide (`/docs/storyvdo`)**: Authored comprehensive Thai guide (`docs/pages/storyvdo.md`) covering all 4 parts (Setup & Overview, Project & Script Rewrite, Assets & Multi-Model Video, FFmpeg Merge & 100% Face-Lock Pro Tips) with embedded screenshots and direct download callouts. Registered in `rsbuild.config.ts` and `web/src/features/docs/constants.ts`.
+- **Creator Studio Entry (`/studio`)**: Added featured spotlight card and banner in `StudioCatalog.tsx` with direct buttons to read the guide and download the brochure PDF.
+- **i18n Localization**: Added all translation keys across 8 languages (`th`, `en`, `zh`, `zh-TW`, `fr`, `ja`, `ru`, `vi`) with clean `i18n:sync`.
+- **Verification**: `npm --prefix web run typecheck` (0 errors), `npx --prefix web oxlint` (0 errors), `npm --prefix web run build` (success in 3.99s), and Go tests/build passed 100%.
+
+## Historical scoped work — 2026-10-27: 9Router Free Tier Integration & Channel Pool Submenu
+
+**PASS & VERIFIED** on branch `main`. Integrated 9Router as a native channel provider (`ChannelType9Router = 64`) enabling zero-cost AI fallback pools and OpenCode free models into New-API.
+- **Cloned & Verified 9Router**: `/Users/noppanan/9router`, tested live daemon on port 20128 with auto-fallback combo (`combo`) and OpenCode free endpoints (`oc/*`).
+- **Backend Architecture**: Registered `ChannelType9Router = 64`, default base URL `http://localhost:20128`, mapped to `APITypeOpenAI` in `common/api_type.go` and `relay/common/relay_info.go`. Unit tests `Test9RouterChannelConstant` and `Test9RouterAPITypeMapsToOpenAI` pass with 100% coverage.
+- **Frontend Submenu & Pool View**: Added Channels submenu navigation in sidebar (`All Channels` `/channels` & `9Router Free Tier` `/channels/9router`). Built dedicated Channel Pool management interface (`nine-router-pool-view.tsx`) with gateway ping/latency test, remote model fetcher, filter chips, and one-click channel creation into the New-API routing pool.
+- **i18n Localization**: Added 46 translation keys across all 7 supported locales (`en`, `zh`, `zh-TW`, `fr`, `ja`, `ru`, `vi`, plus `th`).
+- **Verification**: `npm --prefix web run typecheck`, `npm --prefix web run build`, `oxlint`, `go test`, and `go build` all pass cleanly with 0 errors.
+
+## Historical scoped work — 2026-10-12: free web member chat
 
 **LOCAL BUILD PASS — LIVE ACTIVATION BLOCKED** on operator-selected branch `main`. New members must be able to chat in Thai without top-up/paid plan/BYOK; recorded in `PRODUCT_DECISIONS.md`. Existing Playground now uses the shared 20-attempt Bangkok free-tier counter. Focused and race tests pass; independent reviewer found no new blocking defect. Frontend build blockers repaired, production web build and Linux ARM64 backend artifact built. Native disabled channel payload and zero-price/rollback instructions are in `FREE_MEMBER_CHAT_RUNBOOK.md`.
 

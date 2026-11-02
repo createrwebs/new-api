@@ -17,6 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { useQueryClient } from '@tanstack/react-query'
+import { Link } from '@tanstack/react-router'
 import {
   Plus,
   MoreHorizontal,
@@ -29,6 +30,7 @@ import {
   SortAsc,
   RefreshCw,
   ArrowUpFromLine,
+  Sparkles,
 } from 'lucide-react'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -147,6 +149,18 @@ export function ChannelsPrimaryButtons() {
           />
         </div>
 
+        {/* 9Router Free Tier Pool Button */}
+        <Button
+          variant='outline'
+          size='sm'
+          render={<Link to='/channels/9router' />}
+          className='border-primary/30 bg-primary/5 hover:bg-primary/10 text-primary'
+        >
+          <Sparkles className='h-4 w-4 mr-1.5 text-primary' />
+          <span className='max-sm:hidden'>{t('9Router Free Tier')}</span>
+          <span className='sm:hidden'>{t('Free Tier')}</span>
+        </Button>
+
         {/* Create Channel */}
         <Tooltip>
           <TooltipTrigger render={<span className='inline-flex' />}>
@@ -206,6 +220,11 @@ export function ChannelsPrimaryButtons() {
             </DropdownMenuCheckboxItem>
 
             <DropdownMenuSeparator className='sm:hidden' />
+
+            <DropdownMenuItem render={<Link to='/channels/9router' />}>
+              <Sparkles className='mr-2 h-4 w-4 text-primary' />
+              {t('9Router Free Tier Pool')}
+            </DropdownMenuItem>
 
             <DropdownMenuItem
               onClick={() => {

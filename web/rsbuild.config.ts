@@ -35,6 +35,7 @@ const DOC_SOURCE_FILES: Record<string, string> = {
   'Gemini CLI setup.md': 'gemini-cli-setup',
   'Grok Build setup.md': 'grok-build-setup',
   'OpenCode setup.md': 'opencode-setup',
+  'storyvdo.md': 'storyvdo',
 }
 
 const docCopyEntries = Object.entries(DOC_SOURCE_FILES).map(

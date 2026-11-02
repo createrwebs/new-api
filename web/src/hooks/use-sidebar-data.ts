@@ -180,8 +180,17 @@ export function useSidebarData(): SidebarData {
         items: [
           {
             title: t('Channels'),
-            url: '/channels',
             icon: Radio,
+            items: [
+              {
+                title: t('All Channels'),
+                url: '/channels',
+              },
+              {
+                title: t('9Router Free Tier'),
+                url: '/channels/9router',
+              },
+            ],
           },
           {
             title: t('Models'),

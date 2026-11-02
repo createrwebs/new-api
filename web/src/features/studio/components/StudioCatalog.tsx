@@ -1,6 +1,8 @@
 import {
+  BookOpen,
   Clock,
   Coins,
+  Download,
   Layers,
   Palette,
   Search,
@@ -80,6 +82,69 @@ export function StudioCatalog({
               'ใช้งานเครื่องมือลบพื้นหลัง สตูดิโอถ่ายสินค้า แต่งภาพ และสร้างวิดีโอระดับภาพยนตร์ ทั้งหมดนี้ใช้ Tora Credits กระเป๋าเดียว ไม่ต้องเสียค่าสมาชิกหลายที่'
             )}
           </p>
+        </div>
+      </div>
+
+      {/* Featured Banner: Tora StoryVDO Production Platform */}
+      <div className='relative overflow-hidden rounded-2xl border border-amber-500/30 bg-gradient-to-r from-amber-500/10 via-red-500/5 to-transparent p-6 sm:p-7'>
+        <div className='flex flex-col lg:flex-row lg:items-center justify-between gap-6'>
+          <div className='space-y-2.5 max-w-2xl'>
+            <div className='flex items-center gap-2'>
+              <Badge className='bg-gradient-to-r from-amber-500 to-red-500 text-white border-none font-bold text-[11px] px-2.5 py-0.5'>
+                PRO
+              </Badge>
+              <span className='font-bold text-foreground text-sm tracking-wide uppercase'>
+                Tora StoryVDO | {t('แพลตฟอร์มผลิตละครสั้น AI อัตโนมัติ')}
+              </span>
+            </div>
+            <h3 className='text-xl sm:text-2xl font-bold tracking-tight text-foreground'>
+              {t('สร้างละครสั้นและมังงะวิดีโอด้วย AI ครบวงจร')}
+            </h3>
+            <p className='text-sm text-muted-foreground leading-relaxed'>
+              {t(
+                'เปลี่ยนพล็อตเรื่องสั้นๆ ให้เป็นซีรีส์ละครระดับโปรดักชันในคลิกเดียว: ร่างบทละคร, สกัดตัวละคร, เจนภาพ Character Sheet ล็อกหน้า, ผลิตวิดีโอหลายโมเดล (Veo 2, Seedance, Wan) และรวมคลิปด้วย FFmpeg'
+              )}
+            </p>
+            <div className='flex flex-wrap gap-2 pt-1 text-xs text-muted-foreground'>
+              <span className='inline-flex items-center gap-1 rounded-md bg-background/60 px-2.5 py-1 border border-border/50'>
+                ✨ AI Script Rewriter
+              </span>
+              <span className='inline-flex items-center gap-1 rounded-md bg-background/60 px-2.5 py-1 border border-border/50'>
+                🎭 Face Consistency LCK
+              </span>
+              <span className='inline-flex items-center gap-1 rounded-md bg-background/60 px-2.5 py-1 border border-border/50'>
+                🎬 Multi-Video Models
+              </span>
+              <span className='inline-flex items-center gap-1 rounded-md bg-background/60 px-2.5 py-1 border border-border/50'>
+                ⚡ FFmpeg Auto-Merge
+              </span>
+            </div>
+          </div>
+
+          <div className='flex flex-col sm:flex-row lg:flex-col gap-3 shrink-0'>
+            <Button
+              className='bg-gradient-to-r from-amber-500 to-red-500 hover:from-amber-600 hover:to-red-600 text-white font-medium shadow-md shadow-amber-500/20'
+              render={<a href='/docs/storyvdo' />}
+            >
+              <BookOpen className='mr-2 size-4' />
+              {t('อ่านคู่มือการใช้งาน (Guide)')}
+            </Button>
+            <Button
+              variant='outline'
+              className='border-border/80 hover:bg-muted/50'
+              render={
+                <a
+                  href='/downloads/TORA_STORYVDO_BROCHURE_TH.pdf'
+                  target='_blank'
+                  rel='noopener noreferrer'
+                  download
+                />
+              }
+            >
+              <Download className='mr-2 size-4' />
+              {t('ดาวน์โหลดโบรชัวร์ PDF')}
+            </Button>
+          </div>
         </div>
       </div>
 

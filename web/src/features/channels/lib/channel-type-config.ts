@@ -20,6 +20,7 @@ import {
   CHANNEL_TYPES,
   CHANNEL_TYPE_VLLM,
   CHANNEL_TYPE_SGLANG,
+  CHANNEL_TYPE_9ROUTER,
 } from '../constants'
 
 // ============================================================================
@@ -49,6 +50,16 @@ export interface ChannelTypeConfig {
  * Configuration for each channel type
  */
 export const CHANNEL_TYPE_CONFIGS: Record<number, ChannelTypeConfig> = {
+  [CHANNEL_TYPE_9ROUTER]: {
+    id: CHANNEL_TYPE_9ROUTER,
+    name: CHANNEL_TYPES[CHANNEL_TYPE_9ROUTER],
+    icon: 'NineRouter',
+    hints: {
+      baseUrl: '9Router gateway address (default: http://localhost:20128)',
+      key: '9Router API key (or leave empty if requireApiKey is disabled)',
+      models: 'Models and combos from 9Router (e.g. combo, oc/glm-5.3-flash-free)',
+    },
+  },
   [CHANNEL_TYPE_SGLANG]: {
     id: CHANNEL_TYPE_SGLANG,
     name: CHANNEL_TYPES[CHANNEL_TYPE_SGLANG],

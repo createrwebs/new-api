@@ -91,6 +91,13 @@ export const STATIC_I18N_KEYS = [
   'Connect to self-hosted models served by vLLM',
   'vLLM server address, without /v1',
   'vLLM API key, or EMPTY if authentication is disabled',
+  '9Router',
+  'Connect to 9Router free AI gateway and fallback pools',
+  '9Router Free Tier',
+  '9Router Free Tier Pool',
+  'Tora StoryVDO Guide',
+  'คู่มือผลิตละครสั้นและมังงะวิดีโอ AI อัตโนมัติ ครบวงจรตั้งแต่บทจนถึงรวมคลิป',
+  'Tora StoryVDO | แพลตฟอร์มผลิตละครสั้น AI อัตโนมัติ',
 
   'Price per image',
   'Per image',

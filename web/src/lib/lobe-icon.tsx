@@ -34,11 +34,22 @@ import {
   type ReactNode,
 } from 'react'
 
+import nineRouterLogo from '@/assets/brand-icons/9router.svg'
 import sglangLogo from '@/assets/brand-icons/sglang.svg'
 import { IconSub2api } from '@/assets/custom/icon-sub2api'
 import { IconWan } from '@/assets/custom/icon-wan'
 
 const CUSTOM_ICONS: Record<string, ComponentType<{ size?: number }>> = {
+  NineRouter: (props) => (
+    <img
+      src={nineRouterLogo}
+      alt=''
+      aria-hidden='true'
+      width={props.size ?? 20}
+      height={props.size ?? 20}
+      className='rounded object-contain'
+    />
+  ),
   SGLang: (props) => (
     <img
       src={sglangLogo}

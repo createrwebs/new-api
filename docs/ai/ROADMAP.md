@@ -2,6 +2,28 @@
 
 This roadmap is priority-ordered. The orchestrator may reorder only when dependencies or blockers justify it, and must document the reason in `CURRENT_STATE.md`.
 
+## 2026-10-28 — Tora StoryVDO Brochure & Guide Integration
+
+Status: **COMPLETED**
+
+Integrated Tora StoryVDO brochure and production manual across public downloads, documentation, and Creator Studio:
+- Public downloads: `/downloads/TORA_STORYVDO_BROCHURE_TH.pdf` and `/downloads/tora-storyvdo-brochure.pdf`.
+- Public screenshots: 16 high-resolution assets in `/images/storyvdo/`.
+- Full Documentation Guide: `/docs/storyvdo` (`docs/pages/storyvdo.md`) with 4-part illustrated workflow and direct PDF download CTA.
+- Creator Studio featured banner: `StudioCatalog.tsx` with direct navigation and download links.
+- 8-locale i18n support and clean build verification.
+
+## 2026-10-27 — 9Router Free Tier Integration & Channel Pool Submenu
+
+Status: **COMPLETED**
+
+Integrated 9Router free AI gateway (`https://github.com/createrwebs/9router.git`) directly into New-API:
+- Cloned 9Router and verified free-tier inference and smart auto-fallback combos (`combo`).
+- Added backend `ChannelType9Router = 64` mapped to `APITypeOpenAI` with standard OpenAI relay compatibility.
+- Added Channel Submenu navigation (`All Channels` & `9Router Free Tier` `/channels/9router`).
+- Built complete Channel Pool management view with gateway healthcheck, model discovery, model filter chips, and one-click pool insertion.
+- Complete 7-locale i18n support + Go unit tests + frontend build verification.
+
 ## 2026-10-12 — Free managed chat for new web members
 
 Status: **TECHNICALLY_BLOCKED (LOCAL BUILD AND FOCUSED REVIEW COMPLETED)**.

@@ -144,6 +144,14 @@ export const DOC_ENTRIES: readonly DocEntry[] = [
     section: 'guides',
     order: 12,
   },
+  {
+    slug: 'storyvdo',
+    contentId: 'storyvdo',
+    title: 'Tora StoryVDO Guide',
+    description: 'คู่มือผลิตละครสั้นและมังงะวิดีโอ AI อัตโนมัติ ครบวงจรตั้งแต่บทจนถึงรวมคลิป',
+    section: 'guides',
+    order: 13,
+  },
 ]
 
 export const DOC_SECTIONS: readonly {
